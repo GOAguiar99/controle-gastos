@@ -1,0 +1,67 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test ./...
+      - name: Build (linux/amd64, static)
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o controle-gastos ./cmd/app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: controle-gastos-linux-amd64
+          path: controle-gastos
+          retention-days: 7
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: controle-gastos-linux-amd64
+      - name: Deploy not configured
+        if: env.DEPLOY_HOST == ''
+        run: echo "::notice::Secrets DEPLOY_* não configurados — deploy pulado (veja README)."
+      - name: Deploy to VM
+        if: env.DEPLOY_HOST != ''
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          scp -i ~/.ssh/id_deploy controle-gastos "$target:/tmp/controle-gastos.new"
+          ssh -i ~/.ssh/id_deploy "$target" '
+            set -e
+            sudo install -m 755 /tmp/controle-gastos.new /usr/local/bin/controle-gastos
+            rm -f /tmp/controle-gastos.new
+            sudo systemctl restart controle-gastos
+            for i in 1 2 3 4 5; do curl -fsS http://127.0.0.1:8080/healthz && exit 0; sleep 2; done
+            sudo journalctl -u controle-gastos -n 50 --no-pager; exit 1'

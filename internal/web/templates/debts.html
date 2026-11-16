@@ -1,0 +1,59 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Dívidas</h1>
+    <p class="muted">Pago = soma dos gastos marcados com “abate dívida”.</p>
+  </div>
+</div>
+
+<section class="kpis three">
+  <article class="kpi"><span class="kpi-label">Dívida inicial</span><strong class="kpi-value">{{brl .TotalInitial}}</strong></article>
+  <article class="kpi"><span class="kpi-label">Pago</span><strong class="kpi-value pos">{{brl .TotalPaid}}</strong></article>
+  <article class="kpi"><span class="kpi-label">Atual</span><strong class="kpi-value negc">{{brl .TotalCurrent}}</strong></article>
+</section>
+
+<section class="two-col wide-left">
+  <div class="stack">
+  {{range .Debts}}
+    <article class="card">
+      <div class="card-head"><h2>{{.Name}}</h2><span class="muted">{{.PaidPct}}% pago</span></div>
+      <div class="meter big"><span style="width: {{.PaidPct}}%"></span></div>
+      <div class="flow-stats">
+        <div><span>Inicial</span><strong>{{brl .Initial}}</strong></div>
+        <div><span>Pago</span><strong class="pos">{{brl .Paid}}</strong></div>
+        <div><span>Atual</span><strong class="negc">{{brl .Current}}</strong></div>
+      </div>
+      {{with index $.Payments .ID}}
+      <details><summary>{{len .}} pagamento(s)</summary>
+        <ul class="entries">{{range .}}<li class="entry"><div class="e-date"><strong>{{dmy .Date}}</strong></div><div class="e-main"><span class="e-desc">{{.Description}}</span></div><div class="e-amount">{{brl .Amount}}</div><div class="e-actions"><a class="btn ghost small" href="/lancamentos/{{.ID}}/editar">Editar</a></div></li>{{end}}</ul>
+      </details>
+      {{end}}
+      {{if eq $.EditID .ID}}
+      <form method="post" action="/dividas/{{.ID}}" class="inline-form">
+        <label>Nome<input name="name" value="{{.Name}}" required></label>
+        <label>Inicial<input name="initial" value="{{money .Initial}}" inputmode="decimal" required data-money></label>
+        <button class="btn">Salvar</button><a class="link" href="/dividas">cancelar</a>
+      </form>
+      {{else}}
+      <div class="card-actions">
+        <a class="btn ghost small" href="/dividas?editar={{.ID}}">Editar</a>
+        <form method="post" action="/dividas/{{.ID}}/excluir" data-confirm="Excluir a dívida {{.Name}}? Os pagamentos continuam como gastos."><button class="btn ghost small danger">Excluir</button></form>
+      </div>
+      {{end}}
+    </article>
+  {{else}}
+    <article class="card"><p class="empty">Nenhuma dívida cadastrada.</p></article>
+  {{end}}
+  </div>
+
+  <article class="card">
+    <div class="card-head"><h2>Nova dívida</h2></div>
+    <form method="post" action="/dividas" class="form">
+      <label>Nome<input name="name" required placeholder="Com quem"></label>
+      <label>Valor inicial (R$)<input name="initial" inputmode="decimal" required data-money></label>
+      <button class="btn primary">Adicionar</button>
+    </form>
+    <p class="hint">Para registrar um pagamento, lance um gasto (categoria “Dívida”) e escolha a dívida em “Abate dívida”.</p>
+  </article>
+</section>
+{{end}}

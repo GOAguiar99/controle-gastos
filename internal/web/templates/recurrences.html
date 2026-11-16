@@ -1,0 +1,85 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Recorrentes</h1>
+    <p class="muted">Fonte única dos fixos: alterou aqui, todos os meses futuros mudam na hora.</p>
+  </div>
+  <div class="tabs">
+    <a href="/recorrentes?tipo=expense" class="{{if not .IsIncome}}on{{end}}">Gastos fixos</a>
+    <a href="/recorrentes?tipo=income" class="{{if .IsIncome}}on{{end}}">Receitas fixas</a>
+  </div>
+</div>
+
+<section class="kpis three">
+  <article class="kpi">
+    <span class="kpi-label">Em {{.Current.Label}}</span>
+    <strong class="kpi-value {{if .IsIncome}}pos{{else}}negc{{end}}">{{brl .ThisMonth}}</strong>
+    <span class="kpi-sub">soma das ocorrências deste mês</span>
+  </article>
+  <article class="kpi">
+    <span class="kpi-label">Equivalente mensal</span>
+    <strong class="kpi-value">{{brl .MonthlyEq}}</strong>
+    <span class="kpi-sub">anuais/trimestrais diluídos por mês</span>
+  </article>
+  <article class="kpi">
+    <span class="kpi-label">Itens</span>
+    <strong class="kpi-value">{{len .Rows}}</strong>
+    <span class="kpi-sub">{{if .IsIncome}}receitas{{else}}gastos{{end}} recorrentes</span>
+  </article>
+</section>
+
+<section class="two-col wide-left">
+  <article class="card">
+    <div class="card-head"><h2>{{if .IsIncome}}Receitas fixas{{else}}Gastos fixos{{end}}</h2></div>
+    {{if .Rows}}
+    <div class="table-scroll">
+    <table class="grid">
+      <thead><tr><th>Item</th><th class="num">Valor</th><th>Repete</th><th></th></tr></thead>
+      <tbody>
+      {{range .Rows}}
+        <tr class="{{if or (not .Rec.Active) .Ended}}inactive{{end}} {{if .Editing}}sel{{end}}">
+          <td><strong>{{.Rec.Description}}</strong><br><small class="muted">{{.Rec.Category}} · dia {{.Rec.Day}} · desde {{.Rec.Start.Label}}</small></td>
+          <td class="num">{{brl .Rec.Amount}}</td>
+          <td>{{.Rec.FrequencyLabel}} · {{if not .Rec.Active}}<span class="pill">pausada</span>{{else if .Ended}}<span class="pill">encerrada</span>{{else}}{{.Rec.EndLabel}}{{end}}
+            {{with .Next}}<br><small class="muted">próx.: {{range $i, $m := .}}{{if $i}}, {{end}}{{$m.Label}}{{end}}</small>{{end}}</td>
+          <td class="actions">
+            <a class="btn ghost small" href="/recorrentes?tipo={{$.Kind}}&editar={{.Rec.ID}}#form">Editar</a>
+            <form method="post" action="/recorrentes/{{.Rec.ID}}/excluir" data-confirm="Excluir a recorrência &quot;{{.Rec.Description}}&quot;? Lançamentos já confirmados continuam.">
+              <button class="btn ghost small danger" aria-label="Excluir">✕</button>
+            </form>
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+    {{else}}<p class="empty">Nenhuma recorrência cadastrada.</p>{{end}}
+  </article>
+
+  <article class="card" id="form">
+    <div class="card-head"><h2>{{if .Editing}}Editar “{{.Form.Description}}”{{else}}Nova recorrência{{end}}</h2>
+      {{if .Editing}}<a class="link" href="/recorrentes?tipo={{.Kind}}">cancelar</a>{{end}}</div>
+    <form method="post" action="/recorrentes{{if .Editing}}/{{.Form.ID}}{{end}}" class="form">
+      <input type="hidden" name="kind" value="{{.Kind}}">
+      <label>Descrição<input name="description" value="{{.Form.Description}}" placeholder="{{if .IsIncome}}Salário{{else}}Condomínio, Netflix…{{end}}"></label>
+      <div class="row">
+        <label>{{if .IsIncome}}Fonte{{else}}Categoria{{end}}
+          <select name="category_id">
+            {{range .Categories}}<option value="{{.ID}}" {{if eq .ID $.Form.CategoryID}}selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+        </label>
+        <label>ou nova<input name="new_category" placeholder="opcional"></label>
+      </div>
+      <div class="row">
+        <label>Valor (R$)<input name="amount" value="{{money .Form.Amount}}" inputmode="decimal" placeholder="0,00" required data-money></label>
+        <label>Dia<input type="number" name="day" min="1" max="31" value="{{.Form.Day}}" required></label>
+      </div>
+      <label>A partir de<input type="month" name="start" value="{{.Form.Start}}" required></label>
+      {{template "recurrence-fields" .Form}}
+      {{if .Editing}}<label class="check"><input type="checkbox" name="active" {{if .Form.Active}}checked{{end}}> Ativa</label>{{end}}
+      <p class="hint">Meses já confirmados mantêm o valor lançado. Os previstos usam o valor daqui.</p>
+      <button class="btn primary">{{if .Editing}}Salvar alterações{{else}}Adicionar{{end}}</button>
+    </form>
+  </article>
+</section>
+{{end}}

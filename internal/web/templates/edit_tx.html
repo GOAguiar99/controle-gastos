@@ -1,0 +1,32 @@
+{{define "content"}}
+<div class="page-head"><div><h1>Editar {{if .IsIncome}}receita{{else}}gasto{{end}}</h1>
+  {{with .Rec}}<p class="muted">Confirmação de “{{.Description}}” ({{$.Tx.OccMonth}}). Excluir volta a mostrar o valor previsto.</p>{{end}}</div></div>
+<article class="card narrow">
+  <form method="post" action="/lancamentos/{{.Tx.ID}}" class="form">
+    <div class="row">
+      <label>Data<input type="date" name="date" value="{{iso .Tx.Date}}" required></label>
+      <label>Valor (R$)<input name="amount" value="{{money .Tx.Amount}}" inputmode="decimal" required data-money></label>
+    </div>
+    <label>{{if .IsIncome}}Fonte{{else}}Categoria{{end}}
+      <select name="category_id">
+        {{range .Categories}}<option value="{{.ID}}" {{if eq .ID $.Tx.CategoryID}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+    </label>
+    <label>ou nova<input name="new_category" placeholder="opcional"></label>
+    <label>Descrição<input name="description" value="{{.Tx.Description}}"></label>
+    {{if not .IsIncome}}{{if .Debts}}
+    <label>Abate dívida
+      <select name="debt_id"><option value="0">—</option>{{range .Debts}}<option value="{{.ID}}" {{if eq .ID $.Tx.DebtID}}selected{{end}}>{{.Name}}</option>{{end}}</select>
+    </label>
+    {{end}}{{end}}
+    <div class="card-actions">
+      <button class="btn primary">Salvar</button>
+      <a class="btn ghost" href="{{.Back}}">Cancelar</a>
+    </div>
+  </form>
+  <form method="post" action="/lancamentos/{{.Tx.ID}}/excluir" data-confirm="Excluir este lançamento?" class="card-actions">
+    <input type="hidden" name="back" value="{{.Back}}">
+    <button class="btn ghost danger">Excluir lançamento</button>
+  </form>
+</article>
+{{end}}

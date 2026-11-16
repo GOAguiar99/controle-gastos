@@ -1,0 +1,134 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="muted">Receitas × gastos mês a mês · {{.Month.LongLabel}}</p>
+  </div>
+  <form class="month-nav" method="get" action="/">
+    <a class="btn ghost" href="/?mes={{.Prev}}" aria-label="Mês anterior">‹</a>
+    <input type="month" name="mes" value="{{.Month}}" data-autosubmit>
+    <a class="btn ghost" href="/?mes={{.Next}}" aria-label="Próximo mês">›</a>
+    {{if ne .Month .Current}}<a class="btn ghost small" href="/">Hoje</a>{{end}}
+  </form>
+</div>
+
+<section class="kpis">
+  <article class="kpi">
+    <span class="kpi-label">Receitas do mês</span>
+    <strong class="kpi-value pos">{{brl .Sum.Income}}</strong>
+  </article>
+  <article class="kpi">
+    <span class="kpi-label">Gastos totais do mês</span>
+    <strong class="kpi-value negc">{{brl .Sum.Expense}}</strong>
+    <span class="kpi-sub">Cartão {{brl .Sum.Card}} · Fixos {{brl .Sum.Fixed}} · Outros {{brl .Sum.Other}}</span>
+  </article>
+  <article class="kpi">
+    <span class="kpi-label">Sobra do mês</span>
+    <strong class="kpi-value {{if neg .Sum.Balance}}negc{{else}}accent{{end}}">{{brl .Sum.Balance}}</strong>
+    <span class="kpi-sub">{{if .Sum.Income}}Poupança {{pct .Sum.SavingsPct}}{{end}}
+      {{with .Sum.Status}}<span class="pill {{if $.Sum.StatusOK}}ok{{else}}warn{{end}}">{{if not $.Sum.StatusOK}}⚠ {{end}}{{.}}</span>{{end}}</span>
+  </article>
+  <article class="kpi">
+    <span class="kpi-label">Cartão do mês</span>
+    <strong class="kpi-value">{{brl .Sum.Card}}</strong>
+    <div class="meter {{if gt .Sum.Card .Limits.CardLimit}}over{{end}}"><span style="width: {{.CardPct}}%"></span></div>
+    <span class="kpi-sub">{{pct .CardRatio}} do limite de {{brl .Limits.CardLimit}}</span>
+  </article>
+  <article class="kpi cash">
+    <span class="kpi-label">Caixa hoje · {{dmy .Today}}</span>
+    <strong class="kpi-value {{if neg .Flow.Current}}negc{{end}}">{{brl .Flow.Current}}</strong>
+    {{if .Snap.Set}}
+      <span class="kpi-sub">Informado {{brl .Snap.Amount}} em {{dmy .Snap.Date}}{{if ne (iso .Snap.Date) (iso .Today)}} + lançamentos desde então{{end}}</span>
+    {{else}}
+      <span class="kpi-sub warn-text">Informe o saldo atual para projetar o fluxo de caixa.</span>
+    {{end}}
+    <details class="cash-form" {{if not .Snap.Set}}open{{end}}>
+      <summary>Atualizar caixa</summary>
+      <form method="post" action="/caixa" class="inline-form">
+        <label>Saldo<input name="amount" inputmode="decimal" placeholder="0,00" required data-money></label>
+        <label>Em<input type="date" name="date" value="{{iso .Today}}"></label>
+        <button class="btn">Salvar</button>
+      </form>
+      <p class="hint">Lançamentos com data até o dia informado já estão no saldo.</p>
+    </details>
+  </article>
+</section>
+
+{{if .ProjectedCount}}<p class="hint center">Este mês inclui {{.ProjectedCount}} lançamento(s) previsto(s) de recorrências ainda não confirmados.</p>{{end}}
+
+<section class="card">
+  <div class="card-head">
+    <h2>Fluxo de caixa futuro</h2>
+    <span class="muted">próximos 12 meses a partir do caixa de hoje</span>
+  </div>
+  <p class="hint flow-note">Inclui recorrências, lançamentos futuros e
+    {{if .Variable}}<strong>{{brl .Variable}}/mês</strong> de gastos variáveis estimados ({{if .VariableAuto}}média de cartão + outros dos últimos 3 meses{{else}}valor fixo{{end}}; o que já foi lançado no mês é descontado).{{else}}nenhuma estimativa de gastos variáveis.{{end}}
+    <a class="link" href="/config">ajustar</a></p>
+  <div class="flow-stats">
+    <div><span>Hoje</span><strong>{{brl .Flow.Current}}</strong></div>
+    <div><span>Menor saldo</span><strong class="{{if neg .Flow.Low}}negc{{end}}">{{brl .Flow.Low}}</strong><small>{{dmy .Flow.LowDate}}</small></div>
+    {{with index .Flow.Months (add (len .Flow.Months) -1)}}<div><span>Em {{.Month.Label}}</span><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></div>{{end}}
+    {{if not (isZeroTime .Flow.FirstNegative)}}<div class="alert"><span>Fica negativo em</span><strong>{{dmy .Flow.FirstNegative}}</strong></div>{{end}}
+  </div>
+  <div class="chart tall"><canvas id="chartFlow" aria-label="Saldo projetado"></canvas></div>
+  <div class="table-scroll">
+    <table class="grid">
+      <thead><tr><th>Mês</th><th class="num">Saldo inicial</th><th class="num">Entradas</th><th class="num">Saídas</th><th class="num">Saldo final</th><th class="num">Menor saldo</th></tr></thead>
+      <tbody>
+      {{range .Flow.Months}}
+        <tr><td>{{.Month.Label}}</td><td class="num">{{brl .Opening}}</td><td class="num pos">{{brl .In}}</td><td class="num negc">{{brl .Out}}</td>
+          <td class="num"><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></td><td class="num {{if neg .Low}}negc{{end}}">{{brl .Low}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="charts">
+  <article class="card"><div class="card-head"><h2>Receitas × Gastos por mês</h2><span class="muted">{{.Month.Year}}</span></div><div class="chart"><canvas id="chartIncExp"></canvas></div></article>
+  <article class="card"><div class="card-head"><h2>Sobra mensal e caixa no fim do mês</h2></div><div class="chart"><canvas id="chartBalance"></canvas></div></article>
+  <article class="card"><div class="card-head"><h2>Composição dos gastos</h2></div><div class="chart"><canvas id="chartComp"></canvas></div></article>
+  <article class="card"><div class="card-head"><h2>Cartão × Limite mensal</h2></div><div class="chart"><canvas id="chartCard"></canvas></div></article>
+</section>
+
+<section class="two-col">
+  <article class="card">
+    <div class="card-head"><h2>Gastos de {{.Month.Label}} por categoria</h2><a class="link" href="/gastos?mes={{.Month}}">ver gastos →</a></div>
+    {{if .ExpCats}}
+    <ul class="bars">
+      {{$max := (index .ExpCats 0).Total}}
+      {{range .ExpCats}}
+      <li><span class="bar-label">{{.Name}} <small class="muted">{{bucketLabel .Bucket}}</small></span>
+        <span class="bar"><span class="b-{{.Bucket}}" style="width: {{barPct .Total $max}}%"></span></span>
+        <span class="num">{{brl .Total}}</span></li>
+      {{end}}
+    </ul>
+    {{else}}<p class="empty">Nenhum gasto neste mês.</p>{{end}}
+  </article>
+  <article class="card">
+    <div class="card-head"><h2>Resumo {{.Month.Year}}</h2></div>
+    <div class="table-scroll">
+    <table class="grid compact">
+      <thead><tr><th>Mês</th><th class="num">Receitas</th><th class="num">Gastos</th><th class="num">Sobra</th><th class="num">Caixa fim</th><th>Status</th></tr></thead>
+      <tbody>
+      {{range .Sums}}
+        <tr class="{{if eq .Month $.Month}}sel{{end}}">
+          <td><a href="/?mes={{.Month}}">{{.Month.Label}}</a></td>
+          <td class="num">{{brl .Income}}</td><td class="num">{{brl .Expense}}</td>
+          <td class="num {{if neg .Balance}}negc{{end}}">{{brl .Balance}}</td>
+          <td class="num">{{if .HasClosing}}{{brl .Closing}}{{else}}—{{end}}</td>
+          <td>{{with .Status}}<span class="pill {{if eq . "OK"}}ok{{else}}warn{{end}}">{{.}}</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+  </article>
+</section>
+{{end}}
+
+{{define "scripts"}}
+<script src="/static/chart.umd.min.js" defer></script>
+<script type="application/json" id="chart-data">{{json .Chart}}</script>
+<script src="/static/dashboard.js" defer></script>
+{{end}}

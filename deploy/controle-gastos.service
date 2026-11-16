@@ -1,0 +1,28 @@
+[Unit]
+Description=Controle de Gastos (Go + SQLite)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=controle-gastos
+Group=controle-gastos
+EnvironmentFile=/etc/controle-gastos.env
+ExecStart=/usr/local/bin/controle-gastos serve
+Restart=on-failure
+RestartSec=3
+StateDirectory=controle-gastos
+WorkingDirectory=/var/lib/controle-gastos
+
+# hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/controle-gastos
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

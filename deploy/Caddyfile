@@ -1,0 +1,6 @@
+# /etc/caddy/Caddyfile — HTTPS automático (Let's Encrypt).
+# Troque pelo seu domínio, ex.: meusgastos.duckdns.org
+seu-subdominio.duckdns.org {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+}

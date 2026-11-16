@@ -1,0 +1,6 @@
+[Unit]
+Description=Backup diário do banco do Controle de Gastos
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/controle-gastos/backup.sh

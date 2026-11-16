@@ -1,0 +1,23 @@
+{{/* recurrence-fields expects a finance.Recurrence */}}
+{{define "recurrence-fields"}}
+<div class="recurrence-fields" data-recurrence>
+  <div class="row">
+    <label>Periodicidade
+      <select name="interval">
+        {{range intervals}}<option value="{{.V}}" {{if eq .V $.Interval}}selected{{end}}>{{.L}}</option>{{end}}
+      </select>
+    </label>
+    <label>Termina
+      <select name="end_mode" data-endmode>
+        <option value="never" {{if eq .EndMode "never"}}selected{{end}}>Sem fim</option>
+        <option value="count" {{if eq .EndMode "count"}}selected{{end}}>Depois de N vezes</option>
+        <option value="until" {{if eq .EndMode "until"}}selected{{end}}>Em um mês</option>
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <label data-show="count">Quantas vezes<input type="number" name="count" min="1" max="600" value="{{if .Count}}{{.Count}}{{else}}12{{end}}"></label>
+    <label data-show="until">Último mês<input type="month" name="end" value="{{if eq .EndMode "until"}}{{.End}}{{end}}"></label>
+  </div>
+</div>
+{{end}}

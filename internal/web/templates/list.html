@@ -1,0 +1,141 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>{{.Title}}</h1>
+    <p class="muted">{{.Month.LongLabel}}</p>
+  </div>
+  <form class="month-nav" method="get" action="{{.Path}}">
+    <a class="btn ghost" href="{{.Path}}?mes={{.Prev}}" aria-label="Mês anterior">‹</a>
+    <input type="month" name="mes" value="{{.Month}}" data-autosubmit>
+    <a class="btn ghost" href="{{.Path}}?mes={{.Next}}" aria-label="Próximo mês">›</a>
+  </form>
+</div>
+
+<section class="kpis three">
+  <article class="kpi">
+    <span class="kpi-label">Total do mês</span>
+    <strong class="kpi-value {{if .IsIncome}}pos{{else}}negc{{end}}">{{brl .Total}}</strong>
+    <span class="kpi-sub">{{if .Projected}}{{brl .Real}} lançado · {{brl .Projected}} previsto{{else}}tudo lançado{{end}}</span>
+  </article>
+  <article class="kpi">
+    <span class="kpi-label">vs. {{.Prev.Label}}</span>
+    <strong class="kpi-value">{{if neg .Diff}}{{brl .Diff}}{{else}}+{{brl .Diff}}{{end}}</strong>
+    <span class="kpi-sub">{{.Prev.Label}}: {{brl .PrevTotal}}</span>
+  </article>
+  <article class="kpi">
+    <span class="kpi-label">Lançamentos</span>
+    <strong class="kpi-value">{{len .Entries}}</strong>
+    <span class="kpi-sub">{{len .ByCat}} {{if .IsIncome}}fonte(s){{else}}categoria(s){{end}}</span>
+  </article>
+</section>
+
+<section class="two-col wide-left">
+  <article class="card">
+    <div class="card-head"><h2>Lançamentos</h2></div>
+    {{if .Entries}}
+    <ul class="entries">
+      {{range .Entries}}
+      <li class="entry {{if .Projected}}projected{{end}}">
+        <div class="e-date"><strong>{{dm .Date}}</strong><small>{{weekday .Date}}</small></div>
+        <div class="e-main">
+          <span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
+          <span class="e-meta">{{.Category}}{{if .RecurrenceID}} · <span class="tag">{{if .Projected}}previsto{{else}}recorrente{{end}}</span>{{end}}{{if .DebtID}} · <span class="tag">dívida</span>{{end}}</span>
+        </div>
+        <div class="e-amount {{if $.IsIncome}}pos{{else}}negc{{end}}">{{brl .Amount}}</div>
+        <div class="e-actions">
+          {{if .Projected}}
+            <details class="pop">
+              <summary class="btn small">Confirmar</summary>
+              <form method="post" action="/previstos/confirmar" class="pop-body">
+                <input type="hidden" name="rec_id" value="{{.RecurrenceID}}"><input type="hidden" name="month" value="{{.OccMonth}}">
+                <input type="hidden" name="back" value="{{$.Back}}">
+                <label>Valor real<input name="amount" value="{{money .Amount}}" inputmode="decimal" data-money></label>
+                <label>Data<input type="date" name="date" value="{{iso .Date}}"></label>
+                <button class="btn">Lançar</button>
+              </form>
+            </details>
+            <form method="post" action="/previstos/pular">
+              <input type="hidden" name="rec_id" value="{{.RecurrenceID}}"><input type="hidden" name="month" value="{{.OccMonth}}">
+              <input type="hidden" name="back" value="{{$.Back}}">
+              <button class="btn ghost small" title="Não acontece neste mês">Pular</button>
+            </form>
+          {{else}}
+            <a class="btn ghost small" href="/lancamentos/{{.ID}}/editar">Editar</a>
+            <form method="post" action="/lancamentos/{{.ID}}/excluir" data-confirm="Excluir este lançamento?">
+              <input type="hidden" name="back" value="{{$.Back}}">
+              <button class="btn ghost small danger" aria-label="Excluir">✕</button>
+            </form>
+          {{end}}
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<p class="empty">Nada lançado em {{.Month.Label}}.</p>{{end}}
+
+    {{if .Skipped}}
+    <details class="skipped">
+      <summary>{{len .Skipped}} recorrência(s) pulada(s) neste mês</summary>
+      <ul class="entries">
+        {{range .Skipped}}
+        <li class="entry skipped-row">
+          <div class="e-date"><strong>{{dm .Date}}</strong></div>
+          <div class="e-main"><span class="e-desc">{{.Description}}</span><span class="e-meta">{{.Category}}</span></div>
+          <div class="e-amount">{{brl .Amount}}</div>
+          <div class="e-actions">
+            <form method="post" action="/previstos/restaurar">
+              <input type="hidden" name="rec_id" value="{{.RecurrenceID}}"><input type="hidden" name="month" value="{{.OccMonth}}">
+              <input type="hidden" name="back" value="{{$.Back}}">
+              <button class="btn ghost small">Restaurar</button>
+            </form>
+          </div>
+        </li>
+        {{end}}
+      </ul>
+    </details>
+    {{end}}
+  </article>
+
+  <div class="stack">
+    <article class="card">
+      <div class="card-head"><h2>Novo {{if .IsIncome}}recebimento{{else}}gasto{{end}}</h2></div>
+      <form method="post" action="/lancamentos" class="form">
+        <input type="hidden" name="kind" value="{{.Kind}}">
+        <div class="row">
+          <label>Data<input type="date" name="date" value="{{iso .DefaultDate}}" required></label>
+          <label>Valor (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required data-money></label>
+        </div>
+        <label>{{if .IsIncome}}Fonte{{else}}Categoria{{end}}
+          <select name="category_id">
+            {{range .Categories}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+        </label>
+        <label>ou nova {{if .IsIncome}}fonte{{else}}categoria{{end}}<input name="new_category" placeholder="opcional"></label>
+        <label>Descrição<input name="description" placeholder="{{if .IsIncome}}Salário, bolsa…{{else}}Fatura do cartão, mercado…{{end}}"></label>
+        {{if not .IsIncome}}{{if .Debts}}
+        <label>Abate dívida
+          <select name="debt_id"><option value="0">—</option>{{range .Debts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+        </label>
+        {{end}}{{end}}
+        <div class="repeat">
+          <label class="check"><input type="checkbox" name="repeat"> Repetir (vira recorrente)</label>
+          <div class="repeat-fields">{{template "recurrence-fields" .NewRec}}</div>
+        </div>
+        <button class="btn primary">Salvar</button>
+      </form>
+    </article>
+
+    <article class="card">
+      <div class="card-head"><h2>Por {{if .IsIncome}}fonte{{else}}categoria{{end}}</h2></div>
+      {{if .ByCat}}
+      <ul class="bars">
+        {{range .ByCat}}
+        <li><span class="bar-label">{{.Name}}</span>
+          <span class="bar"><span class="{{if $.IsIncome}}b-income{{else}}b-{{.Bucket}}{{end}}" style="width: {{barPct .Total $.MaxCat}}%"></span></span>
+          <span class="num">{{brl .Total}}</span></li>
+        {{end}}
+      </ul>
+      {{else}}<p class="empty">Sem dados.</p>{{end}}
+    </article>
+  </div>
+</section>
+{{end}}

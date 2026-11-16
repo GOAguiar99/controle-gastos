@@ -1,0 +1,15 @@
+# build output
+/bin/
+/controle-gastos
+
+# personal data — never commit
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.xlsx
+*.xls
+*.csv
+.env
+*.env
+!deploy/*.env.example

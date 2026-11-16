@@ -1,0 +1,12 @@
+{{define "content"}}
+<div class="login">
+  <article class="card">
+    <div class="login-brand">Controle de Gastos</div>
+    <form method="post" action="/login" class="form">
+      <label>Senha<input type="password" name="password" autocomplete="current-password" autofocus required></label>
+      {{with .Error}}<p class="error">{{.}}</p>{{end}}
+      <button class="btn primary">Entrar</button>
+    </form>
+  </article>
+</div>
+{{end}}
