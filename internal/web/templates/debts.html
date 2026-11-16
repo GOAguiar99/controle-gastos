@@ -101,7 +101,7 @@
       {{else}}
       <div class="card-actions">
         <a class="btn ghost small" href="/dividas?editar={{.ID}}">Editar</a>
-        <form method="post" action="/dividas/{{.ID}}/excluir" data-confirm="Excluir a dívida {{.Name}}? A recorrência das parcelas também é excluída; os pagamentos já lançados continuam como gastos."><button class="btn ghost small danger">Excluir</button></form>
+        <form method="post" action="/dividas/{{.ID}}/excluir" data-confirm="Excluir a dívida {{.Name}}? As recorrências que pagam a dívida também são excluídas; os pagamentos já lançados continuam como gastos."><button class="btn ghost small danger">Excluir</button></form>
       </div>
       {{end}}
     </article>
@@ -116,7 +116,7 @@
       {{template "debt-fields" newDebt}}
       <button class="btn primary">Adicionar</button>
     </form>
-    <p class="hint">Financiamentos (SAC/Price) já criam a recorrência das parcelas em Recorrentes, com o valor de cada mês pela tabela; cada parcela confirmada abate uma parcela. Dívidas sem juros: lance cada pagamento como gasto e escolha a dívida em “Abate dívida”.</p>
+    <p class="hint">Ao criar um financiamento (SAC/Price), as parcelas aparecem como sugestão em Recorrentes; adicione para que entrem na previsão, com o valor de cada mês pela tabela. Cada parcela confirmada abate uma parcela. Dívidas sem juros: lance cada pagamento como gasto e escolha a dívida em “Abate dívida”.</p>
   </article>
 </section>
 {{end}}

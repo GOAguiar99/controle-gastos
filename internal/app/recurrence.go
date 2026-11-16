@@ -23,6 +23,7 @@ type RecIn struct {
 	End         finance.Month // EndMode until: last month (inclusive)
 	Active      bool
 	DebtID      int64 // expense paying down this debt
+	Pending     bool  // suggestion waiting for AcceptRecurrence (kept as is on update)
 }
 
 func checkSchedule(in *RecIn) error {
@@ -69,6 +70,10 @@ func (s *Service) SaveRecurrence(in RecIn) (int64, error) {
 		if old.Kind != in.Kind {
 			return 0, invalid("recorrência não encontrada")
 		}
+		in.Pending = old.Pending // only AcceptRecurrence clears it
+	}
+	if in.Pending {
+		in.Active = false
 	}
 	if in.Amount <= 0 {
 		return 0, invalid("valor inválido")
@@ -92,6 +97,9 @@ func (s *Service) SaveRecurrence(in RecIn) (int64, error) {
 			}
 			for _, r := range recs {
 				if r.DebtID == in.DebtID && r.ID != in.ID {
+					if r.Pending {
+						return 0, invalid("o financiamento %s já tem a recorrência das parcelas sugerida (#%d); aceite ou descarte essa sugestão em Recorrentes", debt.Name, r.ID)
+					}
 					return 0, invalid("o financiamento %s já é pago pela recorrência %q (#%d); edite essa", debt.Name, r.Description, r.ID)
 				}
 			}
@@ -108,7 +116,7 @@ func (s *Service) SaveRecurrence(in RecIn) (int64, error) {
 	return s.st.SaveRecurrence(finance.Recurrence{
 		ID: in.ID, Kind: in.Kind, Description: desc, CategoryID: c.ID, Amount: in.Amount, Day: in.Day,
 		Interval: in.Interval, Start: in.Start, EndMode: in.EndMode, Count: in.Count, End: in.End,
-		Active: in.Active, DebtID: in.DebtID,
+		Active: in.Active, DebtID: in.DebtID, Pending: in.Pending,
 	})
 }
 
@@ -160,6 +168,9 @@ func (s *Service) occurrence(id int64, m finance.Month) (finance.Recurrence, err
 	r, err := s.Recurrence(id)
 	if err != nil {
 		return r, err
+	}
+	if r.Pending {
+		return r, invalid("a recorrência %q é uma sugestão; aceite-a em Recorrentes antes", r.Description)
 	}
 	if m == 0 {
 		return r, invalid("mês inválido")
@@ -221,4 +232,81 @@ func (s *Service) UnskipOccurrence(id int64, m finance.Month) (finance.Recurrenc
 		return r, err
 	}
 	return r, s.st.Unskip(id, m)
+}
+
+// Suggestion is a recurrence the app proposed (the installments of a new
+// loan), with what the user needs to decide whether to add it.
+type Suggestion struct {
+	Rec          finance.Recurrence
+	DebtName     string
+	From, To     finance.Month
+	First, Last  int64 // first and last installment
+	Total        int64 // sum of the suggested installments
+	Installments int
+}
+
+// Suggestions lists recurrences waiting for the user to accept or dismiss.
+func (s *Service) Suggestions() ([]Suggestion, error) {
+	recs, err := s.st.Recurrences()
+	if err != nil {
+		return nil, err
+	}
+	var out []Suggestion
+	for _, r := range recs {
+		if !r.Pending {
+			continue
+		}
+		sg := Suggestion{Rec: r, From: r.Start, First: r.Amount, Last: r.Amount}
+		sg.To, _ = r.LastMonth()
+		probe := r
+		probe.Active, probe.Pending = true, false
+		months := probe.Months(r.Start, sg.To)
+		sg.Installments = len(months)
+		sg.Total = r.Amount * int64(len(months))
+		if d, err := s.st.Debt(r.DebtID); err == nil {
+			sg.DebtName = d.Name
+			sched, sum := d.Loan.Schedule(), int64(0)
+			for i, m := range months {
+				if in, ok := d.Loan.InstallmentFor(sched, m); ok {
+					sum += in.Total
+					if i == 0 {
+						sg.First = in.Total
+					}
+					sg.Last = in.Total
+				}
+			}
+			if sum > 0 {
+				sg.Total = sum
+			}
+		}
+		out = append(out, sg)
+	}
+	return out, nil
+}
+
+func (s *Service) pending(id int64) (finance.Recurrence, error) {
+	r, err := s.Recurrence(id)
+	if err == nil && !r.Pending {
+		err = invalid("a recorrência %q não é uma sugestão pendente", r.Description)
+	}
+	return r, err
+}
+
+// AcceptRecurrence activates a suggested recurrence: its occurrences start
+// showing as projected entries.
+func (s *Service) AcceptRecurrence(id int64) (finance.Recurrence, error) {
+	r, err := s.pending(id)
+	if err != nil {
+		return r, err
+	}
+	return r, s.st.AcceptRecurrence(id)
+}
+
+// DismissRecurrence discards a suggested recurrence.
+func (s *Service) DismissRecurrence(id int64) (finance.Recurrence, error) {
+	r, err := s.pending(id)
+	if err != nil {
+		return r, err
+	}
+	return r, s.st.DeleteRecurrence(id)
 }

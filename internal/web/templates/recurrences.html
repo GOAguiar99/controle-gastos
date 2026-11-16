@@ -10,6 +10,26 @@
   </div>
 </div>
 
+{{with .Suggestions}}
+<section class="card suggestions" id="sugestoes" aria-labelledby="sug-title">
+  <div class="card-head"><h2 id="sug-title">Novas parcelas para adicionar</h2></div>
+  <p class="hint">Um financiamento novo gerou estas parcelas. Elas só entram na previsão de caixa depois que você adicionar.</p>
+  {{range .}}
+  <div class="suggestion">
+    <div class="sug-body">
+      <strong>{{.Rec.Description}}</strong>
+      <span class="muted">{{.Rec.Category}} · todo dia {{.Rec.Day}} · {{.Installments}} parcelas de {{.From.Label}} a {{.To.Label}}</span>
+      <span>{{if eq .First .Last}}{{brl .First}} por mês{{else}}de {{brl .First}} até {{brl .Last}} (pela tabela do financiamento){{end}} · total {{brl .Total}}</span>
+    </div>
+    <div class="sug-actions">
+      <form method="post" action="/recorrentes/{{.Rec.ID}}/aceitar"><button class="btn primary">Adicionar</button></form>
+      <form method="post" action="/recorrentes/{{.Rec.ID}}/descartar" data-confirm="Descartar a sugestão? As parcelas de {{.Rec.Description}} não serão previstas; você pode lançar os pagamentos manualmente."><button class="btn ghost">Descartar</button></form>
+    </div>
+  </div>
+  {{end}}
+</section>
+{{end}}
+
 <section class="kpis three">
   <article class="kpi">
     <span class="kpi-label">Em {{.Current.Label}}</span>

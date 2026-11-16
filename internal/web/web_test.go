@@ -74,7 +74,14 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 	post("/dividas", url.Values{"name": {"Fulano"}, "initial": {"1000"}})
 	post("/dividas", url.Values{"name": {"Banco"}, "initial": {"380.000,00"}, "system": {"sac"}, "rate": {"0,9631393"},
 		"term": {"420"}, "first_due": {"2026-01-16"}, "fees": {"79,88"}, "anchor_n": {"7"}, "anchor_balance": {"377.957,86"}})
-	// the loan (debt id 2) got its installment recurrence automatically; a second one is refused
+	// the loan (debt id 2) came with a suggested installment recurrence (id 3), shown with a nav badge
+	res, _ = client.Get(ts.URL + "/recorrentes")
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "Novas parcelas para adicionar") || !strings.Contains(string(body), `class="badge"`) {
+		t.Errorf("suggestion banner/badge missing")
+	}
+	post("/recorrentes/3/aceitar", nil)
+	// a second recurrence for the loan is refused
 	res, _ = client.PostForm(ts.URL+"/recorrentes", url.Values{"kind": {"expense"}, "description": {"Financiamento"}, "new_category": {"Financiamento"},
 		"amount": {"4651,45"}, "day": {"16"}, "start": {"2026-11"}, "interval": {"1"}, "end_mode": {"never"}, "debt_id": {"2"}})
 	if res.StatusCode != http.StatusBadRequest {
@@ -92,7 +99,7 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 
 	// Dec/2026 projected parcel = parcela 12 of the SAC table (915,15 + 3.605,00 + 79,88)
 	res, _ = client.Get(ts.URL + "/gastos?mes=2026-12")
-	body, _ := io.ReadAll(res.Body)
+	body, _ = io.ReadAll(res.Body)
 	if !strings.Contains(string(body), "R$ 4.600,03") {
 		t.Errorf("expected SAC installment R$ 4.600,03 in dez/2026 gastos")
 	}

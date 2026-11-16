@@ -40,7 +40,7 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "list_categories", Annotations: readOnly,
 		Description: "Categorias existentes, com tipo e grupo (cartao, fixo, outros)."}, t.listCategories)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_recurrences", Annotations: readOnly,
-		Description: "Recorrências (receitas/gastos que se repetem) com periodicidade, término e próximos meses."}, t.listRecurrences)
+		Description: "Recorrências (receitas/gastos que se repetem) com periodicidade, término e próximos meses. pending=true são sugestões (parcelas de financiamento novo) ainda não adicionadas."}, t.listRecurrences)
 	mcp.AddTool(s, &mcp.Tool{Name: "list_debts", Annotations: readOnly,
 		Description: "Dívidas e financiamentos com saldo atual, pagamentos e, para SAC/Price, parcelas pagas e juros restantes."}, t.listDebts)
 	mcp.AddTool(s, &mcp.Tool{Name: "get_limits", Annotations: readOnly,
@@ -62,7 +62,7 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "save_recurrence", Annotations: write,
 		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma recorrência."}, t.saveRecurrence)
 	mcp.AddTool(s, &mcp.Tool{Name: "save_debt", Annotations: write,
-		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma dívida. system: none (sem juros; pagamentos lançados avulsos com debt_id) ou sac/price (financiamento: se nenhuma recorrência paga a dívida, cria automaticamente a recorrência mensal das parcelas restantes, com o valor de cada parcela da tabela)."}, t.saveDebt)
+		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma dívida. system: none (sem juros; pagamentos lançados avulsos com debt_id) ou sac/price (financiamento: ao criar, o app sugere a recorrência mensal das parcelas restantes, com o valor de cada parcela pela tabela; ela fica pendente até accept_recurrence)."}, t.saveDebt)
 	mcp.AddTool(s, &mcp.Tool{Name: "set_cash", Annotations: write,
 		Description: "Informa o caixa real (soma das contas) numa data, padrão hoje. Lançamentos até essa data passam a ser considerados já incluídos."},
 		t.setCash)
@@ -73,7 +73,13 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "set_limits", Annotations: idempotent,
 		Description: "Altera limite do cartão e/ou sobra mínima mensal."}, t.setLimits)
 
+	mcp.AddTool(s, &mcp.Tool{Name: "accept_recurrence", Annotations: idempotent,
+		Description: "Adiciona uma recorrência sugerida (pending) aos gastos recorrentes: as ocorrências passam a aparecer como previstas. Só com o aceite do usuário."},
+		t.acceptRecurrence)
+
 	// destructive
+	mcp.AddTool(s, &mcp.Tool{Name: "dismiss_recurrence", Annotations: destructive,
+		Description: "Descarta uma recorrência sugerida (pending); as parcelas não serão previstas."}, t.dismissRecurrence)
 	mcp.AddTool(s, &mcp.Tool{Name: "delete_transaction", Annotations: destructive,
 		Description: "Exclui um lançamento real (irreversível). Para não contar uma ocorrência prevista use skip_occurrence."}, t.deleteTransaction)
 	mcp.AddTool(s, &mcp.Tool{Name: "delete_recurrence", Annotations: destructive,
@@ -410,6 +416,7 @@ type recurrenceOut struct {
 	EndLabel    string   `json:"end_label"`
 	Active      bool     `json:"active"`
 	DebtID      int64    `json:"debt_id,omitempty"`
+	Pending     bool     `json:"pending,omitempty" jsonschema:"sugestão aguardando o usuário: accept_recurrence ou dismiss_recurrence"`
 	Next        []string `json:"next_months"`
 }
 
@@ -431,7 +438,7 @@ func (t *tools) listRecurrences(_ context.Context, _ *mcp.CallToolRequest, in ki
 	for _, r := range recs {
 		o := recurrenceOut{ID: r.ID, Kind: string(r.Kind), Description: r.Description, Category: r.Category,
 			Amount: money(r.Amount), Day: r.Day, Interval: r.Interval, Frequency: r.FrequencyLabel(), Start: r.Start.String(),
-			EndMode: r.EndMode, Count: r.Count, EndLabel: r.EndLabel(), Active: r.Active, DebtID: r.DebtID, Next: []string{}}
+			EndMode: r.EndMode, Count: r.Count, EndLabel: r.EndLabel(), Active: r.Active, DebtID: r.DebtID, Pending: r.Pending, Next: []string{}}
 		if r.EndMode == finance.EndUntil {
 			o.End = r.End.String()
 		}
@@ -732,17 +739,17 @@ func (t *tools) saveDebt(_ context.Context, _ *mcp.CallToolRequest, in debtIn) (
 	if err != nil {
 		return nil, debtSavedOut{}, toolErr(err)
 	}
-	out := debtSavedOut{ID: res.ID, RecurrenceID: res.RecurrenceID, Message: "dívida salva"}
-	if res.RecurrenceID != 0 {
-		out.Message += "; recorrência das parcelas criada (as parcelas já aparecem como gastos previstos)"
+	out := debtSavedOut{ID: res.ID, SuggestedRecurrenceID: res.SuggestedID, Message: "dívida salva"}
+	if res.SuggestedID != 0 {
+		out.Message += "; recorrência das parcelas sugerida: pergunte ao usuário se quer adicioná-la (accept_recurrence) ou descartá-la (dismiss_recurrence)"
 	}
 	return nil, out, nil
 }
 
 type debtSavedOut struct {
-	ID           int64  `json:"id"`
-	RecurrenceID int64  `json:"recurrence_id,omitempty" jsonschema:"recorrência das parcelas criada agora (só financiamentos SAC/Price sem recorrência)"`
-	Message      string `json:"message"`
+	ID                    int64  `json:"id"`
+	SuggestedRecurrenceID int64  `json:"suggested_recurrence_id,omitempty" jsonschema:"recorrência das parcelas sugerida (financiamento novo SAC/Price); só entra na previsão após accept_recurrence"`
+	Message               string `json:"message"`
 }
 
 type cashIn struct {
@@ -833,6 +840,22 @@ func (t *tools) deleteTransaction(_ context.Context, _ *mcp.CallToolRequest, in 
 		return nil, txResult{}, toolErr(err)
 	}
 	return nil, txResult{Transaction: txOf(e), Message: "lançamento excluído"}, nil
+}
+
+func (t *tools) acceptRecurrence(_ context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
+	r, err := t.svc.AcceptRecurrence(in.ID)
+	if err != nil {
+		return nil, msgOut{}, toolErr(err)
+	}
+	return nil, msgOut{Message: r.Description + " adicionado aos gastos recorrentes; as parcelas já aparecem como previstas"}, nil
+}
+
+func (t *tools) dismissRecurrence(_ context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
+	r, err := t.svc.DismissRecurrence(in.ID)
+	if err != nil {
+		return nil, msgOut{}, toolErr(err)
+	}
+	return nil, msgOut{Message: "sugestão " + r.Description + " descartada"}, nil
 }
 
 func (t *tools) deleteRecurrence(_ context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {

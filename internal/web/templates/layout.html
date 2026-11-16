@@ -17,7 +17,7 @@
       <a href="/" {{if eq .Nav "dashboard"}}class="on"{{end}}>Dashboard</a>
       <a href="/receitas" {{if and (eq .Nav "list") .IsIncome}}class="on"{{end}}>Receitas</a>
       <a href="/gastos" {{if and (eq .Nav "list") (not .IsIncome)}}class="on"{{end}}>Gastos</a>
-      <a href="/recorrentes" {{if eq .Nav "recurrences"}}class="on"{{end}}>Recorrentes</a>
+      <a href="/recorrentes" {{if eq .Nav "recurrences"}}class="on"{{end}}>Recorrentes{{with .PendingRecs}} <span class="badge" title="{{.}} sugestão(ões) para revisar">{{.}}</span>{{end}}</a>
       <a href="/dividas" {{if eq .Nav "debts"}}class="on"{{end}}>Dívidas</a>
       <a href="/config" {{if eq .Nav "config"}}class="on"{{end}}>Config</a>
     </nav>

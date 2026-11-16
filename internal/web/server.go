@@ -90,6 +90,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /recorrentes", s.saveRecurrence)
 	mux.HandleFunc("POST /recorrentes/{id}", s.saveRecurrence)
 	mux.HandleFunc("POST /recorrentes/{id}/excluir", s.deleteRecurrence)
+	mux.HandleFunc("POST /recorrentes/{id}/aceitar", s.acceptRecurrence)
+	mux.HandleFunc("POST /recorrentes/{id}/descartar", s.dismissRecurrence)
 
 	mux.HandleFunc("GET /dividas", s.debtsPage)
 	mux.HandleFunc("POST /dividas", s.saveDebt)
@@ -125,6 +127,9 @@ type page map[string]any
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data page) {
 	data["Nav"] = name
 	data["AuthEnabled"] = s.auth.Enabled()
+	if name != "login" {
+		data["PendingRecs"] = s.st.PendingRecurrences()
+	}
 	if _, ok := data["Flash"]; !ok {
 		data["Flash"] = r.URL.Query().Get("msg")
 	}

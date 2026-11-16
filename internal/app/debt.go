@@ -44,43 +44,41 @@ func CheckDebt(in *db.DebtInput) error {
 
 // DebtSaved reports what SaveDebt did.
 type DebtSaved struct {
-	ID           int64
-	RecurrenceID int64 // installment recurrence created now (0 = none created)
+	ID          int64
+	SuggestedID int64 // installment recurrence suggested now (0 = none)
 }
 
-// SaveDebt creates (id == 0) or updates a debt. A loan with interest (SAC or
-// Price) that no recurrence pays yet gets one created for its installments,
-// so they show up as projected expenses month by month. Simple debts don't:
-// their payments are launched one by one.
+// SaveDebt creates (id == 0) or updates a debt. A new loan with interest
+// (SAC or Price) comes with a suggested recurrence for its installments,
+// which the user accepts (then they show up as projected expenses month by
+// month) or dismisses. Simple debts don't: their payments are launched one
+// by one.
 func (s *Service) SaveDebt(id int64, in db.DebtInput) (DebtSaved, error) {
 	if err := CheckDebt(&in); err != nil {
 		return DebtSaved{}, err
 	}
-	var err error
-	if id == 0 {
-		if id, err = s.st.AddDebt(in); err != nil {
-			return DebtSaved{}, err
-		}
-	} else {
+	if id != 0 {
 		if _, err := s.st.Debt(id); err != nil {
 			return DebtSaved{}, notFound(err, "dívida")
 		}
-		if err := s.st.UpdateDebt(id, in); err != nil {
-			return DebtSaved{}, err
-		}
+		return DebtSaved{ID: id}, s.st.UpdateDebt(id, in)
 	}
-	recID, err := s.ensureLoanRecurrence(id)
-	return DebtSaved{ID: id, RecurrenceID: recID}, err
+	id, err := s.st.AddDebt(in)
+	if err != nil {
+		return DebtSaved{}, err
+	}
+	recID, err := s.suggestLoanRecurrence(id)
+	return DebtSaved{ID: id, SuggestedID: recID}, err
 }
 
 // LoanCategory is where automatic installment recurrences go.
 const LoanCategory = "Financiamento"
 
-// ensureLoanRecurrence creates the monthly recurrence paying a loan's
+// suggestLoanRecurrence proposes the monthly recurrence paying a loan's
 // remaining installments, unless one already pays it. It starts at the
 // first due month or, for loans already running, the current month (earlier
 // installments are history, not pending), and ends with the last one.
-func (s *Service) ensureLoanRecurrence(debtID int64) (int64, error) {
+func (s *Service) suggestLoanRecurrence(debtID int64) (int64, error) {
 	d, err := s.st.Debt(debtID)
 	if err != nil || !d.HasInterest() {
 		return 0, err
@@ -113,7 +111,7 @@ func (s *Service) ensureLoanRecurrence(debtID int64) (int64, error) {
 	return s.SaveRecurrence(RecIn{
 		Kind: finance.Expense, Description: d.Name, Category: CategoryRef{ID: cat.ID},
 		Amount: sched[done].Total, Day: d.Loan.FirstDue.Day(), Interval: 1, Start: start,
-		EndMode: finance.EndCount, Count: len(sched) - done, Active: true, DebtID: debtID,
+		EndMode: finance.EndCount, Count: len(sched) - done, DebtID: debtID, Pending: true,
 	})
 }
 

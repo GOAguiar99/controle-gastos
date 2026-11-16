@@ -298,3 +298,13 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
 .mcp-help ol { padding-left: 18px; margin: 8px 0 0; }
 .mcp-help li { margin-bottom: 6px; }
 .mcp-help code { font-size: .78rem; background: #eef1f4; padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+
+/* Sugestões de recorrência (parcelas de financiamento novo) */
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 2px; border-radius: 999px;
+  background: #eb6834; color: #fff; font-size: .72rem; font-weight: 700; line-height: 18px; text-align: center; }
+.suggestions { border-left: 4px solid #eb6834; margin-bottom: 16px; }
+.suggestion { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  padding: 12px 0; border-top: 1px solid #eef1f4; }
+.suggestion:first-of-type { border-top: 0; }
+.sug-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sug-actions { display: flex; gap: 8px; }

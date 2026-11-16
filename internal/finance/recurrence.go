@@ -47,6 +47,7 @@ type Recurrence struct {
 	End         Month // EndUntil: last month (inclusive)
 	Active      bool
 	DebtID      int64 // debt this recurring payment pays down (0 = none)
+	Pending     bool  // suggested by the app (new loan), waiting for the user to accept; never projected
 }
 
 func (r Recurrence) interval() int {
@@ -69,7 +70,7 @@ func (r Recurrence) LastMonth() (Month, bool) {
 
 // Months lists the occurrence months within [from, to].
 func (r Recurrence) Months(from, to Month) []Month {
-	if !r.Active {
+	if !r.Active || r.Pending {
 		return nil
 	}
 	if last, ok := r.LastMonth(); ok && last < to {

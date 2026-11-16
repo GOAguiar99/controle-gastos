@@ -226,14 +226,14 @@ func (s *Store) DeleteTx(id int64) error {
 
 const recSelect = `SELECT r.id, r.kind, r.description, r.category_id, c.name, c.bucket, r.amount_cents, r.day_of_month,
 	r.interval_months, r.start_month, r.end_mode, COALESCE(r.occurrences, 0), COALESCE(r.end_month, ''), r.active,
-	COALESCE(r.debt_id, 0)
+	COALESCE(r.debt_id, 0), r.pending
 	FROM recurrences r JOIN categories c ON c.id = r.category_id`
 
 func scanRec(sc interface{ Scan(...any) error }) (finance.Recurrence, error) {
 	var r finance.Recurrence
 	var start, end string
 	err := sc.Scan(&r.ID, &r.Kind, &r.Description, &r.CategoryID, &r.Category, &r.Bucket, &r.Amount, &r.Day,
-		&r.Interval, &start, &r.EndMode, &r.Count, &end, &r.Active, &r.DebtID)
+		&r.Interval, &start, &r.EndMode, &r.Count, &end, &r.Active, &r.DebtID, &r.Pending)
 	if err != nil {
 		return r, err
 	}
@@ -282,17 +282,17 @@ func (s *Store) SaveRecurrence(r finance.Recurrence) (int64, error) {
 		r.Interval = 1
 	}
 	if r.ID == 0 {
-		res, err := s.DB.Exec(`INSERT INTO recurrences (kind, description, category_id, amount_cents, day_of_month, interval_months, start_month, end_mode, occurrences, end_month, active, debt_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.Kind, r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID))
+		res, err := s.DB.Exec(`INSERT INTO recurrences (kind, description, category_id, amount_cents, day_of_month, interval_months, start_month, end_mode, occurrences, end_month, active, debt_id, pending)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.Kind, r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.Pending)
 		if err != nil {
 			return 0, err
 		}
 		return res.LastInsertId()
 	}
 	_, err := s.DB.Exec(`UPDATE recurrences SET description = ?, category_id = ?, amount_cents = ?, day_of_month = ?, interval_months = ?,
-		start_month = ?, end_mode = ?, occurrences = ?, end_month = ?, active = ?, debt_id = ? WHERE id = ?`,
-		r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.ID)
+		start_month = ?, end_mode = ?, occurrences = ?, end_month = ?, active = ?, debt_id = ?, pending = ? WHERE id = ?`,
+		r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.Pending, r.ID)
 	if err != nil {
 		return r.ID, err
 	}
@@ -307,6 +307,19 @@ func (s *Store) linkRecurrencePayments(recID, debtID int64) error {
 	}
 	_, err := s.DB.Exec(`UPDATE transactions SET debt_id = ? WHERE recurrence_id = ? AND debt_id IS NULL`, debtID, recID)
 	return err
+}
+
+// AcceptRecurrence turns a suggested recurrence into an active one.
+func (s *Store) AcceptRecurrence(id int64) error {
+	_, err := s.DB.Exec(`UPDATE recurrences SET pending = 0, active = 1 WHERE id = ?`, id)
+	return err
+}
+
+// PendingRecurrences counts suggestions waiting for the user (nav badge).
+func (s *Store) PendingRecurrences() int {
+	var n int
+	s.DB.QueryRow(`SELECT count(*) FROM recurrences WHERE pending = 1`).Scan(&n)
+	return n
 }
 
 func (s *Store) DeleteRecurrence(id int64) error {

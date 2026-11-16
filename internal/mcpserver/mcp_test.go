@@ -151,12 +151,30 @@ func TestToolsRoundTrip(t *testing.T) {
 	var debt debtSavedOut
 	call(t, cs, "save_debt", map[string]any{"name": "Carro", "initial": 12000, "system": "sac", "monthly_rate_pct": 1.5,
 		"term": 12, "first_due": "2026-12-10"}, &debt, false)
-	if debt.RecurrenceID == 0 || !strings.Contains(debt.Message, "recorrência das parcelas") {
-		t.Fatalf("loan recurrence: %+v", debt)
+	if debt.SuggestedRecurrenceID == 0 || !strings.Contains(debt.Message, "accept_recurrence") {
+		t.Fatalf("loan suggestion: %+v", debt)
+	}
+	var recs recurrencesOut
+	call(t, cs, "list_recurrences", map[string]any{"kind": "expense"}, &recs, false)
+	pending := 0
+	for _, r := range recs.Recurrences {
+		if r.Pending {
+			pending++
+		}
+	}
+	if pending != 1 {
+		t.Fatalf("pending: %+v", recs)
+	}
+	call(t, cs, "accept_recurrence", map[string]any{"id": debt.SuggestedRecurrenceID}, nil, false)
+	call(t, cs, "accept_recurrence", map[string]any{"id": debt.SuggestedRecurrenceID}, nil, true)
+	var dec listTxOut
+	call(t, cs, "list_transactions", map[string]any{"from": "2026-12", "text": "Carro", "include_projected": true}, &dec, false)
+	if dec.Count != 1 || dec.Expense != 118000 {
+		t.Fatalf("accepted installment: %+v", dec)
 	}
 	var simple debtSavedOut
 	call(t, cs, "save_debt", map[string]any{"name": "Pais", "initial": 5000}, &simple, false)
-	if simple.RecurrenceID != 0 {
+	if simple.SuggestedRecurrenceID != 0 {
 		t.Fatalf("simple debt got a recurrence: %+v", simple)
 	}
 

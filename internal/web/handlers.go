@@ -468,7 +468,7 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 	var rows []recRow
 	var thisMonth, monthlyEq int64
 	for _, rc := range recs {
-		if rc.Kind != kind {
+		if rc.Kind != kind || rc.Pending {
 			continue
 		}
 		last, bounded := rc.LastMonth()
@@ -499,8 +499,14 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 	for _, d := range debts {
 		debtNames[d.ID] = d.Name
 	}
+	suggestions, err := s.svc.Suggestions()
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.render(w, r, "recurrences", page{
-		"Title": "Recorrentes", "Kind": string(kind), "IsIncome": kind == finance.Income,
+		"Suggestions": suggestions,
+		"Title":       "Recorrentes", "Kind": string(kind), "IsIncome": kind == finance.Income,
 		"Rows": rows, "ThisMonth": thisMonth, "MonthlyEq": monthlyEq, "Current": cur,
 		"Form": form, "Editing": editID != 0 && form.ID == editID, "Categories": cats,
 		"Debts": debts, "DebtNames": debtNames,
@@ -544,6 +550,34 @@ func (s *Server) saveRecurrence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/recorrentes?tipo="+string(kind)+"&msg="+url.QueryEscape("Recorrência salva — meses atualizados"), http.StatusSeeOther)
+}
+
+func (s *Server) acceptRecurrence(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	rec, err := s.svc.AcceptRecurrence(id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, "/recorrentes?tipo="+string(rec.Kind)+"&msg="+url.QueryEscape(rec.Description+" adicionado aos gastos recorrentes — as parcelas já aparecem como previstas"), http.StatusSeeOther)
+}
+
+func (s *Server) dismissRecurrence(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	rec, err := s.svc.DismissRecurrence(id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, "/recorrentes?tipo="+string(rec.Kind)+"&msg="+url.QueryEscape("Sugestão descartada"), http.StatusSeeOther)
 }
 
 func (s *Server) deleteRecurrence(w http.ResponseWriter, r *http.Request) {
@@ -677,11 +711,11 @@ func (s *Server) saveDebt(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	msg := "Dívida salva"
-	if res.RecurrenceID != 0 {
-		msg += " — parcelas lançadas em Recorrentes"
+	if res.SuggestedID != 0 {
+		http.Redirect(w, r, "/recorrentes?msg="+url.QueryEscape("Dívida salva. Confira as parcelas sugeridas abaixo e adicione-as aos gastos recorrentes.")+"#sugestoes", http.StatusSeeOther)
+		return
 	}
-	http.Redirect(w, r, "/dividas?msg="+url.QueryEscape(msg), http.StatusSeeOther)
+	http.Redirect(w, r, "/dividas?msg="+url.QueryEscape("Dívida salva"), http.StatusSeeOther)
 }
 
 func (s *Server) deleteDebt(w http.ResponseWriter, r *http.Request) {
