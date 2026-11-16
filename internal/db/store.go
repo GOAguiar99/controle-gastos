@@ -154,18 +154,60 @@ func (s *Store) Tx(id int64) (finance.Entry, error) {
 	return scanTx(s.DB.QueryRow(txSelect+` WHERE t.id = ?`, id))
 }
 
-func (s *Store) InsertTx(in TxInput) (int64, error) {
+const txInsert = `INSERT INTO transactions (kind, date, amount_cents, category_id, description, recurrence_id, occurrence_month, debt_id, source)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+func txArgs(in TxInput) []any {
 	if in.Source == "" {
 		in.Source = "manual"
 	}
-	res, err := s.DB.Exec(`INSERT INTO transactions (kind, date, amount_cents, category_id, description, recurrence_id, occurrence_month, debt_id, source)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.Kind, in.Date.Format(dateFmt), in.Amount, in.CategoryID, in.Description,
-		nz(in.RecurrenceID), nzs(in.OccMonth), nz(in.DebtID), in.Source)
+	return []any{in.Kind, in.Date.Format(dateFmt), in.Amount, in.CategoryID, in.Description,
+		nz(in.RecurrenceID), nzs(in.OccMonth), nz(in.DebtID), in.Source}
+}
+
+func (s *Store) InsertTx(in TxInput) (int64, error) {
+	res, err := s.DB.Exec(txInsert, txArgs(in)...)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// InsertTxs inserts all transactions in one SQL transaction: either every row
+// is saved or none is.
+func (s *Store) InsertTxs(ins []TxInput) ([]int64, error) {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	ids := make([]int64, 0, len(ins))
+	for _, in := range ins {
+		res, err := tx.Exec(txInsert, txArgs(in)...)
+		if err != nil {
+			return nil, err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, tx.Commit()
+}
+
+// TxSource reports where a transaction came from (manual, import, mcp).
+func (s *Store) TxSource(id int64) (string, error) {
+	var src string
+	err := s.DB.QueryRow(`SELECT source FROM transactions WHERE id = ?`, id).Scan(&src)
+	return src, err
+}
+
+// OccurrenceConfirmed reports whether month m of recurrence recID already has a transaction.
+func (s *Store) OccurrenceConfirmed(recID int64, m finance.Month) (bool, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT count(*) FROM transactions WHERE recurrence_id = ? AND occurrence_month = ?`, recID, m.String()).Scan(&n)
+	return n > 0, err
 }
 
 // UpdateTx edits the user-editable fields; the recurrence link is kept.
@@ -558,6 +600,20 @@ func (s *Store) DeleteDebt(id int64) error {
 }
 
 // ---------- settings ----------
+
+// Setting returns a text setting ("" when missing).
+func (s *Store) Setting(key string) string {
+	var v string
+	if err := s.DB.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v); err != nil {
+		return ""
+	}
+	return v
+}
+
+func (s *Store) SetSetting(key, v string) error {
+	_, err := s.DB.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, v)
+	return err
+}
 
 func (s *Store) SettingInt(key string) int64 {
 	var v string

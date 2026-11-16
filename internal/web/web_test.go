@@ -12,34 +12,12 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"controle-gastos/internal/app"
 	"controle-gastos/internal/db"
+	"controle-gastos/internal/mcpserver"
 )
 
-func TestParseMoney(t *testing.T) {
-	cases := map[string]int64{
-		"1.234,56": 123456, "1234,56": 123456, "1234.56": 123456, "R$ 10": 1000,
-		"0,1": 10, "1.000.000": 100000000, " 99,999 ": 10000,
-	}
-	for in, want := range cases {
-		got, err := ParseMoney(in)
-		if err != nil || got != want {
-			t.Errorf("ParseMoney(%q) = %d, %v; want %d", in, got, err, want)
-		}
-	}
-	if _, err := ParseMoney("abc"); err == nil {
-		t.Error("expected error")
-	}
-}
-
-func TestBRL(t *testing.T) {
-	for in, want := range map[int64]string{0: "R$ 0,00", 123456: "R$ 1.234,56", -50: "−R$ 0,50", 100000000: "R$ 1.000.000,00"} {
-		if got := brl(in); got != want {
-			t.Errorf("brl(%d) = %q want %q", in, got, want)
-		}
-	}
-}
-
-func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
+func newTestServer(t *testing.T) (*httptest.Server, *http.Client, *app.Service) {
 	t.Helper()
 	st, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -47,7 +25,8 @@ func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	}
 	t.Cleanup(func() { st.Close() })
 	hash, _ := bcrypt.GenerateFromPassword([]byte("senha-de-teste"), bcrypt.MinCost)
-	srv, err := New(st, &Auth{PasswordHash: hash, Secret: []byte(strings.Repeat("k", 32))}, time.UTC)
+	svc := app.New(st, time.UTC)
+	srv, err := New(svc, &Auth{PasswordHash: hash, Secret: []byte(strings.Repeat("k", 32))}, mcpserver.Handler(svc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +34,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	t.Cleanup(ts.Close)
 	jar := &cookieJar{}
 	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return ts, client
+	return ts, client, svc
 }
 
 type cookieJar struct{ c []*http.Cookie }
@@ -64,7 +43,7 @@ func (j *cookieJar) SetCookies(_ *url.URL, cs []*http.Cookie) { j.c = append(j.c
 func (j *cookieJar) Cookies(*url.URL) []*http.Cookie          { return j.c }
 
 func TestPagesRequireLoginAndRender(t *testing.T) {
-	ts, client := newTestServer(t)
+	ts, client, _ := newTestServer(t)
 
 	res, err := client.Get(ts.URL + "/")
 	if err != nil || res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/login" {
@@ -127,5 +106,55 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 	res, _ = client.Do(req)
 	if res.StatusCode != http.StatusForbidden {
 		t.Errorf("cross-origin POST: %d", res.StatusCode)
+	}
+}
+
+func TestMCPEndpoint(t *testing.T) {
+	ts, client, svc := newTestServer(t)
+	token, err := svc.MCPToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialize := func(path string) *http.Response {
+		t.Helper()
+		body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`
+		req, _ := http.NewRequest("POST", ts.URL+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Origin", "https://claude.ai") // connectors call from another origin, without the session cookie
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+
+	for _, p := range []string{"/mcp/errado", "/mcp/" + token[:len(token)-1], "/mcp/"} {
+		if res := initialize(p); res.StatusCode != http.StatusNotFound {
+			t.Errorf("POST %s: %d, want 404", p, res.StatusCode)
+		}
+	}
+	res := initialize("/mcp/" + token)
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "controle-gastos") {
+		t.Fatalf("initialize: %d %s", res.StatusCode, body)
+	}
+
+	// the Config page shows the URL; rotating it kills the old one
+	client.PostForm(ts.URL+"/login", url.Values{"password": {"senha-de-teste"}})
+	res, _ = client.Get(ts.URL + "/config")
+	body, _ = io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "/mcp/"+token) {
+		t.Fatal("config page should show the MCP URL")
+	}
+	if res, _ := client.PostForm(ts.URL+"/config/mcp/rotar", nil); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("rotate: %d", res.StatusCode)
+	}
+	if res := initialize("/mcp/" + token); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("old token after rotate: %d", res.StatusCode)
+	}
+	newToken, _ := svc.MCPToken()
+	if res := initialize("/mcp/" + newToken); res.StatusCode != http.StatusOK {
+		t.Fatalf("new token: %d", res.StatusCode)
 	}
 }

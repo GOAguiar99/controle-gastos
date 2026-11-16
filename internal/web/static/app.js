@@ -12,6 +12,22 @@
     });
   });
 
+  // Copy buttons: [data-copy="#input"] copies that input's value.
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var input = document.querySelector(btn.dataset.copy);
+      if (!input) return;
+      input.select();
+      var done = function () {
+        var label = btn.textContent;
+        btn.textContent = 'Copiado';
+        setTimeout(function () { btn.textContent = label; }, 1500);
+      };
+      if (navigator.clipboard) navigator.clipboard.writeText(input.value).then(done, function () { document.execCommand('copy'); done(); });
+      else { document.execCommand('copy'); done(); }
+    });
+  });
+
   // Recurrence fields: show only the duration input that matters.
   document.querySelectorAll('[data-recurrence]').forEach(function (box) {
     var mode = box.querySelector('[data-endmode]');

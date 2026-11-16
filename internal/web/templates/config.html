@@ -22,6 +22,26 @@
       <form method="post" action="/logout" class="card-actions"><button class="btn ghost">Sair</button></form>
       {{end}}
     </article>
+    {{if .MCPURL}}
+    <article class="card" id="claude">
+      <div class="card-head"><h2>Conectar ao Claude</h2></div>
+      <p class="hint">Este link dá ao Claude acesso completo para ler e alterar seus dados. Trate como uma senha: não compartilhe e gere um novo se vazar.</p>
+      <div class="copy-row">
+        <input id="mcp-url" class="mono" value="{{.MCPURL}}" readonly aria-label="Link do conector MCP">
+        <button type="button" class="btn" data-copy="#mcp-url">Copiar</button>
+      </div>
+      <details class="mcp-help">
+        <summary>Como conectar</summary>
+        <ol>
+          <li><b>Claude (web, app ou celular):</b> Configurações → Conectores → Adicionar conector personalizado → cole o link.</li>
+          <li><b>Claude Code:</b> <code>claude mcp add --transport http controle-gastos &lt;link&gt;</code></li>
+        </ol>
+      </details>
+      <form method="post" action="/config/mcp/rotar" class="card-actions" data-confirm="Gerar um novo link? O link atual para de funcionar e você precisará atualizá-lo no Claude.">
+        <button class="btn ghost">Gerar novo link</button>
+      </form>
+    </article>
+    {{end}}
   </div>
 
   <article class="card">

@@ -1,4 +1,4 @@
-package web
+package app
 
 import (
 	"sort"
@@ -13,29 +13,29 @@ const catSlots = 7
 
 const otherCats = "Outras"
 
-// catPeriod is one composition (segmented bar) of the category totals.
-type catPeriod struct {
+// CategoryPeriod is one composition (segmented bar) of the category totals.
+type CategoryPeriod struct {
 	Label  string    `json:"label"`
-	Values []float64 `json:"values"` // per catChart.Cats
+	Values []float64 `json:"values"` // per CategoryChart.Cats
 	Total  float64   `json:"total"`
 }
 
-// catChart feeds the Receitas/Gastos charts: totals per category per year and
+// CategoryChart feeds the Receitas/Gastos charts: totals per category per year and
 // the composition of the selected month, its year and the realized history.
-type catChart struct {
-	Cats      []string    `json:"cats"`
-	Years     []string    `json:"years"`
-	YearState []string    `json:"yearState"` // realizado | parcial | previsto
-	Values    [][]float64 `json:"values"`    // [cat][year]
-	YearReal  []float64   `json:"yearReal"`
-	YearProj  []float64   `json:"yearProj"`
-	YearMons  []int       `json:"yearMonths"` // months the yearly average divides by
-	Periods   []catPeriod `json:"periods"`
+type CategoryChart struct {
+	Cats      []string         `json:"cats"`
+	Years     []string         `json:"years"`
+	YearState []string         `json:"yearState"` // realizado | parcial | previsto
+	Values    [][]float64      `json:"values"`    // [cat][year]
+	YearReal  []float64        `json:"yearReal"`
+	YearProj  []float64        `json:"yearProj"`
+	YearMons  []int            `json:"yearMonths"` // months the yearly average divides by
+	Periods   []CategoryPeriod `json:"periods"`
 }
 
 // buildCatChart expects entries of a single kind covering from first.. through end of lastYear.
-func buildCatChart(entries []finance.Entry, first, sel finance.Month, today time.Time, lastYear int) catChart {
-	var c catChart
+func buildCatChart(entries []finance.Entry, first, sel finance.Month, today time.Time, lastYear int) CategoryChart {
+	var c CategoryChart
 	if len(entries) == 0 {
 		return c
 	}
@@ -95,11 +95,13 @@ func buildCatChart(entries []finance.Entry, first, sel finance.Month, today time
 		c.YearMons = append(c.YearMons, mons)
 	}
 
-	newPeriod := func(label string) catPeriod { return catPeriod{Label: label, Values: make([]float64, len(c.Cats))} }
+	newPeriod := func(label string) CategoryPeriod {
+		return CategoryPeriod{Label: label, Values: make([]float64, len(c.Cats))}
+	}
 	month := newPeriod(sel.Label())
 	year := newPeriod(strconv.Itoa(sel.Year()))
 	hist := newPeriod("Histórico até hoje")
-	add := func(p *catPeriod, i int, v float64) { p.Values[i] += v; p.Total += v }
+	add := func(p *CategoryPeriod, i int, v float64) { p.Values[i] += v; p.Total += v }
 
 	today = finance.DateOnly(today)
 	for _, e := range entries {
@@ -124,6 +126,6 @@ func buildCatChart(entries []finance.Entry, first, sel finance.Month, today time
 			add(&hist, i, v)
 		}
 	}
-	c.Periods = []catPeriod{month, year, hist}
+	c.Periods = []CategoryPeriod{month, year, hist}
 	return c
 }

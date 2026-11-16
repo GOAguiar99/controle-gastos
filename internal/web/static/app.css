@@ -288,3 +288,13 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
 .comp-legend .dot { align-self: center; }
 .comp-legend small { text-align: right; }
 .comp-legend .comp-total { border-top: 1px solid var(--line); padding-top: 4px; }
+
+/* Conectar ao Claude */
+.copy-row { display: flex; gap: 8px; margin-top: 12px; }
+.copy-row input { flex: 1; min-width: 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
+.mcp-help { margin-top: 10px; font-size: .88rem; }
+.mcp-help summary { cursor: pointer; color: var(--muted); }
+.mcp-help ol { padding-left: 18px; margin: 8px 0 0; }
+.mcp-help li { margin-bottom: 6px; }
+.mcp-help code { font-size: .78rem; background: #eef1f4; padding: 1px 5px; border-radius: 4px; word-break: break-all; }

@@ -23,9 +23,11 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"controle-gastos/internal/app"
 	"controle-gastos/internal/db"
 	"controle-gastos/internal/finance"
 	"controle-gastos/internal/importer"
+	"controle-gastos/internal/mcpserver"
 	"controle-gastos/internal/web"
 )
 
@@ -89,7 +91,8 @@ func serve() error {
 		return err
 	}
 	defer st.Close()
-	srv, err := web.New(st, auth, location())
+	svc := app.New(st, location())
+	srv, err := web.New(svc, auth, mcpserver.Handler(svc))
 	if err != nil {
 		return err
 	}

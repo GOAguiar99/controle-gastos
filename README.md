@@ -22,6 +22,22 @@ só que melhor.
   ou **pulada**.
 - **Dívidas** com progresso; pagamentos são gastos marcados com "abate dívida".
 - Exportar CSV e baixar backup do banco. Login com senha única.
+- **Conector MCP para o Claude**: o Claude lê e altera tudo (lança faturas, confirma recorrências,
+  responde "quanto gastei com X em 2026?"). Veja abaixo.
+
+## Usar com o Claude (MCP)
+
+O app expõe um servidor MCP (Streamable HTTP) num **link secreto**: `https://<seu-domínio>/mcp/<token>`.
+Pegue o link em *Config → Conectar ao Claude* e cole:
+
+- **Claude (web, desktop, celular):** Configurações → Conectores → Adicionar conector personalizado.
+- **Claude Code:** `claude mcp add --transport http controle-gastos <link>`
+
+Não há outro login nesse endereço: **quem tiver o link tem acesso total**, então trate-o como senha.
+Se vazar, clique em *Gerar novo link* (o antigo passa a responder 404). O Caddy padrão não grava
+log de acesso; se você ativar `log`, filtre o caminho `/mcp/*` para o token não ir para os logs.
+Exclusões são marcadas como destrutivas, então o Claude pede confirmação; lançamentos criados pelo
+Claude ficam com `source = 'mcp'`.
 
 ## Rodar localmente
 
@@ -89,7 +105,9 @@ Backups: `controle-gastos-backup.timer` faz `VACUUM INTO` diário em `/var/backu
 cmd/app/            main: serve | import | hash-password
 internal/finance/   regras puras (meses, recorrências, resumo, fluxo de caixa) + testes
 internal/db/        SQLite, migrations embutidas, Store
-internal/web/       handlers, login, templates e estáticos embutidos
+internal/app/       a API do app: regras de negócio e validação (usada pela web e pelo MCP) + testes
+internal/web/       handlers HTTP finos, login, templates e estáticos embutidos
+internal/mcpserver/ ferramentas MCP (finas, sobre internal/app) + teste em memória
 internal/importer/  leitura da planilha .xlsx (stdlib) e conferência
 deploy/             systemd, Caddy, backup, setup da VM
 ```

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"controle-gastos/internal/app"
 	"controle-gastos/internal/db"
 	"controle-gastos/internal/finance"
 )
@@ -27,11 +28,11 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	st   *db.Store
+	svc  *app.Service
+	st   *db.Store // read-only use for rendering; writes go through svc
 	auth *Auth
-	loc  *time.Location
 	tpl  map[string]*template.Template
-	now  func() time.Time
+	mcp  http.Handler // MCP endpoint served at /mcp/{token}; nil = disabled
 }
 
 // assetVersion is a short hash of the embedded static files, appended to their
@@ -48,8 +49,9 @@ var assetVersion = func() string {
 	return hex.EncodeToString(h.Sum(nil))[:10]
 }()
 
-func New(st *db.Store, auth *Auth, loc *time.Location) (*Server, error) {
-	s := &Server{st: st, auth: auth, loc: loc, now: time.Now, tpl: map[string]*template.Template{}}
+// New builds the web server. mcp, when non-nil, is served at the secret URL /mcp/{token}.
+func New(svc *app.Service, auth *Auth, mcp http.Handler) (*Server, error) {
+	s := &Server{svc: svc, st: svc.Store(), auth: auth, mcp: mcp, tpl: map[string]*template.Template{}}
 	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login"}
 	for _, p := range pages {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html")
@@ -100,6 +102,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /config/categorias/{id}", s.updateCategory)
 	mux.HandleFunc("GET /export/lancamentos.csv", s.exportCSV)
 	mux.HandleFunc("GET /export/backup.db", s.exportDB)
+	mux.HandleFunc("POST /config/mcp/rotar", s.rotateMCP)
+	if s.mcp != nil {
+		mux.Handle("/mcp/{token}", s.mcpGate(s.mcp))
+	}
 
 	return s.middleware(mux)
 }
@@ -112,7 +118,7 @@ func cacheStatic(h http.Handler) http.Handler {
 }
 
 // today is the current calendar date in the configured timezone, as UTC midnight.
-func (s *Server) today() time.Time { return finance.DateOnly(s.now().In(s.loc)) }
+func (s *Server) today() time.Time { return s.svc.Today() }
 
 type page map[string]any
 
@@ -128,7 +134,12 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 	}
 }
 
+// fail answers 400 with the message for invalid input, 500 otherwise.
 func (s *Server) fail(w http.ResponseWriter, err error) {
+	if app.IsValidation(err) {
+		badRequest(w, err.Error())
+		return
+	}
 	log.Printf("error: %v", err)
 	http.Error(w, "Erro interno: "+err.Error(), http.StatusInternalServerError)
 }
@@ -166,47 +177,7 @@ func formInt(r *http.Request, key string, def int) int {
 	return n
 }
 
-// ParseMoney accepts "1.234,56", "1234,56", "1234.56", "R$ 1.234" → cents.
-func ParseMoney(s string) (int64, error) {
-	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "R$"))
-	s = strings.ReplaceAll(s, " ", "")
-	if s == "" {
-		return 0, fmt.Errorf("valor vazio")
-	}
-	if strings.Contains(s, ",") {
-		s = strings.ReplaceAll(s, ".", "")
-		s = strings.Replace(s, ",", ".", 1)
-	} else if strings.Count(s, ".") > 1 {
-		s = strings.ReplaceAll(s, ".", "")
-	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-		return 0, fmt.Errorf("valor inválido %q", s)
-	}
-	return int64(math.Round(f * 100)), nil
-}
-
 // ---------- template helpers ----------
-
-func brl(cents int64) string {
-	neg := cents < 0
-	if neg {
-		cents = -cents
-	}
-	reais := strconv.FormatInt(cents/100, 10)
-	var b strings.Builder
-	for i, c := range reais {
-		if i > 0 && (len(reais)-i)%3 == 0 {
-			b.WriteByte('.')
-		}
-		b.WriteRune(c)
-	}
-	out := fmt.Sprintf("R$ %s,%02d", b.String(), cents%100)
-	if neg {
-		return "−" + out
-	}
-	return out
-}
 
 // moneyInput formats cents for an <input>, e.g. "1234,56".
 func moneyInput(cents int64) string {
@@ -240,7 +211,7 @@ var intervalOptions = []option{{1, "Mensal"}, {2, "Bimestral"}, {3, "Trimestral"
 var weekdays = [...]string{"dom", "seg", "ter", "qua", "qui", "sex", "sáb"}
 
 var funcs = template.FuncMap{
-	"brl":    brl,
+	"brl":    finance.BRL,
 	"money":  moneyInput,
 	"pct":    pct,
 	"barPct": barPct,

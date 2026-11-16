@@ -122,6 +122,13 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		path := r.URL.Path
+		// /mcp/{token} carries its own secret (checked in mcpGate) and is
+		// called by Claude from other origins, so it skips login and the
+		// same-origin check.
+		if strings.HasPrefix(path, "/mcp/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		public := path == "/login" || path == "/healthz" || strings.HasPrefix(path, "/static/")
 		if r.Method == http.MethodPost {
 			if origin := r.Header.Get("Origin"); origin != "" && !sameOrigin(origin, r) {

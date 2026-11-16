@@ -12,13 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"controle-gastos/internal/app"
 	"controle-gastos/internal/db"
 	"controle-gastos/internal/finance"
-)
-
-const (
-	horizonMonths = 12
-	dashWindow    = 6 // months of history in the cash-flow table/chart
 )
 
 // shortMonth is "nov/26": short enough for chart axes, unambiguous across years.
@@ -96,31 +92,14 @@ func filter(es []finance.Entry, keep func(finance.Entry) bool) []finance.Entry {
 func reais(c int64) float64 { return float64(c) / 100 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
-	today := s.today()
-	cur := finance.MonthOf(today)
 	sel := s.monthParam(r)
-
-	snap, err := s.st.LatestSnapshot()
+	o, err := s.svc.Overview(sel)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	lo, hi := min(sel, cur.Add(-dashWindow)), max(sel, cur.Add(horizonMonths-1))
-	if snap.Set {
-		lo = min(lo, finance.MonthOf(snap.Date))
-	}
-	entries, _, err := s.st.Entries(lo, hi)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	lim := s.st.Limits()
-	selSum := finance.Summarize(entries, sel, sel, lim)[0]
-	// The future only counts what is launched (recurrences, loan parcels and
-	// future-dated expenses): what's left is what can still be spent.
-	flow := finance.ProjectCash(entries, snap, today, horizonMonths)
-	// Month-by-month table: 6 months of history + current + next 11 months.
-	flowRows := finance.MonthlyFlow(entries, snap, today, cur.Add(-dashWindow), cur.Add(horizonMonths-1))
+	today, cur := o.Today, finance.MonthOf(o.Today)
+	selSum, lim, flow, flowRows := o.Summary, o.Limits, o.Flow, o.FlowRows
 	var pastRows, nextRows []finance.FlowMonth
 	for _, fm := range flowRows {
 		if fm.Past {
@@ -130,7 +109,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	monthEntries := filter(entries, func(e finance.Entry) bool { return finance.MonthOf(e.Date) == sel })
+	monthEntries := filter(o.Entries, func(e finance.Entry) bool { return finance.MonthOf(e.Date) == sel })
 	expCats := byCategory(filter(monthEntries, func(e finance.Entry) bool { return e.Kind == finance.Expense }))
 	var projectedCount int
 	for _, e := range monthEntries {
@@ -166,7 +145,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, r, "dashboard", page{
 		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur,
-		"Today": today, "Sum": selSum, "Limits": lim, "Snap": snap, "Flow": flow,
+		"Today": today, "Sum": selSum, "Limits": lim, "Snap": o.Snapshot, "Flow": flow,
 		"FlowRows": flowRows, "PastTot": finance.SumFlow(pastRows), "NextTot": finance.SumFlow(nextRows),
 		"PastN": len(pastRows), "NextN": len(nextRows),
 		"ExpCats": expCats, "ProjectedCount": projectedCount, "Chart": cd,
@@ -182,16 +161,13 @@ func ratioOf(a, b int64) float64 {
 }
 
 func (s *Server) saveCash(w http.ResponseWriter, r *http.Request) {
-	amount, err := ParseMoney(r.FormValue("amount"))
+	amount, err := finance.ParseMoney(r.FormValue("amount"))
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	date := s.today()
-	if d, err := finance.ParseDate(r.FormValue("date")); err == nil {
-		date = d
-	}
-	if err := s.st.AddSnapshot(date, amount, r.FormValue("note")); err != nil {
+	date, _ := finance.ParseDate(r.FormValue("date")) // zero = today
+	if _, err := s.svc.SetCash(date, amount, r.FormValue("note")); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -266,23 +242,11 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 		if kind == finance.Income {
 			title = "Receitas"
 		}
-		// Yearly history per category: from the first transaction through next year (previsto).
-		lastYear := today.Year() + 1
-		firstM := finance.MonthOf(today).Add(-11)
-		if t, ok, err := s.st.FirstTxDate(); err != nil {
-			s.fail(w, err)
-			return
-		} else if ok {
-			firstM = finance.MonthOf(t)
-		}
-		firstM = min(firstM, mes)
-		lastYear = max(lastYear, mes.Year())
-		yearEntries, _, err := s.st.Entries(firstM, finance.NewMonth(lastYear, time.December))
+		chart, err := s.svc.CategoryReport(kind, mes)
 		if err != nil {
 			s.fail(w, err)
 			return
 		}
-		chart := buildCatChart(filter(yearEntries, ofKind), firstM, mes, today, lastYear)
 
 		byCat := byCategory(cur)
 		var maxCat int64
@@ -302,76 +266,53 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 	}
 }
 
-// categoryFromForm returns the selected category, creating "new_category" when filled in.
-func (s *Server) categoryFromForm(r *http.Request, kind finance.Kind) (int64, error) {
+// categoryFromForm reads the selected category, or "new_category" (created if missing).
+func categoryFromForm(r *http.Request) app.CategoryRef {
 	if name := strings.TrimSpace(r.FormValue("new_category")); name != "" {
-		return s.st.EnsureCategory(name, kind, finance.Other)
+		return app.CategoryRef{Name: name, Create: true}
 	}
-	id := formID(r, "category_id")
-	if id == 0 {
-		return 0, fmt.Errorf("escolha uma categoria")
-	}
-	c, err := s.st.Category(id)
-	if err != nil || c.Kind != kind {
-		return 0, fmt.Errorf("categoria inválida")
-	}
-	return id, nil
+	return app.CategoryRef{ID: formID(r, "category_id")}
 }
 
-func parseKind(v string) (finance.Kind, error) {
-	switch finance.Kind(v) {
-	case finance.Income, finance.Expense:
-		return finance.Kind(v), nil
+// txFromForm reads the fields shared by the create and edit forms.
+func txFromForm(r *http.Request, kind finance.Kind) (app.TxIn, error) {
+	in := app.TxIn{Kind: kind, Category: categoryFromForm(r), Description: r.FormValue("description"), DebtID: formID(r, "debt_id")}
+	var err error
+	if in.Date, err = finance.ParseDate(r.FormValue("date")); err != nil {
+		return in, fmt.Errorf("data inválida")
 	}
-	return "", fmt.Errorf("tipo inválido")
+	if in.Amount, err = finance.ParseMoney(r.FormValue("amount")); err != nil {
+		return in, fmt.Errorf("valor inválido")
+	}
+	return in, nil
 }
 
 func (s *Server) createTx(w http.ResponseWriter, r *http.Request) {
-	kind, err := parseKind(r.FormValue("kind"))
+	kind, err := app.ParseKind(r.FormValue("kind"))
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	date, err := finance.ParseDate(r.FormValue("date"))
-	if err != nil {
-		badRequest(w, "data inválida")
-		return
-	}
-	amount, err := ParseMoney(r.FormValue("amount"))
-	if err != nil || amount <= 0 {
-		badRequest(w, "valor inválido")
-		return
-	}
-	catID, err := s.categoryFromForm(r, kind)
+	in, err := txFromForm(r, kind)
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	desc := strings.TrimSpace(r.FormValue("description"))
-	dest := kindPath(kind) + "?mes=" + finance.MonthOf(date).String()
-
+	dest := kindPath(kind) + "?mes=" + finance.MonthOf(in.Date).String()
 	if r.FormValue("repeat") == "on" {
-		rec, err := recurrenceFromForm(r)
+		sched, err := recurrenceFromForm(r)
 		if err != nil {
 			badRequest(w, err.Error())
 			return
 		}
-		if desc == "" {
-			c, _ := s.st.Category(catID)
-			desc = c.Name
-		}
-		rec.Kind, rec.Description, rec.CategoryID, rec.Amount = kind, desc, catID, amount
-		rec.Day, rec.Start, rec.Active = date.Day(), finance.MonthOf(date), true
-		if _, err := s.st.SaveRecurrence(rec); err != nil {
+		if _, err := s.svc.RecurrenceFromTx(in, sched); err != nil {
 			s.fail(w, err)
 			return
 		}
 		http.Redirect(w, r, dest+"&msg="+url.QueryEscape("Recorrência criada — já aparece nos meses seguintes"), http.StatusSeeOther)
 		return
 	}
-
-	_, err = s.st.InsertTx(db.TxInput{Kind: kind, Date: date, Amount: amount, CategoryID: catID, Description: desc, DebtID: formID(r, "debt_id")})
-	if err != nil {
+	if _, err := s.svc.AddTx(in); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -414,32 +355,17 @@ func (s *Server) updateTx(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	tx, err := s.st.Tx(id)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	date, err := finance.ParseDate(r.FormValue("date"))
-	if err != nil {
-		badRequest(w, "data inválida")
-		return
-	}
-	amount, err := ParseMoney(r.FormValue("amount"))
-	if err != nil || amount <= 0 {
-		badRequest(w, "valor inválido")
-		return
-	}
-	catID, err := s.categoryFromForm(r, tx.Kind)
+	in, err := txFromForm(r, "")
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	in := db.TxInput{Date: date, Amount: amount, CategoryID: catID, Description: strings.TrimSpace(r.FormValue("description")), DebtID: formID(r, "debt_id")}
-	if err := s.st.UpdateTx(id, in); err != nil {
+	tx, err := s.svc.UpdateTx(id, in)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, kindPath(tx.Kind)+"?mes="+finance.MonthOf(date).String()+"&msg="+url.QueryEscape("Lançamento atualizado"), http.StatusSeeOther)
+	http.Redirect(w, r, kindPath(tx.Kind)+"?mes="+finance.MonthOf(tx.Date).String()+"&msg="+url.QueryEscape("Lançamento atualizado"), http.StatusSeeOther)
 }
 
 func (s *Server) deleteTx(w http.ResponseWriter, r *http.Request) {
@@ -448,57 +374,40 @@ func (s *Server) deleteTx(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.st.DeleteTx(id); err != nil {
+	if _, err := s.svc.DeleteTx(id); err != nil {
 		s.fail(w, err)
 		return
 	}
 	back(w, r, "/gastos")
 }
 
-func (s *Server) occurrenceFromForm(r *http.Request) (finance.Recurrence, finance.Month, error) {
-	rec, err := s.st.Recurrence(formID(r, "rec_id"))
-	if err != nil {
-		return rec, 0, fmt.Errorf("recorrência não encontrada")
-	}
-	m, err := finance.ParseMonth(r.FormValue("month"))
-	return rec, m, err
+func occurrenceFromForm(r *http.Request) (int64, finance.Month) {
+	m, _ := finance.ParseMonth(r.FormValue("month")) // zero → validation error in the service
+	return formID(r, "rec_id"), m
 }
 
 func (s *Server) confirmOccurrence(w http.ResponseWriter, r *http.Request) {
-	rec, m, err := s.occurrenceFromForm(r)
-	if err != nil {
-		badRequest(w, err.Error())
-		return
-	}
-	amount := rec.Amount
+	id, m := occurrenceFromForm(r)
+	var amount int64
 	if v := r.FormValue("amount"); v != "" {
-		if amount, err = ParseMoney(v); err != nil || amount <= 0 {
+		var err error
+		if amount, err = finance.ParseMoney(v); err != nil || amount <= 0 {
 			badRequest(w, "valor inválido")
 			return
 		}
 	}
-	date := m.Day(rec.Day)
-	if d, err := finance.ParseDate(r.FormValue("date")); err == nil {
-		date = d
-	}
-	_, err = s.st.InsertTx(db.TxInput{
-		Kind: rec.Kind, Date: date, Amount: amount, CategoryID: rec.CategoryID, Description: rec.Description,
-		RecurrenceID: rec.ID, OccMonth: m.String(), DebtID: rec.DebtID,
-	})
-	if err != nil {
+	date, _ := finance.ParseDate(r.FormValue("date")) // zero = the recurrence's day
+	if _, err := s.svc.ConfirmOccurrence(id, m, amount, date, app.SourceManual); err != nil {
 		s.fail(w, err)
 		return
 	}
+	rec, _ := s.svc.Recurrence(id)
 	back(w, r, kindPath(rec.Kind))
 }
 
 func (s *Server) skipOccurrence(w http.ResponseWriter, r *http.Request) {
-	rec, m, err := s.occurrenceFromForm(r)
+	rec, err := s.svc.SkipOccurrence(occurrenceFromForm(r))
 	if err != nil {
-		badRequest(w, err.Error())
-		return
-	}
-	if err := s.st.Skip(rec.ID, m); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -506,12 +415,8 @@ func (s *Server) skipOccurrence(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) unskipOccurrence(w http.ResponseWriter, r *http.Request) {
-	rec, m, err := s.occurrenceFromForm(r)
+	rec, err := s.svc.UnskipOccurrence(occurrenceFromForm(r))
 	if err != nil {
-		badRequest(w, err.Error())
-		return
-	}
-	if err := s.st.Unskip(rec.ID, m); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -520,20 +425,12 @@ func (s *Server) unskipOccurrence(w http.ResponseWriter, r *http.Request) {
 
 // ---------- recorrentes ----------
 
-// recurrenceFromForm reads the periodicity / duration fields.
-func recurrenceFromForm(r *http.Request) (finance.Recurrence, error) {
-	rec := finance.Recurrence{Interval: formInt(r, "interval", 1), EndMode: r.FormValue("end_mode")}
-	switch rec.Interval {
-	case 1, 2, 3, 6, 12:
-	default:
-		return rec, fmt.Errorf("periodicidade inválida")
-	}
+// recurrenceFromForm reads the periodicity / duration fields; the service validates them.
+func recurrenceFromForm(r *http.Request) (app.RecIn, error) {
+	rec := app.RecIn{Interval: formInt(r, "interval", 1), EndMode: r.FormValue("end_mode")}
 	switch rec.EndMode {
 	case finance.EndCount:
 		rec.Count = formInt(r, "count", 0)
-		if rec.Count < 1 || rec.Count > 600 {
-			return rec, fmt.Errorf("número de vezes inválido")
-		}
 	case finance.EndUntil:
 		end, err := finance.ParseMonth(r.FormValue("end"))
 		if err != nil {
@@ -611,64 +508,38 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) saveRecurrence(w http.ResponseWriter, r *http.Request) {
-	kind, err := parseKind(r.FormValue("kind"))
+	kind, err := app.ParseKind(r.FormValue("kind"))
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	rec, err := recurrenceFromForm(r)
+	in, err := recurrenceFromForm(r)
 	if err != nil {
 		badRequest(w, err.Error())
 		return
 	}
-	if idStr := r.PathValue("id"); idStr != "" {
-		if rec.ID, err = pathID(r); err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		old, err := s.st.Recurrence(rec.ID)
-		if err != nil || old.Kind != kind {
+	if r.PathValue("id") != "" {
+		if in.ID, err = pathID(r); err != nil {
 			http.NotFound(w, r)
 			return
 		}
 	}
-	rec.Kind = kind
-	rec.Description = strings.TrimSpace(r.FormValue("description"))
-	if rec.CategoryID, err = s.categoryFromForm(r, kind); err != nil {
-		badRequest(w, err.Error())
-		return
-	}
-	if rec.Description == "" {
-		c, _ := s.st.Category(rec.CategoryID)
-		rec.Description = c.Name
-	}
-	if rec.Amount, err = ParseMoney(r.FormValue("amount")); err != nil || rec.Amount <= 0 {
+	in.Kind, in.Category = kind, categoryFromForm(r)
+	in.Description = r.FormValue("description")
+	if in.Amount, err = finance.ParseMoney(r.FormValue("amount")); err != nil {
 		badRequest(w, "valor inválido")
 		return
 	}
-	rec.Day = formInt(r, "day", 1)
-	if rec.Day < 1 || rec.Day > 31 {
-		badRequest(w, "dia inválido")
-		return
-	}
-	if rec.Start, err = finance.ParseMonth(r.FormValue("start")); err != nil {
+	in.Day = formInt(r, "day", 1)
+	if in.Start, err = finance.ParseMonth(r.FormValue("start")); err != nil {
 		badRequest(w, "mês inicial inválido")
 		return
 	}
-	if rec.EndMode == finance.EndUntil && rec.End < rec.Start {
-		badRequest(w, "mês final antes do inicial")
-		return
-	}
-	rec.Active = rec.ID == 0 || r.FormValue("active") == "on"
+	in.Active = in.ID == 0 || r.FormValue("active") == "on"
 	if kind == finance.Expense {
-		if rec.DebtID = formID(r, "debt_id"); rec.DebtID != 0 {
-			if _, err := s.st.Debt(rec.DebtID); err != nil {
-				badRequest(w, "dívida inválida")
-				return
-			}
-		}
+		in.DebtID = formID(r, "debt_id")
 	}
-	if _, err := s.st.SaveRecurrence(rec); err != nil {
+	if _, err := s.svc.SaveRecurrence(in); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -681,12 +552,8 @@ func (s *Server) deleteRecurrence(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rec, err := s.st.Recurrence(id)
+	rec, err := s.svc.DeleteRecurrence(id)
 	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if err := s.st.DeleteRecurrence(id); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -761,36 +628,31 @@ func parseRate(v string) (float64, error) {
 	return strconv.ParseFloat(v, 64)
 }
 
+// debtFromForm parses the debt form; ranges are validated by the service.
 func debtFromForm(r *http.Request) (db.DebtInput, error) {
-	in := db.DebtInput{Name: strings.TrimSpace(r.FormValue("name")), System: r.FormValue("system")}
+	in := db.DebtInput{Name: r.FormValue("name"), System: r.FormValue("system")}
 	var err error
-	if in.Initial, err = ParseMoney(r.FormValue("initial")); in.Name == "" || err != nil || in.Initial <= 0 {
+	if in.Initial, err = finance.ParseMoney(r.FormValue("initial")); err != nil {
 		return in, fmt.Errorf("nome e valor inicial são obrigatórios")
 	}
 	if in.System != finance.LoanSAC && in.System != finance.LoanPrice {
-		in.System = finance.LoanNone
 		return in, nil
 	}
-	if in.MonthlyRate, err = parseRate(r.FormValue("rate")); err != nil || in.MonthlyRate < 0 || in.MonthlyRate > 20 {
+	if in.MonthlyRate, err = parseRate(r.FormValue("rate")); err != nil {
 		return in, fmt.Errorf("taxa mensal inválida")
 	}
-	if in.Term = formInt(r, "term", 0); in.Term < 1 || in.Term > 600 {
-		return in, fmt.Errorf("prazo inválido")
-	}
+	in.Term = formInt(r, "term", 0)
 	if in.FirstDue, err = finance.ParseDate(r.FormValue("first_due")); err != nil {
 		return in, fmt.Errorf("data da 1ª parcela inválida")
 	}
 	if v := r.FormValue("fees"); v != "" {
-		if in.Fees, err = ParseMoney(v); err != nil || in.Fees < 0 {
+		if in.Fees, err = finance.ParseMoney(v); err != nil {
 			return in, fmt.Errorf("seguros/taxas inválidos")
 		}
 	}
 	in.AnchorN = formInt(r, "anchor_n", 0)
-	if in.AnchorN < 0 || in.AnchorN >= in.Term {
-		return in, fmt.Errorf("parcela do saldo informado inválida")
-	}
 	if in.AnchorN > 0 {
-		if in.AnchorBalance, err = ParseMoney(r.FormValue("anchor_balance")); err != nil || in.AnchorBalance <= 0 {
+		if in.AnchorBalance, err = finance.ParseMoney(r.FormValue("anchor_balance")); err != nil {
 			return in, fmt.Errorf("saldo devedor informado inválido")
 		}
 	}
@@ -803,17 +665,14 @@ func (s *Server) saveDebt(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err.Error())
 		return
 	}
+	var id int64
 	if r.PathValue("id") != "" {
-		id, err := pathID(r)
-		if err != nil {
+		if id, err = pathID(r); err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		err = s.st.UpdateDebt(id, in)
-	} else {
-		_, err = s.st.AddDebt(in)
 	}
-	if err != nil {
+	if _, err := s.svc.SaveDebt(id, in); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -826,7 +685,7 @@ func (s *Server) deleteDebt(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.st.DeleteDebt(id); err != nil {
+	if _, err := s.svc.DeleteDebt(id); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -850,14 +709,22 @@ func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	snap, _ := s.st.LatestSnapshot()
+	mcpURL := ""
+	if s.mcp != nil {
+		if mcpURL, err = s.mcpURL(r); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
 	s.render(w, r, "config", page{
 		"Title": "Configurações", "Limits": s.st.Limits(), "IncomeCats": inc, "ExpenseCats": exp, "Snap": snap,
+		"MCPURL": mcpURL,
 	})
 }
 
 func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
-	card, err1 := ParseMoney(r.FormValue("card_limit"))
-	minS, err2 := ParseMoney(r.FormValue("min_savings"))
+	card, err1 := finance.ParseMoney(r.FormValue("card_limit"))
+	minS, err2 := finance.ParseMoney(r.FormValue("min_savings"))
 	if r.FormValue("min_savings") == "" {
 		minS, err2 = 0, nil
 	}
@@ -865,11 +732,7 @@ func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "valores inválidos")
 		return
 	}
-	if err := s.st.SetSettingInt("card_limit_cents", card); err != nil {
-		s.fail(w, err)
-		return
-	}
-	if err := s.st.SetSettingInt("min_savings_cents", minS); err != nil {
+	if err := s.svc.SetLimits(finance.Limits{CardLimit: card, MinSavings: minS}); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -885,13 +748,8 @@ func parseBucket(v string) finance.Bucket {
 }
 
 func (s *Server) addCategory(w http.ResponseWriter, r *http.Request) {
-	kind, err := parseKind(r.FormValue("kind"))
-	name := strings.TrimSpace(r.FormValue("name"))
-	if err != nil || name == "" {
-		badRequest(w, "nome e tipo são obrigatórios")
-		return
-	}
-	if _, err := s.st.EnsureCategory(name, kind, parseBucket(r.FormValue("bucket"))); err != nil {
+	kind, _ := app.ParseKind(r.FormValue("kind"))
+	if _, err := s.svc.AddCategory(r.FormValue("name"), kind, parseBucket(r.FormValue("bucket"))); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -904,7 +762,7 @@ func (s *Server) updateCategory(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.st.SetCategoryBucket(id, parseBucket(r.FormValue("bucket"))); err != nil {
+	if err := s.svc.SetCategoryBucket(id, parseBucket(r.FormValue("bucket"))); err != nil {
 		s.fail(w, err)
 		return
 	}
