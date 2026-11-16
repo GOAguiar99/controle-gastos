@@ -16,8 +16,17 @@
       {{if .Snap.Set}}<p class="muted">Último caixa informado: {{brl .Snap.Amount}} em {{dmy .Snap.Date}}.</p>{{end}}
       <div class="card-actions">
         <a class="btn" href="/export/lancamentos.csv">Exportar CSV</a>
+        <a class="btn" href="/export/dados.json">Baixar todos os meus dados (JSON)</a>
       </div>
       <form method="post" action="/logout" class="card-actions"><button class="btn ghost">Sair</button></form>
+    </article>
+    <article class="card" id="excluir">
+      <div class="card-head"><h2>Excluir conta</h2></div>
+      <p class="hint">Apaga sua conta, sua carteira com todos os lançamentos, recorrências e dívidas, e os links do Claude. Não dá para desfazer. Baixe seus dados antes, se quiser guardá-los. Cópias de segurança são apagadas em até 14 dias.</p>
+      <form method="post" action="/config/excluir-conta" class="form" data-confirm="Excluir sua conta e todos os dados para sempre?">
+        <label>Para confirmar, digite seu e-mail ({{.User.Email}})<input name="confirm" autocomplete="off" required></label>
+        <button class="btn danger">Excluir minha conta e meus dados</button>
+      </form>
     </article>
     {{if .MCPEnabled}}
     <article class="card" id="claude">

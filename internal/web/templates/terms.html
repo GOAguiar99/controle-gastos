@@ -1,0 +1,34 @@
+{{define "content"}}
+<article class="card legal">
+<h1>Termos de Uso</h1>
+<p class="muted">Última atualização: 16/11/2026.</p>
+
+<h2>1. O serviço</h2>
+<p>O Controle de Gastos é uma ferramenta para você registrar receitas e gastos e projetar seu fluxo de caixa. É oferecido por <b>{{or .Controller "o responsável pelo serviço"}}</b>. Ao entrar, você aceita estes termos e a <a href="/privacidade">Política de Privacidade</a>.</p>
+
+<h2>2. Não é consultoria financeira</h2>
+<p>Os números, projeções e status são calculados a partir do que você informa e servem só como apoio. Não são recomendação de investimento, crédito ou consultoria financeira, contábil ou tributária.</p>
+
+<h2>3. Sua conta</h2>
+<ul>
+  <li>Você entra com uma conta Google sua e é responsável pelo que for feito com ela.</li>
+  <li>Os links “Conectar ao Claude” dão acesso completo à sua carteira: trate-os como senha e revogue se vazarem.</li>
+  <li>É proibido tentar acessar dados de outras pessoas, sobrecarregar o serviço, burlar limites ou usá-lo para fins ilícitos. Contas que fizerem isso podem ser suspensas.</li>
+</ul>
+
+<h2>4. Seus dados</h2>
+<p>Os dados que você registra são seus. Você pode exportá-los e excluir a conta a qualquer momento em Configurações. Como tratamos esses dados está na <a href="/privacidade">Política de Privacidade</a>.</p>
+
+<h2>5. Disponibilidade</h2>
+<p>Fazemos cópias de segurança diárias, mas o serviço é oferecido “como está”, sem garantia de funcionamento ininterrupto. Mantenha suas próprias exportações dos dados importantes.</p>
+
+<h2>6. Responsabilidade</h2>
+<p>Na máxima extensão permitida pela lei, não respondemos por decisões tomadas com base nas informações do app nem por perdas causadas por uso indevido da sua conta ou dos seus links. Nada aqui limita direitos garantidos pelo Código de Defesa do Consumidor.</p>
+
+<h2>7. Mudanças e encerramento</h2>
+<p>Podemos alterar estes termos avisando na aplicação. Se o serviço for encerrado, avisaremos com antecedência para você exportar seus dados.</p>
+
+<h2>8. Contato e foro</h2>
+<p>Dúvidas: {{with .Contact}}<a href="mailto:{{.}}">{{.}}</a>{{else}}veja a página de contato do serviço{{end}}. Aplica-se a lei brasileira; fica eleito o foro do domicílio do usuário.</p>
+</article>
+{{end}}

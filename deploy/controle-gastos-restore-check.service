@@ -1,0 +1,7 @@
+[Unit]
+Description=Teste mensal de restauração do backup do Controle de Gastos
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/controle-gastos/restore-check.sh

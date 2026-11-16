@@ -1,0 +1,60 @@
+{{define "content"}}
+<article class="card legal">
+<h1>Política de Privacidade</h1>
+<p class="muted">Última atualização: 16/11/2026. Esta política segue a Lei Geral de Proteção de Dados (Lei nº 13.709/2018, LGPD).</p>
+
+<h2>1. Quem é o controlador</h2>
+<p>O Controle de Gastos é operado por <b>{{or .Controller "o responsável pelo serviço"}}</b>, controlador dos dados pessoais tratados aqui.
+Contato para privacidade e para exercer seus direitos (encarregado/canal do titular): {{with .Contact}}<a href="mailto:{{.}}">{{.}}</a>{{else}}veja a página de contato do serviço{{end}}.</p>
+
+<h2>2. Quais dados tratamos</h2>
+<ul>
+  <li><b>Dados da conta Google:</b> identificador da conta, nome, e-mail e foto, recebidos quando você entra com o Google. Não recebemos nem guardamos sua senha.</li>
+  <li><b>Dados financeiros que você informa:</b> receitas, gastos, categorias, descrições, recorrências, dívidas, saldo em caixa e limites.</li>
+  <li><b>Dados técnicos de segurança:</b> endereço IP e navegador (user agent) das sessões, datas de acesso e registros de eventos de segurança (entradas, saídas, falhas de login, exportações, exclusões).</li>
+</ul>
+<p>Não coletamos dados sensíveis (art. 5º, II), não usamos cookies de publicidade ou de análise e não vendemos dados.</p>
+
+<h2>3. Para que usamos e com qual base legal</h2>
+<ul>
+  <li>Prestar o serviço (mostrar seus números, projeções e relatórios): <b>execução de contrato</b> (art. 7º, V).</li>
+  <li>Autenticar você e proteger as contas contra fraude e abuso: <b>legítimo interesse</b> (art. 7º, IX) e <b>exercício regular de direitos</b> (art. 7º, VI).</li>
+  <li>Cumprir obrigações legais e atender autoridades: <b>obrigação legal</b> (art. 7º, II).</li>
+</ul>
+
+<h2>4. Com quem compartilhamos</h2>
+<ul>
+  <li><b>Google</b>, para o login (você autoriza na tela do Google).</li>
+  <li><b>Provedor de nuvem</b> (Oracle Cloud, região São Paulo), que hospeda o servidor e o banco de dados como operador.</li>
+  <li><b>Claude (Anthropic)</b>, somente se <i>você</i> criar um link “Conectar ao Claude”: o Claude passa a ler e alterar seus dados em seu nome. Isso pode envolver transferência internacional (art. 33), feita a seu pedido. Você pode revogar o link a qualquer momento em Configurações.</li>
+</ul>
+
+<h2>5. Por quanto tempo guardamos</h2>
+<ul>
+  <li>Dados da conta e financeiros: enquanto a conta existir. Ao excluir a conta, eles são apagados na hora do banco de dados e das cópias de segurança em até 14 dias.</li>
+  <li>Sessões: expiram em até 30 dias (ou 7 dias sem uso).</li>
+  <li>Registros de segurança: até 6 meses, salvo necessidade de guarda maior por lei ou investigação de incidente.</li>
+</ul>
+
+<h2>6. Seus direitos</h2>
+<p>Você pode, a qualquer momento (art. 18): confirmar e acessar seus dados, corrigi-los, levá-los para outro serviço, pedir a exclusão, saber com quem compartilhamos e revogar consentimentos. Na própria aplicação:</p>
+<ul>
+  <li><b>Acesso e portabilidade:</b> Configurações → “Baixar todos os meus dados (JSON)” ou “Exportar CSV”.</li>
+  <li><b>Correção:</b> edite os lançamentos e cadastros diretamente.</li>
+  <li><b>Exclusão:</b> Configurações → “Excluir conta”.</li>
+</ul>
+<p>Para outros pedidos, escreva para o contato acima; respondemos em até 15 dias. Você também pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD).</p>
+
+<h2>7. Segurança</h2>
+<p>Conexões só por HTTPS; isolamento dos dados de cada carteira no próprio banco de dados (Row-Level Security); sessões e links guardados apenas como hash; disco e cópias de segurança criptografados pelo provedor; registros de segurança sem senhas, tokens ou descrições financeiras. Em caso de incidente de segurança que possa causar risco ou dano relevante, avisaremos você e a ANPD nos prazos da regulamentação.</p>
+
+<h2>8. Cookies</h2>
+<p>Usamos apenas cookies essenciais: o da sessão e um cookie temporário (10 minutos) durante o login com o Google.</p>
+
+<h2>9. Crianças</h2>
+<p>O serviço não se destina a menores de 18 anos.</p>
+
+<h2>10. Mudanças</h2>
+<p>Se esta política mudar de forma relevante, avisaremos na aplicação antes de a mudança valer.</p>
+</article>
+{{end}}

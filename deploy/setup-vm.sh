@@ -37,10 +37,16 @@ fi
 
 # Backups
 install -d /usr/local/lib/controle-gastos /var/backups/controle-gastos
-install -m 755 backup.sh /usr/local/lib/controle-gastos/backup.sh
-install -m 644 controle-gastos-backup.service controle-gastos-backup.timer /etc/systemd/system/
+install -m 755 backup.sh restore-check.sh /usr/local/lib/controle-gastos/
+install -m 644 controle-gastos-backup.service controle-gastos-backup.timer \
+  controle-gastos-restore-check.service controle-gastos-restore-check.timer /etc/systemd/system/
+
+# Audit log retention (journald)
+install -d /etc/systemd/journald.conf.d
+install -m 644 journald-controle-gastos.conf /etc/systemd/journald.conf.d/controle-gastos.conf
+systemctl restart systemd-journald
 
 systemctl daemon-reload
-systemctl enable controle-gastos controle-gastos-backup.timer
-systemctl start controle-gastos-backup.timer
+systemctl enable controle-gastos controle-gastos-backup.timer controle-gastos-restore-check.timer
+systemctl start controle-gastos-backup.timer controle-gastos-restore-check.timer
 echo ">> Pronto. O primeiro push na main (com os secrets DEPLOY_*) instala o binário e inicia o serviço."

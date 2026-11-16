@@ -38,6 +38,9 @@ type Config struct {
 	SecureCookies bool
 	// Secret signs the short-lived OAuth state cookie (32+ bytes).
 	Secret []byte
+	// ControllerName and ContactEmail identify the data controller and the
+	// channel for data-subject requests on the privacy and terms pages.
+	ControllerName, ContactEmail string
 }
 
 type googleAuth struct {
@@ -188,16 +191,21 @@ func (s *Server) signIn(w http.ResponseWriter, r *http.Request, g db.GoogleUser)
 		return
 	}
 	s.setCookie(w, s.sessionCookie(), token, app.SessionTTL)
+	Audit("login_success", "user_id", actor.User.ID, "ip", clientIP(r))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) loginFailed(w http.ResponseWriter, r *http.Request, err error) {
 	msg := errLogin.Error()
-	if app.IsValidation(err) || errors.Is(err, errLogin) {
-		msg = err.Error()
+	reason := "error"
+	if app.IsValidation(err) {
+		msg, reason = err.Error(), "refused"
+	} else if errors.Is(err, errLogin) {
+		msg, reason = err.Error(), "invalid_oauth_response"
 	} else {
 		logErr(err)
 	}
+	Audit("login_failure", "reason", reason, "ip", clientIP(r))
 	w.WriteHeader(http.StatusForbidden)
 	s.render(w, r, "login", page{"Title": "Entrar", "Error": msg})
 }
@@ -215,6 +223,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		if err := s.app.EndSession(r.Context(), c.Value); err != nil {
 			logErr(err)
 		}
+		Audit("logout", "ip", clientIP(r))
 	}
 	s.setCookie(w, s.sessionCookie(), "", -1)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -270,13 +279,23 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// middleware sets security headers, rejects cross-origin state changes and
-// requires a session everywhere but the public pages.
+// maxBodyBytes caps form posts (the MCP handler has its own 1 MiB cap).
+const maxBodyBytes = 1 << 20
+
+// middleware sets security headers, limits request size and rate, rejects
+// cross-origin state changes and requires a session everywhere but the public
+// pages.
 func (s *Server) middleware(next http.Handler) http.Handler {
 	cop := http.NewCrossOriginProtection()
 	guarded := cop.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		public := path == "/login" || path == "/healthz" || strings.HasPrefix(path, "/static/") || strings.HasPrefix(path, "/auth/")
+		public := path == "/login" || path == "/healthz" || path == "/privacidade" || path == "/termos" ||
+			strings.HasPrefix(path, "/static/") || strings.HasPrefix(path, "/auth/")
+		if strings.HasPrefix(path, "/auth/") && !s.authLimit.allow(clientIP(r)) {
+			Audit("rate_limited", "route", "auth", "ip", clientIP(r))
+			tooMany(w)
+			return
+		}
 		if public {
 			next.ServeHTTP(w, r)
 			return
@@ -286,6 +305,8 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
+		// financial pages must not be kept in shared or back/forward caches
+		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, s.withActor(r, a))
 	}))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -293,14 +314,24 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "same-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
 		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https://*.googleusercontent.com; "+
-			"style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; form-action 'self' https://accounts.google.com; base-uri 'none'")
+			"style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; form-action 'self' https://accounts.google.com; base-uri 'none'; object-src 'none'")
+		if s.cfg.SecureCookies {
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
 		// /mcp/{token} carries its own secret (checked in mcpGate) and is
 		// called by Claude from other origins.
 		if strings.HasPrefix(r.URL.Path, "/mcp/") {
+			// per link: Claude's servers share IPs across users
+			if !s.mcpLimit.allow(r.URL.Path) {
+				tooMany(w)
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		guarded.ServeHTTP(w, r)
 	})
 }

@@ -484,6 +484,27 @@ func (s *Store) LatestSnapshot() (finance.Snapshot, error) {
 	return snap, err
 }
 
+// SnapshotRow is one "caixa hoje" entry as stored.
+type SnapshotRow struct {
+	Date      time.Time
+	Amount    int64
+	Note      string
+	CreatedAt time.Time
+}
+
+// Snapshots lists every cash snapshot, oldest first.
+func (s *Store) Snapshots() ([]SnapshotRow, error) {
+	rows, err := s.query(`SELECT date, amount_cents, note, created_at FROM cash_snapshots ORDER BY date, id`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (SnapshotRow, error) {
+		var x SnapshotRow
+		err := r.Scan(&x.Date, &x.Amount, &x.Note, &x.CreatedAt)
+		return x, err
+	})
+}
+
 func (s *Store) AddSnapshot(date time.Time, amount int64, note string) error {
 	err := s.exec(`INSERT INTO cash_snapshots (date, amount_cents, note) VALUES ($1, $2, $3)`, date, amount, note)
 	return err

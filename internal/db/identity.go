@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ type User struct {
 	Email      string
 	Name       string
 	PictureURL string
+	Suspended  bool // set by an operator (suspend-user); blocks sign-in, sessions and MCP links
 }
 
 // GoogleUser is the verified identity from a Google ID token.
@@ -24,11 +26,11 @@ type GoogleUser struct {
 	EmailVerified             bool
 }
 
-const userCols = `u.id, u.google_sub, u.email, u.name, u.picture_url`
+const userCols = `u.id, u.google_sub, u.email, u.name, u.picture_url, u.suspended_at IS NOT NULL`
 
 func scanUser(r pgx.Row) (User, error) {
 	var u User
-	err := r.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL)
+	err := r.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Suspended)
 	return u, err
 }
 
@@ -179,6 +181,64 @@ func (d *DB) MCPTokenOwner(ctx context.Context, tokenHash []byte) (userID, ledge
 		return 0, 0, false, nil
 	}
 	return userID, ledgerID, err == nil, err
+}
+
+// ---------- account administration ----------
+
+// FindUser looks a user up by numeric id or by email (operator CLI).
+func (d *DB) FindUser(ctx context.Context, idOrEmail string) (User, error) {
+	if id, err := strconv.ParseInt(idOrEmail, 10, 64); err == nil {
+		return d.User(ctx, id)
+	}
+	return scanUser(d.pool.QueryRow(ctx, `SELECT `+userCols+` FROM users u WHERE lower(u.email) = lower($1) ORDER BY u.id LIMIT 1`, idOrEmail))
+}
+
+// SetSuspended suspends or reactivates a user. Suspending also revokes their
+// sessions; MCP links are refused while suspended (see app.MCPActor).
+func (d *DB) SetSuspended(ctx context.Context, userID int64, suspended bool) error {
+	return pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
+		q := `UPDATE users SET suspended_at = NULL WHERE id = $1`
+		if suspended {
+			q = `UPDATE users SET suspended_at = coalesce(suspended_at, now()) WHERE id = $1`
+		}
+		tag, err := tx.Exec(ctx, q, userID)
+		if err == nil && tag.RowsAffected() == 0 {
+			return pgx.ErrNoRows
+		}
+		if err != nil || !suspended {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, userID)
+		return err
+	})
+}
+
+// DeleteUser erases a user: their ledger and all its financial data when they
+// are its only member (foreign-key cascades), then the user with their
+// sessions, memberships and MCP links. It reports the deleted ledger (0 when
+// the ledger is shared and was kept).
+func (d *DB) DeleteUser(ctx context.Context, userID int64) (ledgerID int64, err error) {
+	err = pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
+		var others int
+		err := tx.QueryRow(ctx, `SELECT m.ledger_id, (SELECT count(*) FROM ledger_members o WHERE o.ledger_id = m.ledger_id AND o.user_id <> m.user_id)
+			FROM ledger_members m WHERE m.user_id = $1`, userID).Scan(&ledgerID, &others)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if ledgerID != 0 && others == 0 {
+			if _, err := tx.Exec(ctx, `DELETE FROM ledgers WHERE id = $1`, ledgerID); err != nil {
+				return err
+			}
+		} else {
+			ledgerID = 0
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+		if err == nil && tag.RowsAffected() == 0 {
+			return pgx.ErrNoRows
+		}
+		return err
+	})
+	return ledgerID, err
 }
 
 func truncate(s string, n int) string {

@@ -313,3 +313,9 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
 .who { display: flex; align-items: center; gap: 6px; font-size: .85rem; color: inherit; opacity: .9; margin-left: auto; white-space: nowrap; }
 .who img { width: 24px; height: 24px; border-radius: 50%; }
 .btn.block { display: block; width: 100%; text-align: center; margin-bottom: 8px; }
+
+/* legal pages */
+.legal { max-width: 760px; margin: 0 auto; line-height: 1.55; }
+.legal h2 { margin-top: 1.4em; font-size: 1.05rem; }
+.legal-links { text-align: center; font-size: .85rem; color: #667; padding-top: 0; }
+.legal-links a { color: inherit; }

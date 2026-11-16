@@ -85,6 +85,9 @@ func (a *App) SignIn(ctx context.Context, g db.GoogleUser) (Actor, error) {
 	if err != nil {
 		return Actor{}, err
 	}
+	if u.Suspended {
+		return Actor{}, invalid("esta conta está suspensa; fale com o suporte")
+	}
 	actor := Actor{User: u, Source: SourceManual}
 	id, ok, err := a.db.UserLedger(ctx, u.ID)
 	if err == nil && !ok {
@@ -148,7 +151,7 @@ func (a *App) ResumeSession(ctx context.Context, token string) (Actor, bool, err
 
 func (a *App) actor(ctx context.Context, userID int64, source string) (Actor, bool, error) {
 	u, err := a.db.User(ctx, userID)
-	if err != nil {
+	if err != nil || u.Suspended {
 		return Actor{}, false, err
 	}
 	id, ok, err := a.db.UserLedger(ctx, userID)
@@ -187,7 +190,10 @@ func (a *App) CreateMCPToken(ctx context.Context, actor Actor, label string) (st
 	if err != nil {
 		return "", err
 	}
-	_, err = a.db.CreateMCPToken(ctx, actor.User.ID, actor.LedgerID, hash, label)
+	id, err := a.db.CreateMCPToken(ctx, actor.User.ID, actor.LedgerID, hash, label)
+	if err == nil {
+		Audit("mcp_link_created", "user_id", actor.User.ID, "link_id", id)
+	}
 	return token, err
 }
 
@@ -198,7 +204,11 @@ func (a *App) MCPTokens(ctx context.Context, actor Actor) ([]db.MCPToken, error)
 func (a *App) RevokeMCPToken(ctx context.Context, actor Actor, id int64) error {
 	ok, err := a.db.RevokeMCPToken(ctx, actor.User.ID, id)
 	if err == nil && !ok {
+		Audit("authz_denied", "user_id", actor.User.ID, "action", "revoke_mcp_link", "link_id", id)
 		return invalid("link não encontrado")
+	}
+	if err == nil {
+		Audit("mcp_link_revoked", "user_id", actor.User.ID, "link_id", id)
 	}
 	return err
 }
@@ -213,8 +223,55 @@ func (a *App) MCPActor(ctx context.Context, token string) (Actor, bool, error) {
 		return Actor{}, false, err
 	}
 	u, err := a.db.User(ctx, userID)
-	if err != nil {
+	if err != nil || u.Suspended {
 		return Actor{}, false, err
 	}
 	return Actor{User: u, LedgerID: ledgerID, Source: SourceMCP}, true, nil
+}
+
+// DeleteAccount erases the actor's account (LGPD art. 18, VI): their ledger
+// with all its financial data when nobody else shares it, their sessions and
+// MCP links. confirm must be the account's email, typed by the user.
+func (a *App) DeleteAccount(ctx context.Context, actor Actor, confirm string) error {
+	if !strings.EqualFold(strings.TrimSpace(confirm), actor.User.Email) {
+		return invalid("digite o seu e-mail exatamente para confirmar a exclusão")
+	}
+	ledger, err := a.db.DeleteUser(ctx, actor.User.ID)
+	if err != nil {
+		return err
+	}
+	Audit("account_deleted", "user_id", actor.User.ID, "ledger_deleted", ledger)
+	return nil
+}
+
+// SetSuspended suspends or reactivates an account (operators, via the CLI).
+func (a *App) SetSuspended(ctx context.Context, idOrEmail string, suspended bool) (db.User, error) {
+	u, err := a.db.FindUser(ctx, idOrEmail)
+	if err != nil {
+		return u, notFound(err, "conta")
+	}
+	if err := a.db.SetSuspended(ctx, u.ID, suspended); err != nil {
+		return u, err
+	}
+	ev := "account_reactivated"
+	if suspended {
+		ev = "account_suspended"
+	}
+	Audit(ev, "user_id", u.ID, "by", "operator-cli")
+	u.Suspended = suspended
+	return u, nil
+}
+
+// DeleteUserByOperator erases an account on request received outside the app
+// (e.g. an LGPD request by email), after the operator verified the requester.
+func (a *App) DeleteUserByOperator(ctx context.Context, idOrEmail string) (db.User, error) {
+	u, err := a.db.FindUser(ctx, idOrEmail)
+	if err != nil {
+		return u, notFound(err, "conta")
+	}
+	ledger, err := a.db.DeleteUser(ctx, u.ID)
+	if err == nil {
+		Audit("account_deleted", "user_id", u.ID, "ledger_deleted", ledger, "by", "operator-cli")
+	}
+	return u, err
 }

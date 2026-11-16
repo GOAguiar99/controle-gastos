@@ -59,8 +59,15 @@ through `db.DB` methods, never a ledger `Store`. Locally, `APP_INSECURE_NO_AUTH=
 To try the MCP locally, create a link in `/config` ("Conectar ao Claude"), then run
 `claude mcp add --transport http cg-local http://localhost:8080/mcp/<token>`.
 
+Accounts can be suspended (`users.suspended_at`): `SignIn`, `ResumeSession` and `MCPActor` refuse
+them. Administration is CLI-only over SSH (`suspend-user`, `unsuspend-user`, `delete-user`); there is
+deliberately no admin role in the web app. Account deletion (Config) and the JSON data export are
+web-only on purpose (an MCP link is a bearer URL driven by an LLM). Security events go through
+`app.Audit` (JSON to stderr/journald): pass ids and categories, never tokens, emails or financial text.
+See `docs/SECURITY.md` for controls, runbooks and the LGPD checklist.
+
 The MCP endpoint is `/mcp/{token}`: each link belongs to one user and ledger and can be revoked from
 Config. That route skips the session and cross-origin middleware; the secret token is its only auth.
 
-Pushing to `main` runs CI (gofmt, vet, test, build) and deploys to the VM when the `DEPLOY_*`
+Pushing to `main` runs CI (gofmt, vet, test, govulncheck, gitleaks, build) and deploys to the VM when the `DEPLOY_*`
 secrets are set.

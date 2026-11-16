@@ -1,0 +1,10 @@
+[Unit]
+Description=Teste mensal de restauração do backup do Controle de Gastos
+
+[Timer]
+OnCalendar=monthly
+RandomizedDelaySec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

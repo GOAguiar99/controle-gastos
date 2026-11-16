@@ -69,6 +69,7 @@ Variáveis de ambiente:
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | cliente OAuth do Google (tipo "Aplicativo da Web") |
 | `APP_BASE_URL` | — | URL pública https; o redirect autorizado no Google é `<APP_BASE_URL>/auth/google/callback` |
 | `APP_ALLOWED_EMAILS` | — | quem pode entrar (vírgulas; `*` = qualquer conta Google verificada) |
+| `APP_CONTROLLER_NAME`, `APP_CONTACT_EMAIL` | — | controlador e canal do titular mostrados em `/privacidade` e `/termos` (LGPD) |
 | `APP_SECRET` | aleatório | assina o cookie temporário do login (32+ chars) |
 | `DATABASE_URL` | — | conexão PostgreSQL (papel comum, sem superuser/BYPASSRLS) |
 | `ADDR` | `:8080` | endereço HTTP |
@@ -113,12 +114,13 @@ compila o binário estático linux/amd64, copia para a VM e reinicia o serviço 
 Sem os secrets, o deploy é pulado e só o CI roda.
 
 Backups: `controle-gastos-backup.timer` faz `pg_dump -Fc` diário em `/var/backups/controle-gastos`
-(14 cópias; restaure com `pg_restore`).
+(14 cópias) e `controle-gastos-restore-check.timer` testa a restauração todo mês. Procedimentos de
+segurança, recuperação, incidentes e LGPD: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Estrutura
 
 ```
-cmd/app/            main: serve | import | migrate-sqlite | claim-ledger
+cmd/app/            main: serve | import | migrate-sqlite | claim-ledger | suspend-user | unsuspend-user | delete-user
 internal/finance/   regras puras (meses, recorrências, resumo, fluxo de caixa) + testes
 internal/db/        PostgreSQL, migrations embutidas, RLS por carteira, Store (dbtest: banco por teste)
 internal/app/       a API do app: regras de negócio e validação (usada pela web e pelo MCP) + testes

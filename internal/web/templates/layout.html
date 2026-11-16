@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="{{asset "app.css"}}">
 </head>
 <body>
-{{if ne .Nav "login"}}
+{{if .User}}
 <header class="topbar">
   <div class="topbar-inner">
     <a class="brand" href="/">Controle de Gastos</a>
@@ -29,6 +29,7 @@
   {{with .Flash}}<div class="flash" role="status">{{.}}</div>{{end}}
   {{template "content" .}}
 </main>
+<footer class="wrap legal-links"><a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a></footer>
 <script src="{{asset "app.js"}}" defer></script>
 {{block "scripts" .}}{{end}}
 </body>

@@ -35,6 +35,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - run: go test ./...
+      - name: Known vulnerabilities (Go modules and standard library)
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: Build (linux/amd64, static)
         run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o controle-gastos ./cmd/app
       - uses: actions/upload-artifact@v4
@@ -43,8 +45,20 @@ jobs:
           path: controle-gastos
           retention-days: 7
 
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # whole history: a secret removed later is still leaked
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Committed secrets (gitleaks)
+        run: go run github.com/zricethezav/gitleaks/v8@v8.28.0 git --redact --exit-code 1 .
+
   deploy:
-    needs: test
+    needs: [test, secrets]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:

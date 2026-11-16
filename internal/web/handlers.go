@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -803,7 +804,54 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 		if e.RecurrenceID != 0 {
 			rec = "sim"
 		}
-		cw.Write([]string{e.Date.Format("2006-01-02"), string(e.Kind), e.Category, moneyInput(e.Amount), e.Description, rec})
+		cw.Write([]string{e.Date.Format("2006-01-02"), string(e.Kind), csvText(e.Category), moneyInput(e.Amount), csvText(e.Description), rec})
 	}
 	cw.Flush()
+	Audit("data_export", "user_id", actorOf(r).User.ID, "format", "csv")
+}
+
+// csvText neutralizes spreadsheet formulas (CSV injection): descriptions may
+// come from pasted bank statements or from Claude, and Excel/Sheets execute
+// cells starting with = + - @ (or a tab/CR). A leading ' makes them text.
+func csvText(v string) string {
+	if v != "" && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
+		return "'" + v
+	}
+	return v
+}
+
+// exportJSON downloads everything stored about the user (data portability).
+func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request) {
+	data, err := svcOf(r).ExportData(actorOf(r).User)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="controle-gastos-dados.json"`)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(data); err != nil {
+		logErr(err)
+	}
+	Audit("data_export", "user_id", actorOf(r).User.ID, "format", "json")
+}
+
+// deleteAccount erases the user's account and data, then signs them out.
+// Web only on purpose: an MCP link is a bearer URL that an LLM uses, and
+// irreversible account deletion must be a deliberate, confirmed human action.
+func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.DeleteAccount(r.Context(), actorOf(r), r.FormValue("confirm")); err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.setCookie(w, s.sessionCookie(), "", -1)
+	http.Redirect(w, r, "/login?msg="+url.QueryEscape("Sua conta e seus dados foram excluídos."), http.StatusSeeOther)
+}
+
+// legalPage serves the public privacy policy and terms of use.
+func (s *Server) legalPage(name, title string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.render(w, r, name, page{"Title": title})
+	}
 }

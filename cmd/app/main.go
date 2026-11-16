@@ -5,6 +5,9 @@
 //	app import [-force] planilha.xlsx  import the legacy spreadsheet
 //	app migrate-sqlite [-force] app.db copy the legacy SQLite database into PostgreSQL
 //	app claim-ledger email             reserve that ledger for a Google account (first sign-in joins it)
+//	app suspend-user email|id          block an account (sign-in, sessions, MCP links)
+//	app unsuspend-user email|id        reactivate it
+//	app delete-user email|id           erase an account and its ledger (verified LGPD request)
 package main
 
 import (
@@ -53,6 +56,8 @@ func main() {
 		err = migrateSQLite(os.Args[2:])
 	case "claim-ledger":
 		err = claimLedger(os.Args[2:])
+	case "suspend-user", "unsuspend-user", "delete-user":
+		err = adminUser(os.Args[1], os.Args[2:])
 	default:
 		usage()
 	}
@@ -62,7 +67,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "uso: app serve | app import [-force] [-today AAAA-MM-DD] arquivo.xlsx | app migrate-sqlite [-force] app.db | app claim-ledger email@gmail.com")
+	fmt.Fprintln(os.Stderr, "uso: app serve | app import [-force] [-today AAAA-MM-DD] arquivo.xlsx | app migrate-sqlite [-force] app.db | app claim-ledger email@gmail.com | app suspend-user|unsuspend-user|delete-user email|id")
 	os.Exit(2)
 }
 
@@ -77,7 +82,8 @@ func location() *time.Location {
 
 func serve() error {
 	addr := env("ADDR", ":8080")
-	cfg := web.Config{Secret: []byte(os.Getenv("APP_SECRET"))}
+	cfg := web.Config{Secret: []byte(os.Getenv("APP_SECRET")),
+		ControllerName: os.Getenv("APP_CONTROLLER_NAME"), ContactEmail: os.Getenv("APP_CONTACT_EMAIL")}
 	if id := os.Getenv("GOOGLE_CLIENT_ID"); id != "" {
 		base := os.Getenv("APP_BASE_URL")
 		u, err := url.Parse(base)
@@ -230,6 +236,34 @@ func claimLedger(args []string) error {
 		return err
 	}
 	fmt.Printf("carteira %d reservada para %s: o primeiro login dessa conta Google entra nela\n", id, args[0])
+	return nil
+}
+
+// adminUser runs the operator commands. Administration happens only here,
+// over SSH on the server: the web app has no admin role, so no web session
+// can ever reach another person's account or data.
+func adminUser(cmd string, args []string) error {
+	if len(args) != 1 {
+		usage()
+	}
+	ctx := context.Background()
+	d, err := openDB(ctx)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	a := app.NewApp(d, location())
+	var u db.User
+	switch cmd {
+	case "suspend-user", "unsuspend-user":
+		u, err = a.SetSuspended(ctx, args[0], cmd == "suspend-user")
+	case "delete-user":
+		u, err = a.DeleteUserByOperator(ctx, args[0])
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: conta %d ok\n", cmd, u.ID)
 	return nil
 }
 

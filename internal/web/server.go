@@ -38,7 +38,13 @@ type Server struct {
 	google *googleAuth // nil when only DevLogin is enabled
 	tpl    map[string]*template.Template
 	mcp    http.Handler // MCP endpoint served at /mcp/{token}; nil = disabled
+
+	authLimit *limiter // per client IP on /auth/*
+	mcpLimit  *limiter // per MCP link
 }
+
+// Audit is app.Audit, for the web layer's security events.
+var Audit = app.Audit
 
 // assetVersion is a short hash of the embedded static files, appended to their
 // URLs so browsers fetch new CSS/JS right after a deploy.
@@ -63,7 +69,8 @@ func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server
 	if len(cfg.Secret) < 32 {
 		return nil, errors.New("segredo do servidor curto demais (mínimo 32 bytes)")
 	}
-	s := &Server{app: a, cfg: cfg, mcp: mcp, tpl: map[string]*template.Template{}}
+	s := &Server{app: a, cfg: cfg, mcp: mcp, tpl: map[string]*template.Template{},
+		authLimit: newLimiter(30, 30), mcpLimit: newLimiter(120, 60)}
 	if cfg.Google != nil {
 		g, err := newGoogleAuth(ctx, cfg.Google)
 		if err != nil {
@@ -71,7 +78,7 @@ func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server
 		}
 		s.google = g
 	}
-	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login"}
+	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login", "privacy", "terms"}
 	for _, p := range pages {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html")
 		if err != nil {
@@ -128,6 +135,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /config/categorias", s.addCategory)
 	mux.HandleFunc("POST /config/categorias/{id}", s.updateCategory)
 	mux.HandleFunc("GET /export/lancamentos.csv", s.exportCSV)
+	mux.HandleFunc("GET /export/dados.json", s.exportJSON)
+	mux.HandleFunc("POST /config/excluir-conta", s.deleteAccount)
+	mux.HandleFunc("GET /privacidade", s.legalPage("privacy", "Política de Privacidade"))
+	mux.HandleFunc("GET /termos", s.legalPage("terms", "Termos de Uso"))
 	mux.HandleFunc("POST /config/mcp", s.createMCP)
 	mux.HandleFunc("POST /config/mcp/{id}/revogar", s.revokeMCP)
 	if s.mcp != nil {
@@ -151,6 +162,8 @@ type page map[string]any
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data page) {
 	data["Nav"] = name
+	data["Contact"] = s.cfg.ContactEmail
+	data["Controller"] = s.cfg.ControllerName
 	if svc := svcOf(r); svc != nil {
 		data["User"] = actorOf(r).User
 		data["PendingRecs"] = svc.Store().PendingRecurrences()
