@@ -4,9 +4,6 @@
 package app
 
 import (
-	"crypto/rand"
-	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,7 +29,7 @@ func IsValidation(err error) bool {
 }
 
 func notFound(err error, what string) error {
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, db.ErrNoRows) {
 		return invalid("%s não encontrada", what)
 	}
 	return err
@@ -59,6 +56,8 @@ func New(st *db.Store, loc *time.Location) *Service {
 
 // SetClock overrides the current time (tests).
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
+func (s *Service) withClock(now func() time.Time) *Service { s.now = now; return s }
 
 // Store gives read access for views that only render data. Writes must go
 // through the Service methods.
@@ -191,26 +190,4 @@ func (s *Service) SetLimits(lim finance.Limits) error {
 		return err
 	}
 	return s.st.SetSettingInt("min_savings_cents", lim.MinSavings)
-}
-
-// ---------- MCP access token ----------
-
-const mcpTokenKey = "mcp_token"
-
-// MCPToken returns the secret that forms the MCP URL, creating it on first use.
-func (s *Service) MCPToken() (string, error) {
-	if t := s.st.Setting(mcpTokenKey); t != "" {
-		return t, nil
-	}
-	return s.RotateMCPToken()
-}
-
-// RotateMCPToken replaces the MCP secret; the previous URL stops working.
-func (s *Service) RotateMCPToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	t := base64.RawURLEncoding.EncodeToString(b)
-	return t, s.st.SetSetting(mcpTokenKey, t)
 }

@@ -308,3 +308,8 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
 .suggestion:first-of-type { border-top: 0; }
 .sug-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sug-actions { display: flex; gap: 8px; }
+
+/* ---------- signed-in user / Google login ---------- */
+.who { display: flex; align-items: center; gap: 6px; font-size: .85rem; color: inherit; opacity: .9; margin-left: auto; white-space: nowrap; }
+.who img { width: 24px; height: 24px; border-radius: 50%; }
+.btn.block { display: block; width: 100%; text-align: center; margin-bottom: 8px; }

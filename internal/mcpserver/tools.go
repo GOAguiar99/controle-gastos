@@ -12,7 +12,11 @@ import (
 	"controle-gastos/internal/finance"
 )
 
-type tools struct{ svc *app.Service }
+// tools resolve the Service per call: each MCP link belongs to one user and
+// one ledger, carried on the request context.
+type tools struct {
+	svcFor func(context.Context) *app.Service
+}
 
 func ptr[T any](v T) *T { return &v }
 
@@ -206,13 +210,13 @@ func flowOut(fm finance.FlowMonth) flowMonthOut {
 		Past: fm.Past, Current: fm.Current}
 }
 
-func (t *tools) getOverview(_ context.Context, _ *mcp.CallToolRequest, in overviewIn) (*mcp.CallToolResult, overviewOut, error) {
+func (t *tools) getOverview(ctx context.Context, _ *mcp.CallToolRequest, in overviewIn) (*mcp.CallToolResult, overviewOut, error) {
 	var out overviewOut
 	m, err := month(in.Month)
 	if err != nil {
 		return nil, out, err
 	}
-	o, err := t.svc.Overview(m)
+	o, err := t.svcFor(ctx).Overview(m)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -247,7 +251,7 @@ type listTxOut struct {
 	Expense      int64   `json:"total_expense_cents"`
 }
 
-func (t *tools) listTransactions(_ context.Context, _ *mcp.CallToolRequest, in listTxIn) (*mcp.CallToolResult, listTxOut, error) {
+func (t *tools) listTransactions(ctx context.Context, _ *mcp.CallToolRequest, in listTxIn) (*mcp.CallToolResult, listTxOut, error) {
 	out := listTxOut{Transactions: []txOut{}}
 	f := app.TxFilter{Category: in.Category, Text: in.Text, IncludeProjected: in.IncludeProjected}
 	var err error
@@ -263,7 +267,7 @@ func (t *tools) listTransactions(_ context.Context, _ *mcp.CallToolRequest, in l
 	if f.Kind, err = kind(in.Kind); err != nil {
 		return nil, out, err
 	}
-	es, err := t.svc.ListTx(f)
+	es, err := t.svcFor(ctx).ListTx(f)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -292,12 +296,12 @@ type projectionOut struct {
 	Months        []flowMonthOut `json:"months"`
 }
 
-func (t *tools) cashProjection(_ context.Context, _ *mcp.CallToolRequest, in projectionIn) (*mcp.CallToolResult, projectionOut, error) {
+func (t *tools) cashProjection(ctx context.Context, _ *mcp.CallToolRequest, in projectionIn) (*mcp.CallToolResult, projectionOut, error) {
 	var out projectionOut
 	if in.Months == 0 {
 		in.Months = 12
 	}
-	cf, err := t.svc.CashProjection(in.Months)
+	cf, err := t.svcFor(ctx).CashProjection(in.Months)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -335,7 +339,7 @@ type reportOut struct {
 	Periods    []reportPeriod `json:"composition"`
 }
 
-func (t *tools) categoryReport(_ context.Context, _ *mcp.CallToolRequest, in reportIn) (*mcp.CallToolResult, reportOut, error) {
+func (t *tools) categoryReport(ctx context.Context, _ *mcp.CallToolRequest, in reportIn) (*mcp.CallToolResult, reportOut, error) {
 	out := reportOut{Categories: []string{}, Years: []reportYear{}, Periods: []reportPeriod{}}
 	k, err := app.ParseKind(in.Kind)
 	if err != nil {
@@ -345,7 +349,7 @@ func (t *tools) categoryReport(_ context.Context, _ *mcp.CallToolRequest, in rep
 	if err != nil {
 		return nil, out, err
 	}
-	c, err := t.svc.CategoryReport(k, m)
+	c, err := t.svcFor(ctx).CategoryReport(k, m)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -384,13 +388,13 @@ type categoriesOut struct {
 	Categories []categoryOut `json:"categories"`
 }
 
-func (t *tools) listCategories(_ context.Context, _ *mcp.CallToolRequest, in kindIn) (*mcp.CallToolResult, categoriesOut, error) {
+func (t *tools) listCategories(ctx context.Context, _ *mcp.CallToolRequest, in kindIn) (*mcp.CallToolResult, categoriesOut, error) {
 	out := categoriesOut{Categories: []categoryOut{}}
 	k, err := kind(in.Kind)
 	if err != nil {
 		return nil, out, err
 	}
-	cats, err := t.svc.Categories(k)
+	cats, err := t.svcFor(ctx).Categories(k)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -424,17 +428,17 @@ type recurrencesOut struct {
 	Recurrences []recurrenceOut `json:"recurrences"`
 }
 
-func (t *tools) listRecurrences(_ context.Context, _ *mcp.CallToolRequest, in kindIn) (*mcp.CallToolResult, recurrencesOut, error) {
+func (t *tools) listRecurrences(ctx context.Context, _ *mcp.CallToolRequest, in kindIn) (*mcp.CallToolResult, recurrencesOut, error) {
 	out := recurrencesOut{Recurrences: []recurrenceOut{}}
 	k, err := kind(in.Kind)
 	if err != nil {
 		return nil, out, err
 	}
-	recs, err := t.svc.Recurrences(k)
+	recs, err := t.svcFor(ctx).Recurrences(k)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
-	cur := finance.MonthOf(t.svc.Today())
+	cur := finance.MonthOf(t.svcFor(ctx).Today())
 	for _, r := range recs {
 		o := recurrenceOut{ID: r.ID, Kind: string(r.Kind), Description: r.Description, Category: r.Category,
 			Amount: money(r.Amount), Day: r.Day, Interval: r.Interval, Frequency: r.FrequencyLabel(), Start: r.Start.String(),
@@ -475,9 +479,9 @@ type debtsOut struct {
 	Debts []debtOut `json:"debts"`
 }
 
-func (t *tools) listDebts(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, debtsOut, error) {
+func (t *tools) listDebts(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, debtsOut, error) {
 	out := debtsOut{Debts: []debtOut{}}
-	ds, err := t.svc.Debts()
+	ds, err := t.svcFor(ctx).Debts()
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -509,8 +513,8 @@ type limitsOut struct {
 	MinSavings moneyOut `json:"min_savings"`
 }
 
-func (t *tools) getLimits(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, limitsOut, error) {
-	lim := t.svc.Limits()
+func (t *tools) getLimits(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, limitsOut, error) {
+	lim := t.svcFor(ctx).Limits()
 	return nil, limitsOut{CardLimit: money(lim.CardLimit), MinSavings: money(lim.MinSavings)}, nil
 }
 
@@ -535,7 +539,7 @@ type addTxOut struct {
 	Message string  `json:"message"`
 }
 
-func (t *tools) addTransactions(_ context.Context, _ *mcp.CallToolRequest, in addTxIn) (*mcp.CallToolResult, addTxOut, error) {
+func (t *tools) addTransactions(ctx context.Context, _ *mcp.CallToolRequest, in addTxIn) (*mcp.CallToolResult, addTxOut, error) {
 	var out addTxOut
 	ins := make([]app.TxIn, len(in.Items))
 	var total int64
@@ -553,7 +557,7 @@ func (t *tools) addTransactions(_ context.Context, _ *mcp.CallToolRequest, in ad
 			Description: it.Description, DebtID: it.DebtID, Source: app.SourceMCP}
 		total += ins[i].Amount
 	}
-	ids, err := t.svc.AddTxs(ins)
+	ids, err := t.svcFor(ctx).AddTxs(ins)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -575,9 +579,9 @@ type txResult struct {
 	Message     string `json:"message"`
 }
 
-func (t *tools) updateTransaction(_ context.Context, _ *mcp.CallToolRequest, in updateTxIn) (*mcp.CallToolResult, txResult, error) {
+func (t *tools) updateTransaction(ctx context.Context, _ *mcp.CallToolRequest, in updateTxIn) (*mcp.CallToolResult, txResult, error) {
 	var out txResult
-	old, err := t.svc.Tx(in.ID)
+	old, err := t.svcFor(ctx).Tx(in.ID)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -600,7 +604,7 @@ func (t *tools) updateTransaction(_ context.Context, _ *mcp.CallToolRequest, in 
 	if in.DebtID != nil {
 		tx.DebtID = *in.DebtID
 	}
-	e, err := t.svc.UpdateTx(in.ID, tx)
+	e, err := t.svcFor(ctx).UpdateTx(in.ID, tx)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -614,7 +618,7 @@ type occurrenceIn struct {
 	Date         string   `json:"date,omitempty" jsonschema:"data real AAAA-MM-DD; padrão: o dia da recorrência"`
 }
 
-func (t *tools) confirmOccurrence(_ context.Context, _ *mcp.CallToolRequest, in occurrenceIn) (*mcp.CallToolResult, txResult, error) {
+func (t *tools) confirmOccurrence(ctx context.Context, _ *mcp.CallToolRequest, in occurrenceIn) (*mcp.CallToolResult, txResult, error) {
 	var out txResult
 	m, err := month(in.Month)
 	if err != nil {
@@ -630,11 +634,11 @@ func (t *tools) confirmOccurrence(_ context.Context, _ *mcp.CallToolRequest, in 
 			return nil, out, &app.ValidationError{Msg: "valor inválido"}
 		}
 	}
-	id, err := t.svc.ConfirmOccurrence(in.RecurrenceID, m, amount, d, app.SourceMCP)
+	id, err := t.svcFor(ctx).ConfirmOccurrence(in.RecurrenceID, m, amount, d, app.SourceMCP)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
-	e, err := t.svc.Tx(id)
+	e, err := t.svcFor(ctx).Tx(id)
 	if err != nil {
 		return nil, out, toolErr(err)
 	}
@@ -650,24 +654,24 @@ type msgOut struct {
 	Message string `json:"message"`
 }
 
-func (t *tools) skipOccurrence(_ context.Context, _ *mcp.CallToolRequest, in skipIn) (*mcp.CallToolResult, msgOut, error) {
+func (t *tools) skipOccurrence(ctx context.Context, _ *mcp.CallToolRequest, in skipIn) (*mcp.CallToolResult, msgOut, error) {
 	m, err := month(in.Month)
 	if err != nil {
 		return nil, msgOut{}, err
 	}
-	r, err := t.svc.SkipOccurrence(in.RecurrenceID, m)
+	r, err := t.svcFor(ctx).SkipOccurrence(in.RecurrenceID, m)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
 	return nil, msgOut{Message: r.Description + " de " + m.Label() + " pulado"}, nil
 }
 
-func (t *tools) unskipOccurrence(_ context.Context, _ *mcp.CallToolRequest, in skipIn) (*mcp.CallToolResult, msgOut, error) {
+func (t *tools) unskipOccurrence(ctx context.Context, _ *mcp.CallToolRequest, in skipIn) (*mcp.CallToolResult, msgOut, error) {
 	m, err := month(in.Month)
 	if err != nil {
 		return nil, msgOut{}, err
 	}
-	r, err := t.svc.UnskipOccurrence(in.RecurrenceID, m)
+	r, err := t.svcFor(ctx).UnskipOccurrence(in.RecurrenceID, m)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
@@ -691,7 +695,7 @@ type recurrenceIn struct {
 	DebtID         int64   `json:"debt_id,omitempty" jsonschema:"dívida que esta recorrência paga"`
 }
 
-func (t *tools) saveRecurrence(_ context.Context, _ *mcp.CallToolRequest, in recurrenceIn) (*mcp.CallToolResult, idOut, error) {
+func (t *tools) saveRecurrence(ctx context.Context, _ *mcp.CallToolRequest, in recurrenceIn) (*mcp.CallToolResult, idOut, error) {
 	r := app.RecIn{ID: in.ID, Description: in.Description, Category: app.CategoryRef{Name: in.Category, Create: in.CreateCategory},
 		Amount: finance.FromReais(in.Amount), Day: in.Day, Interval: in.Interval, EndMode: in.EndMode, Count: in.Count,
 		Active: in.Active == nil || *in.Active, DebtID: in.DebtID}
@@ -708,7 +712,7 @@ func (t *tools) saveRecurrence(_ context.Context, _ *mcp.CallToolRequest, in rec
 	if r.End, err = month(in.End); err != nil {
 		return nil, idOut{}, err
 	}
-	id, err := t.svc.SaveRecurrence(r)
+	id, err := t.svcFor(ctx).SaveRecurrence(r)
 	if err != nil {
 		return nil, idOut{}, toolErr(err)
 	}
@@ -728,14 +732,14 @@ type debtIn struct {
 	AnchorBalance float64 `json:"anchor_balance,omitempty" jsonschema:"saldo devedor após a parcela anchor_n, em reais"`
 }
 
-func (t *tools) saveDebt(_ context.Context, _ *mcp.CallToolRequest, in debtIn) (*mcp.CallToolResult, debtSavedOut, error) {
+func (t *tools) saveDebt(ctx context.Context, _ *mcp.CallToolRequest, in debtIn) (*mcp.CallToolResult, debtSavedOut, error) {
 	d := db.DebtInput{Name: in.Name, Initial: finance.FromReais(in.Initial), System: in.System, MonthlyRate: in.MonthlyRate,
 		Term: in.Term, Fees: finance.FromReais(in.Fees), AnchorN: in.AnchorN, AnchorBalance: finance.FromReais(in.AnchorBalance)}
 	var err error
 	if d.FirstDue, err = date(in.FirstDue); err != nil {
 		return nil, debtSavedOut{}, err
 	}
-	res, err := t.svc.SaveDebt(in.ID, d)
+	res, err := t.svcFor(ctx).SaveDebt(in.ID, d)
 	if err != nil {
 		return nil, debtSavedOut{}, toolErr(err)
 	}
@@ -758,13 +762,13 @@ type cashIn struct {
 	Note   string  `json:"note,omitempty"`
 }
 
-func (t *tools) setCash(_ context.Context, _ *mcp.CallToolRequest, in cashIn) (*mcp.CallToolResult, msgOut, error) {
+func (t *tools) setCash(ctx context.Context, _ *mcp.CallToolRequest, in cashIn) (*mcp.CallToolResult, msgOut, error) {
 	d, err := date(in.Date)
 	if err != nil {
 		return nil, msgOut{}, err
 	}
 	cents := finance.FromReais(in.Amount)
-	d, err = t.svc.SetCash(d, cents, in.Note)
+	d, err = t.svcFor(ctx).SetCash(d, cents, in.Note)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
@@ -777,7 +781,7 @@ type categoryIn struct {
 	Bucket string `json:"bucket,omitempty" jsonschema:"cartao, fixo ou outros (padrão)"`
 }
 
-func (t *tools) addCategory(_ context.Context, _ *mcp.CallToolRequest, in categoryIn) (*mcp.CallToolResult, idOut, error) {
+func (t *tools) addCategory(ctx context.Context, _ *mcp.CallToolRequest, in categoryIn) (*mcp.CallToolResult, idOut, error) {
 	k, err := app.ParseKind(in.Kind)
 	if err != nil {
 		return nil, idOut{}, err
@@ -786,7 +790,7 @@ func (t *tools) addCategory(_ context.Context, _ *mcp.CallToolRequest, in catego
 	if err != nil {
 		return nil, idOut{}, err
 	}
-	id, err := t.svc.AddCategory(in.Name, k, b)
+	id, err := t.svcFor(ctx).AddCategory(in.Name, k, b)
 	if err != nil {
 		return nil, idOut{}, toolErr(err)
 	}
@@ -798,12 +802,12 @@ type bucketIn struct {
 	Bucket string `json:"bucket" jsonschema:"cartao, fixo ou outros"`
 }
 
-func (t *tools) setCategoryBucket(_ context.Context, _ *mcp.CallToolRequest, in bucketIn) (*mcp.CallToolResult, msgOut, error) {
+func (t *tools) setCategoryBucket(ctx context.Context, _ *mcp.CallToolRequest, in bucketIn) (*mcp.CallToolResult, msgOut, error) {
 	b, err := app.ParseBucket(in.Bucket)
 	if err != nil {
 		return nil, msgOut{}, err
 	}
-	if err := t.svc.SetCategoryBucket(in.ID, b); err != nil {
+	if err := t.svcFor(ctx).SetCategoryBucket(in.ID, b); err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
 	return nil, msgOut{Message: "grupo atualizado"}, nil
@@ -814,15 +818,15 @@ type limitsIn struct {
 	MinSavings *float64 `json:"min_savings,omitempty" jsonschema:"sobra mínima mensal em reais"`
 }
 
-func (t *tools) setLimits(_ context.Context, _ *mcp.CallToolRequest, in limitsIn) (*mcp.CallToolResult, limitsOut, error) {
-	lim := t.svc.Limits()
+func (t *tools) setLimits(ctx context.Context, _ *mcp.CallToolRequest, in limitsIn) (*mcp.CallToolResult, limitsOut, error) {
+	lim := t.svcFor(ctx).Limits()
 	if in.CardLimit != nil {
 		lim.CardLimit = finance.FromReais(*in.CardLimit)
 	}
 	if in.MinSavings != nil {
 		lim.MinSavings = finance.FromReais(*in.MinSavings)
 	}
-	if err := t.svc.SetLimits(lim); err != nil {
+	if err := t.svcFor(ctx).SetLimits(lim); err != nil {
 		return nil, limitsOut{}, toolErr(err)
 	}
 	return nil, limitsOut{CardLimit: money(lim.CardLimit), MinSavings: money(lim.MinSavings)}, nil
@@ -834,40 +838,40 @@ type idIn struct {
 	ID int64 `json:"id"`
 }
 
-func (t *tools) deleteTransaction(_ context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, txResult, error) {
-	e, err := t.svc.DeleteTx(in.ID)
+func (t *tools) deleteTransaction(ctx context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, txResult, error) {
+	e, err := t.svcFor(ctx).DeleteTx(in.ID)
 	if err != nil {
 		return nil, txResult{}, toolErr(err)
 	}
 	return nil, txResult{Transaction: txOf(e), Message: "lançamento excluído"}, nil
 }
 
-func (t *tools) acceptRecurrence(_ context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
-	r, err := t.svc.AcceptRecurrence(in.ID)
+func (t *tools) acceptRecurrence(ctx context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
+	r, err := t.svcFor(ctx).AcceptRecurrence(in.ID)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
 	return nil, msgOut{Message: r.Description + " adicionado aos gastos recorrentes; as parcelas já aparecem como previstas"}, nil
 }
 
-func (t *tools) dismissRecurrence(_ context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
-	r, err := t.svc.DismissRecurrence(in.ID)
+func (t *tools) dismissRecurrence(ctx context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
+	r, err := t.svcFor(ctx).DismissRecurrence(in.ID)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
 	return nil, msgOut{Message: "sugestão " + r.Description + " descartada"}, nil
 }
 
-func (t *tools) deleteRecurrence(_ context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
-	r, err := t.svc.DeleteRecurrence(in.ID)
+func (t *tools) deleteRecurrence(ctx context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
+	r, err := t.svcFor(ctx).DeleteRecurrence(in.ID)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
 	return nil, msgOut{Message: "recorrência " + r.Description + " excluída"}, nil
 }
 
-func (t *tools) deleteDebt(_ context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
-	d, err := t.svc.DeleteDebt(in.ID)
+func (t *tools) deleteDebt(ctx context.Context, _ *mcp.CallToolRequest, in idIn) (*mcp.CallToolResult, msgOut, error) {
+	d, err := t.svcFor(ctx).DeleteDebt(in.ID)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}

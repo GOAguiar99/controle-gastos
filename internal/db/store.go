@@ -1,19 +1,76 @@
 package db
 
 import (
-	"database/sql"
+	"context"
 	"errors"
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"controle-gastos/internal/finance"
 )
 
-type Store struct{ DB *sql.DB }
+// querier is implemented by both the pool and a transaction.
+type querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
-func (s *Store) Close() error { return s.DB.Close() }
+// Store reads and writes one ledger's data. Row-Level Security limits every
+// query to that ledger (see package doc); get one from DB.Ledger.
+type Store struct {
+	pool     *pgxpool.Pool
+	q        querier
+	ctx      context.Context
+	ledgerID int64
+}
 
-const dateFmt = "2006-01-02"
+// LedgerID is the ledger this store is bound to.
+func (s *Store) LedgerID() int64 { return s.ledgerID }
+
+// WithContext returns a copy of the store whose queries use ctx (cancellation,
+// deadlines), still bound to the same ledger.
+func (s *Store) WithContext(ctx context.Context) *Store {
+	c := *s
+	c.ctx = withLedger(ctx, s.ledgerID)
+	return &c
+}
+
+// InTx runs fn with a store whose queries share one database transaction:
+// either everything fn does is saved or nothing is. Nested calls join the
+// outer transaction.
+func (s *Store) InTx(fn func(*Store) error) error {
+	if _, ok := s.q.(pgx.Tx); ok {
+		return fn(s)
+	}
+	return pgx.BeginFunc(s.ctx, s.pool, func(tx pgx.Tx) error {
+		c := *s
+		c.q = tx
+		return fn(&c)
+	})
+}
+
+func (s *Store) exec(sql string, args ...any) error {
+	_, err := s.q.Exec(s.ctx, sql, args...)
+	return err
+}
+
+func (s *Store) query(sql string, args ...any) (pgx.Rows, error) {
+	return s.q.Query(s.ctx, sql, args...)
+}
+
+func (s *Store) queryRow(sql string, args ...any) pgx.Row { return s.q.QueryRow(s.ctx, sql, args...) }
+
+// insert runs an INSERT ... RETURNING id.
+func (s *Store) insert(sql string, args ...any) (int64, error) {
+	var id int64
+	err := s.q.QueryRow(s.ctx, sql+` RETURNING id`, args...).Scan(&id)
+	return id, err
+}
 
 // nz turns 0 into SQL NULL for optional foreign keys.
 func nz(v int64) any {
@@ -43,11 +100,11 @@ func (s *Store) Categories(kind finance.Kind) ([]Category, error) {
 	q := `SELECT id, name, kind, bucket FROM categories`
 	args := []any{}
 	if kind != "" {
-		q += ` WHERE kind = ?`
+		q += ` WHERE kind = $1`
 		args = append(args, kind)
 	}
-	q += ` ORDER BY kind, name COLLATE NOCASE`
-	rows, err := s.DB.Query(q, args...)
+	q += ` ORDER BY kind, lower(name)`
+	rows, err := s.query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -68,22 +125,22 @@ func (s *Store) EnsureCategory(name string, kind finance.Kind, bucket finance.Bu
 	if bucket == "" {
 		bucket = finance.Other
 	}
-	if _, err := s.DB.Exec(`INSERT OR IGNORE INTO categories (name, kind, bucket) VALUES (?, ?, ?)`, name, kind, bucket); err != nil {
+	if err := s.exec(`INSERT INTO categories (name, kind, bucket) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, name, kind, bucket); err != nil {
 		return 0, err
 	}
 	var id int64
-	err := s.DB.QueryRow(`SELECT id FROM categories WHERE name = ? AND kind = ?`, name, kind).Scan(&id)
+	err := s.queryRow(`SELECT id FROM categories WHERE name = $1 AND kind = $2`, name, kind).Scan(&id)
 	return id, err
 }
 
 func (s *Store) SetCategoryBucket(id int64, bucket finance.Bucket) error {
-	_, err := s.DB.Exec(`UPDATE categories SET bucket = ? WHERE id = ?`, bucket, id)
+	err := s.exec(`UPDATE categories SET bucket = $1 WHERE id = $2`, bucket, id)
 	return err
 }
 
 func (s *Store) Category(id int64) (Category, error) {
 	var c Category
-	err := s.DB.QueryRow(`SELECT id, name, kind, bucket FROM categories WHERE id = ?`, id).Scan(&c.ID, &c.Name, &c.Kind, &c.Bucket)
+	err := s.queryRow(`SELECT id, name, kind, bucket FROM categories WHERE id = $1`, id).Scan(&c.ID, &c.Name, &c.Kind, &c.Bucket)
 	return c, err
 }
 
@@ -107,20 +164,15 @@ const txSelect = `SELECT t.id, t.kind, t.date, t.amount_cents, t.category_id, c.
 
 func scanTx(sc interface{ Scan(...any) error }) (finance.Entry, error) {
 	var e finance.Entry
-	var date string
-	err := sc.Scan(&e.ID, &e.Kind, &date, &e.Amount, &e.CategoryID, &e.Category, &e.Bucket, &e.Description,
+	err := sc.Scan(&e.ID, &e.Kind, &e.Date, &e.Amount, &e.CategoryID, &e.Category, &e.Bucket, &e.Description,
 		&e.RecurrenceID, &e.OccMonth, &e.DebtID)
-	if err != nil {
-		return e, err
-	}
-	e.Date, err = time.Parse(dateFmt, date)
 	return e, err
 }
 
 // Transactions returns real transactions with from <= date <= to.
 func (s *Store) Transactions(from, to time.Time) ([]finance.Entry, error) {
-	rows, err := s.DB.Query(txSelect+` WHERE t.date BETWEEN ? AND ? ORDER BY t.date, t.id`,
-		from.Format(dateFmt), to.Format(dateFmt))
+	rows, err := s.query(txSelect+` WHERE t.date BETWEEN $1 AND $2 ORDER BY t.date, t.id`,
+		from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -138,12 +190,11 @@ func (s *Store) Transactions(from, to time.Time) ([]finance.Entry, error) {
 
 // FirstTxDate returns the date of the oldest transaction (ok=false when there are none).
 func (s *Store) FirstTxDate() (t time.Time, ok bool, err error) {
-	var date sql.NullString
-	if err = s.DB.QueryRow(`SELECT MIN(date) FROM transactions`).Scan(&date); err != nil || !date.Valid {
+	var date *time.Time
+	if err = s.queryRow(`SELECT MIN(date) FROM transactions`).Scan(&date); err != nil || date == nil {
 		return t, false, err
 	}
-	t, err = time.Parse(dateFmt, date.String)
-	return t, err == nil, err
+	return *date, true, nil
 }
 
 func (s *Store) AllTransactions() ([]finance.Entry, error) {
@@ -151,74 +202,67 @@ func (s *Store) AllTransactions() ([]finance.Entry, error) {
 }
 
 func (s *Store) Tx(id int64) (finance.Entry, error) {
-	return scanTx(s.DB.QueryRow(txSelect+` WHERE t.id = ?`, id))
+	return scanTx(s.queryRow(txSelect+` WHERE t.id = $1`, id))
 }
 
 const txInsert = `INSERT INTO transactions (kind, date, amount_cents, category_id, description, recurrence_id, occurrence_month, debt_id, source)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
 func txArgs(in TxInput) []any {
 	if in.Source == "" {
 		in.Source = "manual"
 	}
-	return []any{in.Kind, in.Date.Format(dateFmt), in.Amount, in.CategoryID, in.Description,
+	return []any{in.Kind, in.Date, in.Amount, in.CategoryID, in.Description,
 		nz(in.RecurrenceID), nzs(in.OccMonth), nz(in.DebtID), in.Source}
 }
 
 func (s *Store) InsertTx(in TxInput) (int64, error) {
-	res, err := s.DB.Exec(txInsert, txArgs(in)...)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return s.insert(txInsert, txArgs(in)...)
 }
 
 // InsertTxs inserts all transactions in one SQL transaction: either every row
 // is saved or none is.
 func (s *Store) InsertTxs(ins []TxInput) ([]int64, error) {
-	tx, err := s.DB.Begin()
+	ids := make([]int64, 0, len(ins))
+	err := s.InTx(func(s *Store) error {
+		for _, in := range ins {
+			id, err := s.insert(txInsert, txArgs(in)...)
+			if err != nil {
+				return err
+			}
+			ids = append(ids, id)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
-	ids := make([]int64, 0, len(ins))
-	for _, in := range ins {
-		res, err := tx.Exec(txInsert, txArgs(in)...)
-		if err != nil {
-			return nil, err
-		}
-		id, err := res.LastInsertId()
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, tx.Commit()
+	return ids, nil
 }
 
 // TxSource reports where a transaction came from (manual, import, mcp).
 func (s *Store) TxSource(id int64) (string, error) {
 	var src string
-	err := s.DB.QueryRow(`SELECT source FROM transactions WHERE id = ?`, id).Scan(&src)
+	err := s.queryRow(`SELECT source FROM transactions WHERE id = $1`, id).Scan(&src)
 	return src, err
 }
 
 // OccurrenceConfirmed reports whether month m of recurrence recID already has a transaction.
 func (s *Store) OccurrenceConfirmed(recID int64, m finance.Month) (bool, error) {
 	var n int
-	err := s.DB.QueryRow(`SELECT count(*) FROM transactions WHERE recurrence_id = ? AND occurrence_month = ?`, recID, m.String()).Scan(&n)
+	err := s.queryRow(`SELECT count(*) FROM transactions WHERE recurrence_id = $1 AND occurrence_month = $2`, recID, m.String()).Scan(&n)
 	return n > 0, err
 }
 
 // UpdateTx edits the user-editable fields; the recurrence link is kept.
 func (s *Store) UpdateTx(id int64, in TxInput) error {
-	_, err := s.DB.Exec(`UPDATE transactions SET date = ?, amount_cents = ?, category_id = ?, description = ?, debt_id = ? WHERE id = ?`,
-		in.Date.Format(dateFmt), in.Amount, in.CategoryID, in.Description, nz(in.DebtID), id)
+	err := s.exec(`UPDATE transactions SET date = $1, amount_cents = $2, category_id = $3, description = $4, debt_id = $5 WHERE id = $6`,
+		in.Date, in.Amount, in.CategoryID, in.Description, nz(in.DebtID), id)
 	return err
 }
 
 func (s *Store) DeleteTx(id int64) error {
-	_, err := s.DB.Exec(`DELETE FROM transactions WHERE id = ?`, id)
+	err := s.exec(`DELETE FROM transactions WHERE id = $1`, id)
 	return err
 }
 
@@ -247,7 +291,7 @@ func scanRec(sc interface{ Scan(...any) error }) (finance.Recurrence, error) {
 }
 
 func (s *Store) Recurrences() ([]finance.Recurrence, error) {
-	rows, err := s.DB.Query(recSelect + ` ORDER BY r.kind, r.active DESC, r.amount_cents DESC`)
+	rows, err := s.query(recSelect + ` ORDER BY r.kind, r.active DESC, r.amount_cents DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +308,7 @@ func (s *Store) Recurrences() ([]finance.Recurrence, error) {
 }
 
 func (s *Store) Recurrence(id int64) (finance.Recurrence, error) {
-	return scanRec(s.DB.QueryRow(recSelect+` WHERE r.id = ?`, id))
+	return scanRec(s.queryRow(recSelect+` WHERE r.id = $1`, id))
 }
 
 // SaveRecurrence inserts (ID == 0) or updates a recurrence and returns its id.
@@ -282,16 +326,12 @@ func (s *Store) SaveRecurrence(r finance.Recurrence) (int64, error) {
 		r.Interval = 1
 	}
 	if r.ID == 0 {
-		res, err := s.DB.Exec(`INSERT INTO recurrences (kind, description, category_id, amount_cents, day_of_month, interval_months, start_month, end_mode, occurrences, end_month, active, debt_id, pending)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		return s.insert(`INSERT INTO recurrences (kind, description, category_id, amount_cents, day_of_month, interval_months, start_month, end_mode, occurrences, end_month, active, debt_id, pending)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 			r.Kind, r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.Pending)
-		if err != nil {
-			return 0, err
-		}
-		return res.LastInsertId()
 	}
-	_, err := s.DB.Exec(`UPDATE recurrences SET description = ?, category_id = ?, amount_cents = ?, day_of_month = ?, interval_months = ?,
-		start_month = ?, end_mode = ?, occurrences = ?, end_month = ?, active = ?, debt_id = ?, pending = ? WHERE id = ?`,
+	err := s.exec(`UPDATE recurrences SET description = $1, category_id = $2, amount_cents = $3, day_of_month = $4, interval_months = $5,
+		start_month = $6, end_mode = $7, occurrences = $8, end_month = $9, active = $10, debt_id = $11, pending = $12 WHERE id = $13`,
 		r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.Pending, r.ID)
 	if err != nil {
 		return r.ID, err
@@ -305,40 +345,40 @@ func (s *Store) linkRecurrencePayments(recID, debtID int64) error {
 	if debtID == 0 {
 		return nil
 	}
-	_, err := s.DB.Exec(`UPDATE transactions SET debt_id = ? WHERE recurrence_id = ? AND debt_id IS NULL`, debtID, recID)
+	err := s.exec(`UPDATE transactions SET debt_id = $1 WHERE recurrence_id = $2 AND debt_id IS NULL`, debtID, recID)
 	return err
 }
 
 // AcceptRecurrence turns a suggested recurrence into an active one.
 func (s *Store) AcceptRecurrence(id int64) error {
-	_, err := s.DB.Exec(`UPDATE recurrences SET pending = 0, active = 1 WHERE id = ?`, id)
+	err := s.exec(`UPDATE recurrences SET pending = false, active = true WHERE id = $1`, id)
 	return err
 }
 
 // PendingRecurrences counts suggestions waiting for the user (nav badge).
 func (s *Store) PendingRecurrences() int {
 	var n int
-	s.DB.QueryRow(`SELECT count(*) FROM recurrences WHERE pending = 1`).Scan(&n)
+	s.queryRow(`SELECT count(*) FROM recurrences WHERE pending`).Scan(&n)
 	return n
 }
 
 func (s *Store) DeleteRecurrence(id int64) error {
-	_, err := s.DB.Exec(`DELETE FROM recurrences WHERE id = ?`, id)
+	err := s.exec(`DELETE FROM recurrences WHERE id = $1`, id)
 	return err
 }
 
 func (s *Store) Skip(recID int64, m finance.Month) error {
-	_, err := s.DB.Exec(`INSERT OR IGNORE INTO recurrence_skips (recurrence_id, month) VALUES (?, ?)`, recID, m.String())
+	err := s.exec(`INSERT INTO recurrence_skips (recurrence_id, month) VALUES ($1, $2) ON CONFLICT DO NOTHING`, recID, m.String())
 	return err
 }
 
 func (s *Store) Unskip(recID int64, m finance.Month) error {
-	_, err := s.DB.Exec(`DELETE FROM recurrence_skips WHERE recurrence_id = ? AND month = ?`, recID, m.String())
+	err := s.exec(`DELETE FROM recurrence_skips WHERE recurrence_id = $1 AND month = $2`, recID, m.String())
 	return err
 }
 
 func (s *Store) monthSet(q string) (finance.MonthSet, error) {
-	rows, err := s.DB.Query(q)
+	rows, err := s.query(q)
 	if err != nil {
 		return nil, err
 	}
@@ -425,12 +465,8 @@ func (s *Store) applyLoanInstallments(recs []finance.Recurrence, proj []finance.
 
 // FirstMonth is the month of the oldest transaction (or fallback).
 func (s *Store) FirstMonth(fallback finance.Month) finance.Month {
-	var d sql.NullString
-	if err := s.DB.QueryRow(`SELECT min(date) FROM transactions`).Scan(&d); err != nil || !d.Valid {
-		return fallback
-	}
-	t, err := time.Parse(dateFmt, d.String)
-	if err != nil {
+	t, ok, err := s.FirstTxDate()
+	if err != nil || !ok {
 		return fallback
 	}
 	return finance.MonthOf(t)
@@ -439,22 +475,17 @@ func (s *Store) FirstMonth(fallback finance.Month) finance.Month {
 // ---------- cash ----------
 
 func (s *Store) LatestSnapshot() (finance.Snapshot, error) {
-	var date string
 	var snap finance.Snapshot
-	err := s.DB.QueryRow(`SELECT date, amount_cents FROM cash_snapshots ORDER BY date DESC, id DESC LIMIT 1`).Scan(&date, &snap.Amount)
-	if errors.Is(err, sql.ErrNoRows) {
+	err := s.queryRow(`SELECT date, amount_cents FROM cash_snapshots ORDER BY date DESC, id DESC LIMIT 1`).Scan(&snap.Date, &snap.Amount)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return snap, nil
 	}
-	if err != nil {
-		return snap, err
-	}
-	snap.Date, err = time.Parse(dateFmt, date)
 	snap.Set = err == nil
 	return snap, err
 }
 
 func (s *Store) AddSnapshot(date time.Time, amount int64, note string) error {
-	_, err := s.DB.Exec(`INSERT INTO cash_snapshots (date, amount_cents, note) VALUES (?, ?, ?)`, date.Format(dateFmt), amount, note)
+	err := s.exec(`INSERT INTO cash_snapshots (date, amount_cents, note) VALUES ($1, $2, $3)`, date, amount, note)
 	return err
 }
 
@@ -507,27 +538,27 @@ type DebtInput struct {
 	AnchorBalance int64
 }
 
-const debtSelect = `SELECT d.id, d.name, d.initial_cents, d.system, d.monthly_rate, d.term_months, COALESCE(d.first_due, ''),
+const debtSelect = `SELECT d.id, d.name, d.initial_cents, d.system, d.monthly_rate, d.term_months, d.first_due,
 	d.fees_cents, d.anchor_n, d.anchor_balance_cents FROM debts d`
 
 func scanDebt(sc interface{ Scan(...any) error }) (Debt, error) {
 	var d Debt
-	var first string
+	var first *time.Time
 	err := sc.Scan(&d.ID, &d.Name, &d.Initial, &d.Loan.System, &d.Loan.MonthlyRate, &d.Loan.Term, &first,
 		&d.Loan.Fees, &d.Loan.AnchorN, &d.Loan.AnchorBalance)
 	if err != nil {
 		return d, err
 	}
 	d.Loan.Principal = d.Initial
-	if first != "" {
-		d.Loan.FirstDue, _ = time.Parse(dateFmt, first)
+	if first != nil {
+		d.Loan.FirstDue = *first
 	}
 	return d, nil
 }
 
 // Loans returns every debt's loan terms by id.
 func (s *Store) Loans() (map[int64]finance.Loan, error) {
-	rows, err := s.DB.Query(debtSelect)
+	rows, err := s.query(debtSelect)
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +576,7 @@ func (s *Store) Loans() (map[int64]finance.Loan, error) {
 
 // Debts returns all debts with their payments made up to today.
 func (s *Store) Debts(today time.Time) ([]Debt, error) {
-	rows, err := s.DB.Query(debtSelect + ` ORDER BY d.name`)
+	rows, err := s.query(debtSelect + ` ORDER BY d.name`)
 	if err != nil {
 		return nil, err
 	}
@@ -564,8 +595,8 @@ func (s *Store) Debts(today time.Time) ([]Debt, error) {
 	}
 	for i := range out {
 		d := &out[i]
-		err := s.DB.QueryRow(`SELECT COALESCE(SUM(amount_cents), 0), COUNT(*) FROM transactions WHERE debt_id = ? AND date <= ?`,
-			d.ID, today.Format(dateFmt)).Scan(&d.Paid, &d.Payments)
+		err := s.queryRow(`SELECT COALESCE(SUM(amount_cents), 0), COUNT(*) FROM transactions WHERE debt_id = $1 AND date <= $2`,
+			d.ID, today).Scan(&d.Paid, &d.Payments)
 		if err != nil {
 			return nil, err
 		}
@@ -577,7 +608,7 @@ func (s *Store) Debts(today time.Time) ([]Debt, error) {
 }
 
 func (s *Store) Debt(id int64) (Debt, error) {
-	return scanDebt(s.DB.QueryRow(debtSelect+` WHERE d.id = ?`, id))
+	return scanDebt(s.queryRow(debtSelect+` WHERE d.id = $1`, id))
 }
 
 func debtArgs(in DebtInput) []any {
@@ -586,29 +617,25 @@ func debtArgs(in DebtInput) []any {
 	}
 	var first any
 	if !in.FirstDue.IsZero() {
-		first = in.FirstDue.Format(dateFmt)
+		first = in.FirstDue
 	}
 	return []any{in.Name, in.Initial, in.System, in.MonthlyRate, in.Term, first, in.Fees, in.AnchorN, in.AnchorBalance}
 }
 
 func (s *Store) AddDebt(in DebtInput) (int64, error) {
-	res, err := s.DB.Exec(`INSERT INTO debts (name, initial_cents, system, monthly_rate, term_months, first_due, fees_cents, anchor_n, anchor_balance_cents)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, debtArgs(in)...)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	return s.insert(`INSERT INTO debts (name, initial_cents, system, monthly_rate, term_months, first_due, fees_cents, anchor_n, anchor_balance_cents)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, debtArgs(in)...)
 }
 
 func (s *Store) UpdateDebt(id int64, in DebtInput) error {
 	args := append(debtArgs(in), id)
-	_, err := s.DB.Exec(`UPDATE debts SET name = ?, initial_cents = ?, system = ?, monthly_rate = ?, term_months = ?, first_due = ?,
-		fees_cents = ?, anchor_n = ?, anchor_balance_cents = ? WHERE id = ?`, args...)
+	err := s.exec(`UPDATE debts SET name = $1, initial_cents = $2, system = $3, monthly_rate = $4, term_months = $5, first_due = $6,
+		fees_cents = $7, anchor_n = $8, anchor_balance_cents = $9 WHERE id = $10`, args...)
 	return err
 }
 
 func (s *Store) DeleteDebt(id int64) error {
-	_, err := s.DB.Exec(`DELETE FROM debts WHERE id = ?`, id)
+	err := s.exec(`DELETE FROM debts WHERE id = $1`, id)
 	return err
 }
 
@@ -617,20 +644,20 @@ func (s *Store) DeleteDebt(id int64) error {
 // Setting returns a text setting ("" when missing).
 func (s *Store) Setting(key string) string {
 	var v string
-	if err := s.DB.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v); err != nil {
+	if err := s.queryRow(`SELECT value FROM ledger_settings WHERE key = $1`, key).Scan(&v); err != nil {
 		return ""
 	}
 	return v
 }
 
 func (s *Store) SetSetting(key, v string) error {
-	_, err := s.DB.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, v)
+	err := s.exec(`INSERT INTO ledger_settings (key, value) VALUES ($1, $2) ON CONFLICT (ledger_id, key) DO UPDATE SET value = excluded.value`, key, v)
 	return err
 }
 
 func (s *Store) SettingInt(key string) int64 {
 	var v string
-	if err := s.DB.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v); err != nil {
+	if err := s.queryRow(`SELECT value FROM ledger_settings WHERE key = $1`, key).Scan(&v); err != nil {
 		return 0
 	}
 	n, _ := strconv.ParseInt(v, 10, 64)
@@ -638,7 +665,7 @@ func (s *Store) SettingInt(key string) int64 {
 }
 
 func (s *Store) SetSettingInt(key string, v int64) error {
-	_, err := s.DB.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+	err := s.exec(`INSERT INTO ledger_settings (key, value) VALUES ($1, $2) ON CONFLICT (ledger_id, key) DO UPDATE SET value = excluded.value`,
 		key, strconv.FormatInt(v, 10))
 	return err
 }
@@ -647,21 +674,21 @@ func (s *Store) Limits() finance.Limits {
 	return finance.Limits{CardLimit: s.SettingInt("card_limit_cents"), MinSavings: s.SettingInt("min_savings_cents")}
 }
 
-// Backup writes a consistent copy of the database to path.
-func (s *Store) Backup(path string) error {
-	_, err := s.DB.Exec(`VACUUM INTO ?`, path)
-	return err
-}
-
 // IsEmpty reports whether there is no user data yet (used by the importer).
 func (s *Store) IsEmpty() (bool, error) {
 	var n int
-	err := s.DB.QueryRow(`SELECT (SELECT count(*) FROM transactions) + (SELECT count(*) FROM recurrences)`).Scan(&n)
+	err := s.queryRow(`SELECT (SELECT count(*) FROM transactions) + (SELECT count(*) FROM recurrences)`).Scan(&n)
 	return n == 0, err
 }
 
-// Reset deletes all user data but keeps categories and settings.
+// Reset deletes the ledger's data but keeps its categories and settings.
 func (s *Store) Reset() error {
-	_, err := s.DB.Exec(`DELETE FROM transactions; DELETE FROM recurrence_skips; DELETE FROM recurrences; DELETE FROM debts; DELETE FROM cash_snapshots;`)
-	return err
+	return s.InTx(func(s *Store) error {
+		for _, t := range []string{"transactions", "recurrence_skips", "recurrences", "debts", "cash_snapshots"} {
+			if err := s.exec(`DELETE FROM ` + t); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

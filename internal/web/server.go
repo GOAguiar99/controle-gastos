@@ -2,10 +2,12 @@
 package web
 
 import (
+	"context"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -27,12 +29,15 @@ var templateFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
+// Server is the web UI. Each request gets the Service of the signed-in
+// user's ledger (svcOf); views may read through its Store, writes go through
+// the Service.
 type Server struct {
-	svc  *app.Service
-	st   *db.Store // read-only use for rendering; writes go through svc
-	auth *Auth
-	tpl  map[string]*template.Template
-	mcp  http.Handler // MCP endpoint served at /mcp/{token}; nil = disabled
+	app    *app.App
+	cfg    Config
+	google *googleAuth // nil when only DevLogin is enabled
+	tpl    map[string]*template.Template
+	mcp    http.Handler // MCP endpoint served at /mcp/{token}; nil = disabled
 }
 
 // assetVersion is a short hash of the embedded static files, appended to their
@@ -49,9 +54,23 @@ var assetVersion = func() string {
 	return hex.EncodeToString(h.Sum(nil))[:10]
 }()
 
-// New builds the web server. mcp, when non-nil, is served at the secret URL /mcp/{token}.
-func New(svc *app.Service, auth *Auth, mcp http.Handler) (*Server, error) {
-	s := &Server{svc: svc, st: svc.Store(), auth: auth, mcp: mcp, tpl: map[string]*template.Template{}}
+// New builds the web server. mcp, when non-nil, is served at the secret URLs
+// /mcp/{token}; it finds the link owner's Service with ServiceFrom.
+func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server, error) {
+	if cfg.Google == nil && !cfg.DevLogin {
+		return nil, errors.New("configure o login com Google")
+	}
+	if len(cfg.Secret) < 32 {
+		return nil, errors.New("segredo do servidor curto demais (mínimo 32 bytes)")
+	}
+	s := &Server{app: a, cfg: cfg, mcp: mcp, tpl: map[string]*template.Template{}}
+	if cfg.Google != nil {
+		g, err := newGoogleAuth(ctx, cfg.Google)
+		if err != nil {
+			return nil, fmt.Errorf("login com Google: %w", err)
+		}
+		s.google = g
+	}
 	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login"}
 	for _, p := range pages {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html")
@@ -70,7 +89,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 
 	mux.HandleFunc("GET /login", s.loginPage)
-	mux.HandleFunc("POST /login", s.login)
+	if s.google != nil {
+		mux.HandleFunc("GET /auth/google", s.googleStart)
+		mux.HandleFunc("GET /auth/google/callback", s.googleCallback)
+	}
+	if s.cfg.DevLogin {
+		mux.HandleFunc("POST /auth/dev", s.devLogin)
+	}
 	mux.HandleFunc("POST /logout", s.logout)
 
 	mux.HandleFunc("GET /{$}", s.dashboard)
@@ -103,8 +128,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /config/categorias", s.addCategory)
 	mux.HandleFunc("POST /config/categorias/{id}", s.updateCategory)
 	mux.HandleFunc("GET /export/lancamentos.csv", s.exportCSV)
-	mux.HandleFunc("GET /export/backup.db", s.exportDB)
-	mux.HandleFunc("POST /config/mcp/rotar", s.rotateMCP)
+	mux.HandleFunc("POST /config/mcp", s.createMCP)
+	mux.HandleFunc("POST /config/mcp/{id}/revogar", s.revokeMCP)
 	if s.mcp != nil {
 		mux.Handle("/mcp/{token}", s.mcpGate(s.mcp))
 	}
@@ -120,15 +145,18 @@ func cacheStatic(h http.Handler) http.Handler {
 }
 
 // today is the current calendar date in the configured timezone, as UTC midnight.
-func (s *Server) today() time.Time { return s.svc.Today() }
+func (s *Server) today() time.Time { return s.app.Today() }
 
 type page map[string]any
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data page) {
 	data["Nav"] = name
-	data["AuthEnabled"] = s.auth.Enabled()
-	if name != "login" {
-		data["PendingRecs"] = s.st.PendingRecurrences()
+	if svc := svcOf(r); svc != nil {
+		data["User"] = actorOf(r).User
+		data["PendingRecs"] = svc.Store().PendingRecurrences()
+	} else {
+		data["Google"] = s.google != nil
+		data["DevLogin"] = s.cfg.DevLogin
 	}
 	if _, ok := data["Flash"]; !ok {
 		data["Flash"] = r.URL.Query().Get("msg")
@@ -145,9 +173,11 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		badRequest(w, err.Error())
 		return
 	}
-	log.Printf("error: %v", err)
-	http.Error(w, "Erro interno: "+err.Error(), http.StatusInternalServerError)
+	logErr(err)
+	http.Error(w, "Erro interno. Tente de novo; se continuar, avise o responsável.", http.StatusInternalServerError)
 }
+
+func logErr(err error) { log.Printf("error: %v", err) }
 
 func badRequest(w http.ResponseWriter, msg string) { http.Error(w, msg, http.StatusBadRequest) }
 

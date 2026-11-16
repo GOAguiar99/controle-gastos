@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,22 +10,18 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"controle-gastos/internal/app"
-	"controle-gastos/internal/db"
+	"controle-gastos/internal/db/dbtest"
 )
 
 func connect(t *testing.T) (*mcp.ClientSession, *app.Service) {
 	t.Helper()
-	st, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := dbtest.Ledger(t)
 	svc := app.New(st, time.UTC)
 	svc.SetClock(func() time.Time { return time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC) })
 
 	ctx := context.Background()
 	ct, stT := mcp.NewInMemoryTransports()
-	if _, err := New(svc).Connect(ctx, stT, nil); err != nil {
+	if _, err := New(func(context.Context) *app.Service { return svc }).Connect(ctx, stT, nil); err != nil {
 		t.Fatal(err)
 	}
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, ct, nil)

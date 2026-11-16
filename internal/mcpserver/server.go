@@ -4,6 +4,7 @@
 package mcpserver
 
 import (
+	"context"
 	"log"
 	"net/http"
 
@@ -12,7 +13,7 @@ import (
 	"controle-gastos/internal/app"
 )
 
-const instructions = `Controle de gastos pessoal (um único usuário, valores em reais).
+const instructions = `Controle de gastos pessoal (valores em reais). Este conector acessa uma carteira (os dados de uma pessoa ou de quem a compartilha) em nome do dono do link; o que você altera fica registrado como feito por ele via Claude.
 
 Modelo:
 - Lançamentos (transactions) são receitas (kind=income) ou gastos (kind=expense), com data, valor, categoria e descrição.
@@ -28,24 +29,25 @@ Convenções:
 - Antes de lançar em lote (ex.: fatura colada), consulte list_transactions no período para não duplicar.
 - Antes de excluir, confirme com o usuário qual item (mostre data, valor e descrição).`
 
-// New builds the MCP server with every tool registered.
-func New(svc *app.Service) *mcp.Server {
+// New builds the MCP server with every tool registered. svcFor returns the
+// Service of the ledger the request is for.
+func New(svcFor func(context.Context) *app.Service) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "controle-gastos", Title: "Controle de gastos", Version: "1.0.0"},
 		&mcp.ServerOptions{Instructions: instructions})
-	t := &tools{svc: svc}
+	t := &tools{svcFor: svcFor}
 	t.register(s)
 	return s
 }
 
 // Handler serves the server over Streamable HTTP, stateless (each request is
 // independent, so restarts and multiple clients just work).
-func Handler(svc *app.Service) http.Handler {
-	srv := New(svc)
+func Handler(svcFor func(context.Context) *app.Service) http.Handler {
+	srv := New(svcFor)
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{
 		Stateless:    true,
 		JSONResponse: true,
 		// The app sits behind a reverse proxy on localhost; access is guarded
-		// by the secret URL, not by the Host header.
+		// by the secret URL (checked before this handler), not by the Host header.
 		DisableLocalhostProtection: true,
 		MaxRequestBodyBytes:        1 << 20,
 	})

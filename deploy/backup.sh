@@ -1,10 +1,12 @@
 #!/bin/sh
-# Daily consistent copy of the SQLite database; keeps the last 14.
+# Daily dump of the PostgreSQL database (custom format, restore with
+# pg_restore); keeps the last 14. Runs as root, dumps as the app's role.
 set -eu
-SRC="${DB_PATH:-/var/lib/controle-gastos/app.db}"
+DB="${DB_NAME:-controle-gastos}"
 DEST="${BACKUP_DIR:-/var/backups/controle-gastos}"
-mkdir -p "$DEST"
-OUT="$DEST/app-$(date +%F).db"
-rm -f "$OUT"
-sqlite3 "$SRC" "VACUUM INTO '$OUT'"
-ls -1t "$DEST"/app-*.db | tail -n +15 | xargs -r rm -f
+install -d -m 700 "$DEST"
+OUT="$DEST/app-$(date +%F).dump"
+runuser -u controle-gastos -- pg_dump -Fc "$DB" > "$OUT.tmp"
+mv "$OUT.tmp" "$OUT"
+chmod 600 "$OUT"
+ls -1t "$DEST"/app-*.dump | tail -n +15 | xargs -r rm -f

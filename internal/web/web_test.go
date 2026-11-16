@@ -1,62 +1,94 @@
 package web
 
 import (
+	"context"
+	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"controle-gastos/internal/app"
-	"controle-gastos/internal/db"
+	"controle-gastos/internal/db/dbtest"
 	"controle-gastos/internal/mcpserver"
 )
 
-func newTestServer(t *testing.T) (*httptest.Server, *http.Client, *app.Service) {
-	t.Helper()
-	st, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	hash, _ := bcrypt.GenerateFromPassword([]byte("senha-de-teste"), bcrypt.MinCost)
-	svc := app.New(st, time.UTC)
-	srv, err := New(svc, &Auth{PasswordHash: hash, Secret: []byte(strings.Repeat("k", 32))}, mcpserver.Handler(svc))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	jar := &cookieJar{}
-	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return ts, client, svc
+type testEnv struct {
+	ts  *httptest.Server
+	idp *fakeIDP
+	app *app.App
 }
 
-type cookieJar struct{ c []*http.Cookie }
+func newTestServer(t *testing.T) (*httptest.Server, *http.Client, *testEnv) {
+	t.Helper()
+	idp := newFakeIDP(t)
+	a := app.NewApp(dbtest.Open(t), time.UTC)
+	a.SetClock(func() time.Time { return time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC) })
+	a.AllowEmail = app.AllowList("ana@x.com,beto@x.com")
+	ts := httptest.NewUnstartedServer(nil)
+	cfg := Config{
+		Google: &GoogleConfig{ClientID: idp.clientID, ClientSecret: "s", Issuer: idp.URL, BaseURL: "http://" + ts.Listener.Addr().String()},
+		Secret: []byte(strings.Repeat("k", 32)),
+	}
+	srv, err := New(context.Background(), a, cfg, mcpserver.Handler(ServiceFrom))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.Config.Handler = srv.Handler()
+	ts.Start()
+	t.Cleanup(ts.Close)
+	return ts, newClient(), &testEnv{ts: ts, idp: idp, app: a}
+}
 
-func (j *cookieJar) SetCookies(_ *url.URL, cs []*http.Cookie) { j.c = append(j.c, cs...) }
-func (j *cookieJar) Cookies(*url.URL) []*http.Cookie          { return j.c }
+func newClient() *http.Client {
+	jar, _ := cookiejar.New(nil)
+	return &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+var anaUser = idpUser{Sub: "g-ana", Email: "ana@x.com", Name: "Ana Souza", Verified: true}
+
+// googleLogin runs "Entrar com Google" against the fake provider and returns
+// the app's answer to the callback.
+func (e *testEnv) googleLogin(t *testing.T, client *http.Client, u idpUser, tamper func(map[string]any)) *http.Response {
+	t.Helper()
+	e.idp.as(u, tamper)
+	res, err := client.Get(e.ts.URL + "/auth/google")
+	if err != nil || res.StatusCode != http.StatusFound {
+		t.Fatalf("start: %v %v", res.StatusCode, err)
+	}
+	res, err = client.Get(res.Header.Get("Location")) // provider authorize -> back to callback
+	if err != nil || res.StatusCode != http.StatusFound {
+		t.Fatalf("authorize: %v %v", res.StatusCode, err)
+	}
+	res, err = client.Get(res.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func (e *testEnv) mustLogin(t *testing.T, client *http.Client, u idpUser) {
+	t.Helper()
+	if res := e.googleLogin(t, client, u, nil); res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/" {
+		t.Fatalf("login: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+}
 
 func TestPagesRequireLoginAndRender(t *testing.T) {
-	ts, client, _ := newTestServer(t)
+	ts, client, env := newTestServer(t)
 
 	res, err := client.Get(ts.URL + "/")
 	if err != nil || res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/login" {
 		t.Fatalf("expected redirect to login, got %v %v", res.StatusCode, err)
 	}
-	res, _ = client.PostForm(ts.URL+"/login", url.Values{"password": {"errada"}})
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("wrong password: %d", res.StatusCode)
-	}
-	res, _ = client.PostForm(ts.URL+"/login", url.Values{"password": {"senha-de-teste"}})
-	if res.StatusCode != http.StatusSeeOther {
-		t.Fatalf("login: %d", res.StatusCode)
-	}
+	env.mustLogin(t, client, anaUser)
 
 	post := func(path string, v url.Values) {
 		t.Helper()
@@ -90,7 +122,7 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 
 	for _, p := range []string{"/", "/?mes=2027-02", "/receitas?mes=2026-11", "/gastos?mes=2026-11", "/recorrentes",
 		"/recorrentes?tipo=income&editar=1", "/recorrentes?editar=3", "/dividas", "/dividas?editar=2", "/config",
-		"/lancamentos/1/editar", "/export/lancamentos.csv", "/export/backup.db"} {
+		"/lancamentos/1/editar", "/export/lancamentos.csv"} {
 		res, err := client.Get(ts.URL + p)
 		if err != nil || res.StatusCode != http.StatusOK {
 			t.Errorf("GET %s: %v %v", p, res.StatusCode, err)
@@ -119,16 +151,78 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 	}
 }
 
-func TestMCPEndpoint(t *testing.T) {
-	ts, client, svc := newTestServer(t)
-	token, err := svc.MCPToken()
-	if err != nil {
-		t.Fatal(err)
+func TestGoogleLoginRejections(t *testing.T) {
+	ts, _, env := newTestServer(t)
+	for name, c := range map[string]struct {
+		u      idpUser
+		tamper func(map[string]any)
+		want   string
+	}{
+		"not allowed":    {idpUser{Sub: "g-eve", Email: "eve@x.com", Verified: true}, nil, "não tem acesso"},
+		"unverified":     {idpUser{Sub: "g-ana", Email: "ana@x.com"}, nil, "verificado"},
+		"wrong audience": {anaUser, func(c map[string]any) { c["aud"] = "other-client" }, "não foi possível"},
+		"wrong nonce":    {anaUser, func(c map[string]any) { c["nonce"] = "x" }, "não foi possível"},
+		"expired":        {anaUser, func(c map[string]any) { c["exp"] = time.Now().Add(-time.Hour).Unix() }, "não foi possível"},
+		"wrong issuer":   {anaUser, func(c map[string]any) { c["iss"] = "https://evil.example" }, "não foi possível"},
+	} {
+		client := newClient()
+		res := env.googleLogin(t, client, c.u, c.tamper)
+		body, _ := io.ReadAll(res.Body)
+		if res.StatusCode != http.StatusForbidden || !strings.Contains(string(body), c.want) {
+			t.Errorf("%s: %d, want 403 with %q", name, res.StatusCode, c.want)
+		}
+		if res, _ := client.Get(ts.URL + "/"); res.StatusCode != http.StatusSeeOther {
+			t.Errorf("%s: signed in anyway", name)
+		}
 	}
-	initialize := func(path string) *http.Response {
+
+	// a forged callback (state not issued to this browser) is refused
+	client := newClient()
+	res, _ := client.Get(ts.URL + "/auth/google/callback?code=x&state=y")
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("forged callback: %d", res.StatusCode)
+	}
+}
+
+func TestLogout(t *testing.T) {
+	ts, client, env := newTestServer(t)
+	env.mustLogin(t, client, anaUser)
+	u, _ := url.Parse(ts.URL)
+	stolen := client.Jar.Cookies(u)
+	if res, _ := client.PostForm(ts.URL+"/logout", nil); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("logout: %d", res.StatusCode)
+	}
+	// the old cookie no longer works anywhere (revoked server-side)
+	other := newClient()
+	other.Jar.SetCookies(u, stolen)
+	if res, _ := other.Get(ts.URL + "/"); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("revoked session still works: %d", res.StatusCode)
+	}
+}
+
+func TestMCPEndpoint(t *testing.T) {
+	ts, client, env := newTestServer(t)
+	env.mustLogin(t, client, anaUser)
+
+	// creating a link shows its URL once
+	res, _ := client.PostForm(ts.URL+"/config/mcp", url.Values{"label": {"celular"}})
+	body, _ := io.ReadAll(res.Body)
+	m := regexp.MustCompile(`value="(http[^"]+/mcp/[^"]+)"`).FindSubmatch(body)
+	if res.StatusCode != http.StatusOK || m == nil {
+		t.Fatalf("create link: %d", res.StatusCode)
+	}
+	link := string(m[1])
+	if res, _ := client.Get(ts.URL + "/config"); true {
+		b, _ := io.ReadAll(res.Body)
+		if strings.Contains(string(b), link) || !strings.Contains(string(b), "celular") {
+			t.Fatal("config must list the link by name but never show its secret again")
+		}
+	}
+
+	initialize := func(u string) *http.Response {
 		t.Helper()
 		body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`
-		req, _ := http.NewRequest("POST", ts.URL+path, strings.NewReader(body))
+		req, _ := http.NewRequest("POST", u, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
 		req.Header.Set("Origin", "https://claude.ai") // connectors call from another origin, without the session cookie
@@ -138,33 +232,75 @@ func TestMCPEndpoint(t *testing.T) {
 		}
 		return res
 	}
-
-	for _, p := range []string{"/mcp/errado", "/mcp/" + token[:len(token)-1], "/mcp/"} {
-		if res := initialize(p); res.StatusCode != http.StatusNotFound {
-			t.Errorf("POST %s: %d, want 404", p, res.StatusCode)
+	for _, u := range []string{ts.URL + "/mcp/errado", link[:len(link)-1], ts.URL + "/mcp/"} {
+		if res := initialize(u); res.StatusCode != http.StatusNotFound {
+			t.Errorf("POST %s: %d, want 404", u, res.StatusCode)
 		}
 	}
-	res := initialize("/mcp/" + token)
-	body, _ := io.ReadAll(res.Body)
+	res = initialize(link)
+	body, _ = io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "controle-gastos") {
 		t.Fatalf("initialize: %d %s", res.StatusCode, body)
 	}
 
-	// the Config page shows the URL; rotating it kills the old one
-	client.PostForm(ts.URL+"/login", url.Values{"password": {"senha-de-teste"}})
-	res, _ = client.Get(ts.URL + "/config")
+	// each link only reaches its owner's ledger
+	beto := newClient()
+	env.mustLogin(t, beto, idpUser{Sub: "g-beto", Email: "beto@x.com", Verified: true})
+	res, _ = beto.PostForm(ts.URL+"/config/mcp", nil)
 	body, _ = io.ReadAll(res.Body)
-	if !strings.Contains(string(body), "/mcp/"+token) {
-		t.Fatal("config page should show the MCP URL")
+	betoLink := string(regexp.MustCompile(`value="(http[^"]+/mcp/[^"]+)"`).FindSubmatch(body)[1])
+	client.PostForm(ts.URL+"/lancamentos", url.Values{"kind": {"expense"}, "date": {"2026-11-10"}, "amount": {"50,00"}, "new_category": {"Segredo da Ana"}})
+	if n := countTx(t, link); n != 1 {
+		t.Errorf("ana's link sees %d transactions, want 1", n)
 	}
-	if res, _ := client.PostForm(ts.URL+"/config/mcp/rotar", nil); res.StatusCode != http.StatusSeeOther {
-		t.Fatalf("rotate: %d", res.StatusCode)
+	if n := countTx(t, betoLink); n != 0 {
+		t.Errorf("beto's link sees %d of ana's transactions", n)
 	}
-	if res := initialize("/mcp/" + token); res.StatusCode != http.StatusNotFound {
-		t.Fatalf("old token after rotate: %d", res.StatusCode)
+
+	// revoking kills the link
+	ids := regexp.MustCompile(`/config/mcp/(\d+)/revogar`).FindAllSubmatch(mustGet(t, client, ts.URL+"/config"), -1)
+	if len(ids) != 1 {
+		t.Fatalf("links listed: %d", len(ids))
 	}
-	newToken, _ := svc.MCPToken()
-	if res := initialize("/mcp/" + newToken); res.StatusCode != http.StatusOK {
-		t.Fatalf("new token: %d", res.StatusCode)
+	if res, _ := beto.PostForm(ts.URL+"/config/mcp/"+string(ids[0][1])+"/revogar", nil); res.StatusCode != http.StatusBadRequest {
+		t.Errorf("beto revoked ana's link: %d", res.StatusCode)
 	}
+	if res, _ := client.PostForm(ts.URL+"/config/mcp/"+string(ids[0][1])+"/revogar", nil); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("revoke: %d", res.StatusCode)
+	}
+	if res := initialize(link); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("revoked link: %d", res.StatusCode)
+	}
+}
+
+func mustGet(t *testing.T, c *http.Client, u string) []byte {
+	t.Helper()
+	res, err := c.Get(u)
+	if err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: %v", u, err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	return b
+}
+
+// countTx lists Nov/2026 transactions through an MCP link.
+func countTx(t *testing.T, link string) int {
+	t.Helper()
+	ctx := context.Background()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "1"}, nil).
+		Connect(ctx, &mcp.StreamableClientTransport{Endpoint: link}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "list_transactions", Arguments: map[string]any{"from": "2026-11"}})
+	if err != nil || res.IsError {
+		t.Fatalf("list_transactions: %v %+v", err, res)
+	}
+	var out struct {
+		Transactions []any `json:"transactions"`
+	}
+	b, _ := json.Marshal(res.StructuredContent)
+	json.Unmarshal(b, &out)
+	return len(out.Transactions)
 }

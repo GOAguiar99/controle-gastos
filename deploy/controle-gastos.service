@@ -1,7 +1,8 @@
 [Unit]
-Description=Controle de Gastos (Go + SQLite)
-After=network-online.target
+Description=Controle de Gastos (Go + PostgreSQL)
+After=network-online.target postgresql.service
 Wants=network-online.target
+Requires=postgresql.service
 
 [Service]
 User=controle-gastos

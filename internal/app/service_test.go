@@ -1,22 +1,18 @@
 package app
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"controle-gastos/internal/db"
+	"controle-gastos/internal/db/dbtest"
 	"controle-gastos/internal/finance"
 )
 
 func newSvc(t *testing.T) *Service {
 	t.Helper()
-	st, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := dbtest.Ledger(t)
 	s := New(st, time.UTC)
 	s.SetClock(func() time.Time { return d("2026-11-16") })
 	return s
@@ -187,17 +183,6 @@ func TestDebtAndConfigRules(t *testing.T) {
 	mustInvalid(t, s.SetCategoryBucket(999, finance.Card), "não encontrada")
 	_, err = ParseBucket("cartão")
 	mustInvalid(t, err, "grupo inválido")
-
-	tok, err := s.MCPToken()
-	if err != nil || len(tok) < 40 {
-		t.Fatalf("token: %q %v", tok, err)
-	}
-	if again, _ := s.MCPToken(); again != tok {
-		t.Fatal("token must be stable")
-	}
-	if rot, _ := s.RotateMCPToken(); rot == tok {
-		t.Fatal("rotate must change the token")
-	}
 }
 
 func d(s string) time.Time {

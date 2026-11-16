@@ -21,6 +21,7 @@
       <a href="/dividas" {{if eq .Nav "debts"}}class="on"{{end}}>Dívidas</a>
       <a href="/config" {{if eq .Nav "config"}}class="on"{{end}}>Config</a>
     </nav>
+    {{with .User}}<span class="who" title="{{.Email}}">{{if .PictureURL}}<img src="{{.PictureURL}}" alt="" referrerpolicy="no-referrer">{{end}}{{.Name}}</span>{{end}}
   </div>
 </header>
 {{end}}

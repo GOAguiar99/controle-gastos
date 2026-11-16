@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,36 +19,6 @@ import (
 func shortMonth(m finance.Month) string {
 	l := m.Label()
 	return l[:len(l)-4] + l[len(l)-2:]
-}
-
-// ---------- login ----------
-
-func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
-	if !s.auth.Enabled() || s.auth.valid(r) {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	s.render(w, r, "login", page{"Title": "Entrar"})
-}
-
-func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	ok, locked := s.auth.check(r, r.FormValue("password"))
-	if !ok {
-		msg := "Senha incorreta."
-		if locked {
-			msg = "Muitas tentativas. Aguarde 15 minutos."
-		}
-		w.WriteHeader(http.StatusUnauthorized)
-		s.render(w, r, "login", page{"Title": "Entrar", "Error": msg})
-		return
-	}
-	s.auth.newSession(w, r)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	s.auth.clearSession(w, r)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 // ---------- dashboard ----------
@@ -93,7 +61,7 @@ func reais(c int64) float64 { return float64(c) / 100 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	sel := s.monthParam(r)
-	o, err := s.svc.Overview(sel)
+	o, err := svcOf(r).Overview(sel)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -167,7 +135,7 @@ func (s *Server) saveCash(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	date, _ := finance.ParseDate(r.FormValue("date")) // zero = today
-	if _, err := s.svc.SetCash(date, amount, r.FormValue("note")); err != nil {
+	if _, err := svcOf(r).SetCash(date, amount, r.FormValue("note")); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -187,7 +155,7 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		today := s.today()
 		mes := s.monthParam(r)
-		entries, skipped, err := s.st.Entries(mes.Add(-1), mes)
+		entries, skipped, err := svcOf(r).Store().Entries(mes.Add(-1), mes)
 		if err != nil {
 			s.fail(w, err)
 			return
@@ -222,14 +190,14 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 		for _, e := range prev {
 			prevTotal += e.Amount
 		}
-		cats, err := s.st.Categories(kind)
+		cats, err := svcOf(r).Store().Categories(kind)
 		if err != nil {
 			s.fail(w, err)
 			return
 		}
 		var debts []db.Debt
 		if kind == finance.Expense {
-			if debts, err = s.st.Debts(today); err != nil {
+			if debts, err = svcOf(r).Store().Debts(today); err != nil {
 				s.fail(w, err)
 				return
 			}
@@ -242,7 +210,7 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 		if kind == finance.Income {
 			title = "Receitas"
 		}
-		chart, err := s.svc.CategoryReport(kind, mes)
+		chart, err := svcOf(r).CategoryReport(kind, mes)
 		if err != nil {
 			s.fail(w, err)
 			return
@@ -305,14 +273,14 @@ func (s *Server) createTx(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, err.Error())
 			return
 		}
-		if _, err := s.svc.RecurrenceFromTx(in, sched); err != nil {
+		if _, err := svcOf(r).RecurrenceFromTx(in, sched); err != nil {
 			s.fail(w, err)
 			return
 		}
 		http.Redirect(w, r, dest+"&msg="+url.QueryEscape("Recorrência criada — já aparece nos meses seguintes"), http.StatusSeeOther)
 		return
 	}
-	if _, err := s.svc.AddTx(in); err != nil {
+	if _, err := svcOf(r).AddTx(in); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -325,20 +293,20 @@ func (s *Server) editTxPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	tx, err := s.st.Tx(id)
+	tx, err := svcOf(r).Store().Tx(id)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	cats, err := s.st.Categories(tx.Kind)
+	cats, err := svcOf(r).Store().Categories(tx.Kind)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	debts, _ := s.st.Debts(s.today())
+	debts, _ := svcOf(r).Store().Debts(s.today())
 	var rec *finance.Recurrence
 	if tx.RecurrenceID != 0 {
-		if rr, err := s.st.Recurrence(tx.RecurrenceID); err == nil {
+		if rr, err := svcOf(r).Store().Recurrence(tx.RecurrenceID); err == nil {
 			rec = &rr
 		}
 	}
@@ -360,7 +328,7 @@ func (s *Server) updateTx(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err.Error())
 		return
 	}
-	tx, err := s.svc.UpdateTx(id, in)
+	tx, err := svcOf(r).UpdateTx(id, in)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -374,7 +342,7 @@ func (s *Server) deleteTx(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if _, err := s.svc.DeleteTx(id); err != nil {
+	if _, err := svcOf(r).DeleteTx(id); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -397,16 +365,16 @@ func (s *Server) confirmOccurrence(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	date, _ := finance.ParseDate(r.FormValue("date")) // zero = the recurrence's day
-	if _, err := s.svc.ConfirmOccurrence(id, m, amount, date, app.SourceManual); err != nil {
+	if _, err := svcOf(r).ConfirmOccurrence(id, m, amount, date, app.SourceManual); err != nil {
 		s.fail(w, err)
 		return
 	}
-	rec, _ := s.svc.Recurrence(id)
+	rec, _ := svcOf(r).Recurrence(id)
 	back(w, r, kindPath(rec.Kind))
 }
 
 func (s *Server) skipOccurrence(w http.ResponseWriter, r *http.Request) {
-	rec, err := s.svc.SkipOccurrence(occurrenceFromForm(r))
+	rec, err := svcOf(r).SkipOccurrence(occurrenceFromForm(r))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -415,7 +383,7 @@ func (s *Server) skipOccurrence(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) unskipOccurrence(w http.ResponseWriter, r *http.Request) {
-	rec, err := s.svc.UnskipOccurrence(occurrenceFromForm(r))
+	rec, err := svcOf(r).UnskipOccurrence(occurrenceFromForm(r))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -458,7 +426,7 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	today := s.today()
 	cur := finance.MonthOf(today)
-	recs, err := s.st.Recurrences()
+	recs, err := svcOf(r).Store().Recurrences()
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -485,12 +453,12 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, row)
 	}
-	cats, err := s.st.Categories(kind)
+	cats, err := svcOf(r).Store().Categories(kind)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	debts, err := s.st.Debts(today)
+	debts, err := svcOf(r).Store().Debts(today)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -499,7 +467,7 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 	for _, d := range debts {
 		debtNames[d.ID] = d.Name
 	}
-	suggestions, err := s.svc.Suggestions()
+	suggestions, err := svcOf(r).Suggestions()
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -545,7 +513,7 @@ func (s *Server) saveRecurrence(w http.ResponseWriter, r *http.Request) {
 	if kind == finance.Expense {
 		in.DebtID = formID(r, "debt_id")
 	}
-	if _, err := s.svc.SaveRecurrence(in); err != nil {
+	if _, err := svcOf(r).SaveRecurrence(in); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -558,7 +526,7 @@ func (s *Server) acceptRecurrence(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rec, err := s.svc.AcceptRecurrence(id)
+	rec, err := svcOf(r).AcceptRecurrence(id)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -572,7 +540,7 @@ func (s *Server) dismissRecurrence(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rec, err := s.svc.DismissRecurrence(id)
+	rec, err := svcOf(r).DismissRecurrence(id)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -586,7 +554,7 @@ func (s *Server) deleteRecurrence(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	rec, err := s.svc.DeleteRecurrence(id)
+	rec, err := svcOf(r).DeleteRecurrence(id)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -611,12 +579,12 @@ type yearPoint struct {
 
 func (s *Server) debtsPage(w http.ResponseWriter, r *http.Request) {
 	today := s.today()
-	debts, err := s.st.Debts(today)
+	debts, err := svcOf(r).Store().Debts(today)
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	all, err := s.st.AllTransactions()
+	all, err := svcOf(r).Store().AllTransactions()
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -706,7 +674,7 @@ func (s *Server) saveDebt(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	res, err := s.svc.SaveDebt(id, in)
+	res, err := svcOf(r).SaveDebt(id, in)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -724,7 +692,7 @@ func (s *Server) deleteDebt(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if _, err := s.svc.DeleteDebt(id); err != nil {
+	if _, err := svcOf(r).DeleteDebt(id); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -734,10 +702,19 @@ func (s *Server) deleteDebt(w http.ResponseWriter, r *http.Request) {
 // ---------- config ----------
 
 func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
-	cats, err := s.st.Categories("")
+	data, err := s.configData(r)
 	if err != nil {
 		s.fail(w, err)
 		return
+	}
+	s.render(w, r, "config", data)
+}
+
+func (s *Server) configData(r *http.Request) (page, error) {
+	st := svcOf(r).Store()
+	cats, err := st.Categories("")
+	if err != nil {
+		return nil, err
 	}
 	var inc, exp []db.Category
 	for _, c := range cats {
@@ -747,18 +724,19 @@ func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
 			exp = append(exp, c)
 		}
 	}
-	snap, _ := s.st.LatestSnapshot()
-	mcpURL := ""
-	if s.mcp != nil {
-		if mcpURL, err = s.mcpURL(r); err != nil {
-			s.fail(w, err)
-			return
-		}
+	snap, _ := st.LatestSnapshot()
+	data := page{
+		"Title": "Configurações", "Limits": st.Limits(), "IncomeCats": inc, "ExpenseCats": exp, "Snap": snap,
+		"MCPEnabled": s.mcp != nil,
 	}
-	s.render(w, r, "config", page{
-		"Title": "Configurações", "Limits": s.st.Limits(), "IncomeCats": inc, "ExpenseCats": exp, "Snap": snap,
-		"MCPURL": mcpURL,
-	})
+	if s.mcp != nil {
+		tokens, err := s.app.MCPTokens(r.Context(), actorOf(r))
+		if err != nil {
+			return nil, err
+		}
+		data["MCPTokens"] = tokens
+	}
+	return data, nil
 }
 
 func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
@@ -771,7 +749,7 @@ func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "valores inválidos")
 		return
 	}
-	if err := s.svc.SetLimits(finance.Limits{CardLimit: card, MinSavings: minS}); err != nil {
+	if err := svcOf(r).SetLimits(finance.Limits{CardLimit: card, MinSavings: minS}); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -788,7 +766,7 @@ func parseBucket(v string) finance.Bucket {
 
 func (s *Server) addCategory(w http.ResponseWriter, r *http.Request) {
 	kind, _ := app.ParseKind(r.FormValue("kind"))
-	if _, err := s.svc.AddCategory(r.FormValue("name"), kind, parseBucket(r.FormValue("bucket"))); err != nil {
+	if _, err := svcOf(r).AddCategory(r.FormValue("name"), kind, parseBucket(r.FormValue("bucket"))); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -801,7 +779,7 @@ func (s *Server) updateCategory(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if err := s.svc.SetCategoryBucket(id, parseBucket(r.FormValue("bucket"))); err != nil {
+	if err := svcOf(r).SetCategoryBucket(id, parseBucket(r.FormValue("bucket"))); err != nil {
 		s.fail(w, err)
 		return
 	}
@@ -809,7 +787,7 @@ func (s *Server) updateCategory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
-	all, err := s.st.AllTransactions()
+	all, err := svcOf(r).Store().AllTransactions()
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -828,21 +806,4 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 		cw.Write([]string{e.Date.Format("2006-01-02"), string(e.Kind), e.Category, moneyInput(e.Amount), e.Description, rec})
 	}
 	cw.Flush()
-}
-
-func (s *Server) exportDB(w http.ResponseWriter, r *http.Request) {
-	dir, err := os.MkdirTemp("", "cg-backup")
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	defer os.RemoveAll(dir)
-	path := filepath.Join(dir, "backup.db")
-	if err := s.st.Backup(path); err != nil {
-		s.fail(w, err)
-		return
-	}
-	name := "controle-gastos-" + s.today().Format("2006-01-02") + ".db"
-	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	http.ServeFile(w, r, path)
 }

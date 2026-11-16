@@ -2,11 +2,16 @@
 <div class="login">
   <article class="card">
     <div class="login-brand">Controle de Gastos</div>
-    <form method="post" action="/login" class="form">
-      <label>Senha<input type="password" name="password" autocomplete="current-password" autofocus required></label>
-      {{with .Error}}<p class="error">{{.}}</p>{{end}}
-      <button class="btn primary">Entrar</button>
+    {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+    {{if .Google}}
+    <a class="btn primary block" href="/auth/google">Entrar com Google</a>
+    <p class="hint">Usamos só seu nome, e-mail e foto da conta Google. Nenhuma senha fica guardada aqui.</p>
+    {{end}}
+    {{if .DevLogin}}
+    <form method="post" action="/auth/dev" class="form">
+      <button class="btn">Entrar como dev (só local)</button>
     </form>
+    {{end}}
   </article>
 </div>
 {{end}}
