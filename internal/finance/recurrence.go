@@ -46,6 +46,7 @@ type Recurrence struct {
 	Count       int   // EndCount: number of occurrences
 	End         Month // EndUntil: last month (inclusive)
 	Active      bool
+	DebtID      int64 // debt this recurring payment pays down (0 = none)
 }
 
 func (r Recurrence) interval() int {

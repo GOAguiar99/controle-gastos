@@ -108,7 +108,7 @@ func Run(st *db.Store, file string, today time.Time, out io.Writer) error {
 			if name == "" || !ok {
 				continue
 			}
-			id, err := st.AddDebt(name, amt)
+			id, err := st.AddDebt(db.DebtInput{Name: name, Initial: amt})
 			if err != nil {
 				return err
 			}

@@ -39,7 +39,7 @@
       {{range .Rows}}
         <tr class="{{if or (not .Rec.Active) .Ended}}inactive{{end}} {{if .Editing}}sel{{end}}">
           <td><strong>{{.Rec.Description}}</strong><br><small class="muted">{{.Rec.Category}} · dia {{.Rec.Day}} · desde {{.Rec.Start.Label}}</small></td>
-          <td class="num">{{brl .Rec.Amount}}</td>
+          <td class="num">{{if .Rec.DebtID}}<small class="muted">abate {{index $.DebtNames .Rec.DebtID}}</small><br>{{end}}{{brl .Rec.Amount}}</td>
           <td>{{.Rec.FrequencyLabel}} · {{if not .Rec.Active}}<span class="pill">pausada</span>{{else if .Ended}}<span class="pill">encerrada</span>{{else}}{{.Rec.EndLabel}}{{end}}
             {{with .Next}}<br><small class="muted">próx.: {{range $i, $m := .}}{{if $i}}, {{end}}{{$m.Label}}{{end}}</small>{{end}}</td>
           <td class="actions">
@@ -76,6 +76,15 @@
       </div>
       <label>A partir de<input type="month" name="start" value="{{.Form.Start}}" required></label>
       {{template "recurrence-fields" .Form}}
+      {{if and (not .IsIncome) .Debts}}
+      <label>Abate dívida
+        <select name="debt_id">
+          <option value="0">—</option>
+          {{range .Debts}}<option value="{{.ID}}" {{if eq .ID $.Form.DebtID}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+      </label>
+      <p class="hint">Vinculada a um financiamento, a parcela prevista de cada mês vem da tabela (amortização + juros + seguros), e cada mês confirmado abate a dívida.</p>
+      {{end}}
       {{if .Editing}}<label class="check"><input type="checkbox" name="active" {{if .Form.Active}}checked{{end}}> Ativa</label>{{end}}
       <p class="hint">Meses já confirmados mantêm o valor lançado. Os previstos usam o valor daqui.</p>
       <button class="btn primary">{{if .Editing}}Salvar alterações{{else}}Adicionar{{end}}</button>

@@ -1,38 +1,102 @@
+{{define "debt-fields"}}
+<div class="row">
+  <label>Nome<input name="name" value="{{.Name}}" required placeholder="Com quem / qual contrato"></label>
+  <label>Valor inicial / financiado (R$)<input name="initial" value="{{money .Initial}}" inputmode="decimal" required data-money></label>
+</div>
+<label>Juros
+  <select name="system" data-loan-system>
+    <option value="none" {{if not .HasInterest}}selected{{end}}>Sem juros (saldo = inicial − pagamentos)</option>
+    <option value="sac" {{if eq .Loan.System "sac"}}selected{{end}}>SAC — amortização constante (financiamento imobiliário)</option>
+    <option value="price" {{if eq .Loan.System "price"}}selected{{end}}>Price — parcela fixa</option>
+  </select>
+</label>
+<div class="loan-fields" data-loan-fields>
+  <div class="row">
+    <label>Taxa de juros (% ao mês)<input name="rate" value="{{if .HasInterest}}{{rate .Loan.MonthlyRate}}{{end}}" inputmode="decimal" placeholder="0,9631393"></label>
+    <label>Prazo total (parcelas)<input type="number" name="term" min="1" max="600" value="{{if .Loan.Term}}{{.Loan.Term}}{{end}}" placeholder="420"></label>
+  </div>
+  <div class="row">
+    <label>Vencimento da 1ª parcela<input type="date" name="first_due" value="{{if not (isZeroTime .Loan.FirstDue)}}{{iso .Loan.FirstDue}}{{end}}"></label>
+    <label>Seguros/taxas por parcela (R$)<input name="fees" value="{{money .Loan.Fees}}" inputmode="decimal" placeholder="0,00" data-money></label>
+  </div>
+  <p class="hint">Saldo do extrato (opcional, deixa o cálculo idêntico ao banco, incluindo correção TR):</p>
+  <div class="row">
+    <label>Após a parcela nº<input type="number" name="anchor_n" min="0" value="{{if .Loan.AnchorN}}{{.Loan.AnchorN}}{{end}}" placeholder="7"></label>
+    <label>Saldo devedor (R$)<input name="anchor_balance" value="{{money .Loan.AnchorBalance}}" inputmode="decimal" data-money placeholder="377.957,86"></label>
+  </div>
+</div>
+{{end}}
+
 {{define "content"}}
 <div class="page-head">
   <div>
     <h1>Dívidas</h1>
-    <p class="muted">Pago = soma dos gastos marcados com “abate dívida”.</p>
+    <p class="muted">Financiamentos seguem a tabela de amortização com juros; dívidas sem juros abatem o valor pago.</p>
   </div>
 </div>
 
 <section class="kpis three">
-  <article class="kpi"><span class="kpi-label">Dívida inicial</span><strong class="kpi-value">{{brl .TotalInitial}}</strong></article>
-  <article class="kpi"><span class="kpi-label">Pago</span><strong class="kpi-value pos">{{brl .TotalPaid}}</strong></article>
-  <article class="kpi"><span class="kpi-label">Atual</span><strong class="kpi-value negc">{{brl .TotalCurrent}}</strong></article>
+  <article class="kpi"><span class="kpi-label">Valor original</span><strong class="kpi-value">{{brl .TotalInitial}}</strong></article>
+  <article class="kpi"><span class="kpi-label">Já quitado</span><strong class="kpi-value pos">{{brl .TotalPaidOff}}</strong>
+    <span class="kpi-sub">{{pct (ratio .TotalPaidOff .TotalInitial)}} do total</span></article>
+  <article class="kpi"><span class="kpi-label">Saldo devedor hoje</span><strong class="kpi-value negc">{{brl .TotalCurrent}}</strong>
+    {{if .TotalInterestLeft}}<span class="kpi-sub">+ {{brl .TotalInterestLeft}} de juros a pagar</span>{{end}}</article>
 </section>
 
 <section class="two-col wide-left">
   <div class="stack">
   {{range .Debts}}
     <article class="card">
-      <div class="card-head"><h2>{{.Name}}</h2><span class="muted">{{.PaidPct}}% pago</span></div>
-      <div class="meter big"><span style="width: {{.PaidPct}}%"></span></div>
+      <div class="card-head">
+        <h2>{{.Name}} {{if .HasInterest}}<span class="tag">{{if eq .Loan.System "sac"}}SAC{{else}}Price{{end}} · {{rate .Loan.MonthlyRate}}% a.m.</span>{{else}}<span class="tag">sem juros</span>{{end}}</h2>
+        <span class="muted">{{pctDec .Progress}} quitado</span>
+      </div>
+      <div class="meter big"><span style="width: {{pctWidth .Progress}}%"></span></div>
+
+      {{if .HasInterest}}
+      <div class="flow-stats">
+        <div><span>Saldo devedor</span><strong class="negc">{{brl .Status.Balance}}</strong><small>de {{brl .Initial}}</small></div>
+        <div><span>Amortizado</span><strong class="pos">{{brl .Status.Amortized}}</strong></div>
+        <div><span>Parcelas</span><strong>{{.Status.Paid}}/{{.Loan.Term}}</strong><small>termina {{dmy .Status.Last.Due}}</small></div>
+        <div><span>Juros pagos</span><strong>{{brl .Status.InterestPaid}}</strong></div>
+        <div><span>Juros a pagar</span><strong>{{brl .Status.InterestLeft}}</strong></div>
+      </div>
+      {{with .Status.Next}}
+      <p class="hint">Próxima parcela ({{.N}}ª, {{dmy .Due}}): <strong>{{brl .Total}}</strong> = {{brl .Amort}} amortização + {{brl .Interest}} juros{{if .Fees}} + {{brl .Fees}} seguros{{end}}.</p>
+      {{end}}
+      <details>
+        <summary>Próximas parcelas</summary>
+        <div class="table-scroll">
+        <table class="grid compact">
+          <thead><tr><th>Nº</th><th>Venc.</th><th class="num">Amortização</th><th class="num">Juros</th><th class="num">Total</th><th class="num">Saldo após</th></tr></thead>
+          <tbody>{{range .Upcoming}}<tr><td>{{.N}}</td><td>{{dmy .Due}}</td><td class="num">{{brl .Amort}}</td><td class="num">{{brl .Interest}}</td><td class="num">{{brl .Total}}</td><td class="num">{{brl .Balance}}</td></tr>{{end}}</tbody>
+        </table>
+        </div>
+      </details>
+      <details>
+        <summary>Saldo devedor ano a ano</summary>
+        <ul class="bars">
+          {{range .Yearly}}<li><span class="bar-label">{{.Year}}</span><span class="bar"><span class="b-cartao" style="width: {{.BarPct}}%"></span></span><span class="num">{{brl .Balance}}</span></li>{{end}}
+        </ul>
+      </details>
+      {{else}}
       <div class="flow-stats">
         <div><span>Inicial</span><strong>{{brl .Initial}}</strong></div>
         <div><span>Pago</span><strong class="pos">{{brl .Paid}}</strong></div>
         <div><span>Atual</span><strong class="negc">{{brl .Current}}</strong></div>
       </div>
+      {{end}}
+
       {{with index $.Payments .ID}}
-      <details><summary>{{len .}} pagamento(s)</summary>
+      <details><summary>{{len .}} pagamento(s) vinculados</summary>
         <ul class="entries">{{range .}}<li class="entry"><div class="e-date"><strong>{{dmy .Date}}</strong></div><div class="e-main"><span class="e-desc">{{.Description}}</span></div><div class="e-amount">{{brl .Amount}}</div><div class="e-actions"><a class="btn ghost small" href="/lancamentos/{{.ID}}/editar">Editar</a></div></li>{{end}}</ul>
       </details>
       {{end}}
+
       {{if eq $.EditID .ID}}
-      <form method="post" action="/dividas/{{.ID}}" class="inline-form">
-        <label>Nome<input name="name" value="{{.Name}}" required></label>
-        <label>Inicial<input name="initial" value="{{money .Initial}}" inputmode="decimal" required data-money></label>
-        <button class="btn">Salvar</button><a class="link" href="/dividas">cancelar</a>
+      <form method="post" action="/dividas/{{.ID}}" class="form edit-debt" data-loan>
+        {{template "debt-fields" .Debt}}
+        <div class="card-actions"><button class="btn primary">Salvar</button><a class="link" href="/dividas">cancelar</a></div>
       </form>
       {{else}}
       <div class="card-actions">
@@ -48,12 +112,11 @@
 
   <article class="card">
     <div class="card-head"><h2>Nova dívida</h2></div>
-    <form method="post" action="/dividas" class="form">
-      <label>Nome<input name="name" required placeholder="Com quem"></label>
-      <label>Valor inicial (R$)<input name="initial" inputmode="decimal" required data-money></label>
+    <form method="post" action="/dividas" class="form" data-loan>
+      {{template "debt-fields" newDebt}}
       <button class="btn primary">Adicionar</button>
     </form>
-    <p class="hint">Para registrar um pagamento, lance um gasto (categoria “Dívida”) e escolha a dívida em “Abate dívida”.</p>
+    <p class="hint">Pagamentos: lance um gasto e escolha a dívida em “Abate dívida”, ou vincule uma recorrência (ex.: Financiamento) à dívida em Recorrentes — cada parcela confirmada abate uma parcela da tabela.</p>
   </article>
 </section>
 {{end}}

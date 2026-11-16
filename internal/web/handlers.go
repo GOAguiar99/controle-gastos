@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -240,7 +241,7 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 		}
 		var debts []db.Debt
 		if kind == finance.Expense {
-			if debts, err = s.st.Debts(); err != nil {
+			if debts, err = s.st.Debts(today); err != nil {
 				s.fail(w, err)
 				return
 			}
@@ -362,7 +363,7 @@ func (s *Server) editTxPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	debts, _ := s.st.Debts()
+	debts, _ := s.st.Debts(s.today())
 	var rec *finance.Recurrence
 	if tx.RecurrenceID != 0 {
 		if rr, err := s.st.Recurrence(tx.RecurrenceID); err == nil {
@@ -451,7 +452,7 @@ func (s *Server) confirmOccurrence(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = s.st.InsertTx(db.TxInput{
 		Kind: rec.Kind, Date: date, Amount: amount, CategoryID: rec.CategoryID, Description: rec.Description,
-		RecurrenceID: rec.ID, OccMonth: m.String(),
+		RecurrenceID: rec.ID, OccMonth: m.String(), DebtID: rec.DebtID,
 	})
 	if err != nil {
 		s.fail(w, err)
@@ -561,10 +562,20 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	debts, err := s.st.Debts(today)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	debtNames := map[int64]string{}
+	for _, d := range debts {
+		debtNames[d.ID] = d.Name
+	}
 	s.render(w, r, "recurrences", page{
 		"Title": "Recorrentes", "Kind": string(kind), "IsIncome": kind == finance.Income,
 		"Rows": rows, "ThisMonth": thisMonth, "MonthlyEq": monthlyEq, "Current": cur,
 		"Form": form, "Editing": editID != 0 && form.ID == editID, "Categories": cats,
+		"Debts": debts, "DebtNames": debtNames,
 	})
 }
 
@@ -618,6 +629,14 @@ func (s *Server) saveRecurrence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec.Active = rec.ID == 0 || r.FormValue("active") == "on"
+	if kind == finance.Expense {
+		if rec.DebtID = formID(r, "debt_id"); rec.DebtID != 0 {
+			if _, err := s.st.Debt(rec.DebtID); err != nil {
+				badRequest(w, "dívida inválida")
+				return
+			}
+		}
+	}
 	if _, err := s.st.SaveRecurrence(rec); err != nil {
 		s.fail(w, err)
 		return
@@ -645,8 +664,22 @@ func (s *Server) deleteRecurrence(w http.ResponseWriter, r *http.Request) {
 
 // ---------- dívidas ----------
 
+// debtView adds the upcoming installments of a loan for the template.
+type debtView struct {
+	db.Debt
+	Upcoming []finance.Installment
+	Yearly   []yearPoint
+}
+
+type yearPoint struct {
+	Year    int
+	Balance int64
+	BarPct  int
+}
+
 func (s *Server) debtsPage(w http.ResponseWriter, r *http.Request) {
-	debts, err := s.st.Debts()
+	today := s.today()
+	debts, err := s.st.Debts(today)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -657,28 +690,86 @@ func (s *Server) debtsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payments := map[int64][]finance.Entry{}
-	var totalInitial, totalPaid int64
 	for _, e := range all {
 		if e.DebtID != 0 {
 			payments[e.DebtID] = append(payments[e.DebtID], e)
 		}
 	}
+	var totalInitial, totalCurrent, totalInterestLeft int64
+	views := make([]debtView, 0, len(debts))
 	for _, d := range debts {
 		totalInitial += d.Initial
-		totalPaid += d.Paid
+		totalCurrent += d.Current()
+		v := debtView{Debt: d}
+		if d.HasInterest() {
+			totalInterestLeft += d.Status.InterestLeft
+			sched := d.Loan.Schedule()
+			for i := d.Status.Paid; i < len(sched) && len(v.Upcoming) < 12; i++ {
+				v.Upcoming = append(v.Upcoming, sched[i])
+			}
+			// balance at the end of each year, for the long-term view
+			for _, in := range sched {
+				if in.Due.Month() == time.December || in.N == len(sched) {
+					v.Yearly = append(v.Yearly, yearPoint{Year: in.Due.Year(), Balance: in.Balance, BarPct: barPct(in.Balance, d.Initial)})
+				}
+			}
+		}
+		views = append(views, v)
 	}
 	s.render(w, r, "debts", page{
-		"Title": "Dívidas", "Debts": debts, "Payments": payments,
-		"TotalInitial": totalInitial, "TotalPaid": totalPaid, "TotalCurrent": totalInitial - totalPaid,
-		"EditID": formID(r, "editar"),
+		"Title": "Dívidas", "Debts": views, "Payments": payments, "Today": today,
+		"TotalInitial": totalInitial, "TotalCurrent": totalCurrent, "TotalPaidOff": totalInitial - totalCurrent,
+		"TotalInterestLeft": totalInterestLeft, "EditID": formID(r, "editar"),
 	})
 }
 
+// parseRate accepts "0,9631393" or "0.9631393" (% ao mês).
+func parseRate(v string) (float64, error) {
+	v = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "%"))
+	v = strings.Replace(v, ",", ".", 1)
+	return strconv.ParseFloat(v, 64)
+}
+
+func debtFromForm(r *http.Request) (db.DebtInput, error) {
+	in := db.DebtInput{Name: strings.TrimSpace(r.FormValue("name")), System: r.FormValue("system")}
+	var err error
+	if in.Initial, err = ParseMoney(r.FormValue("initial")); in.Name == "" || err != nil || in.Initial <= 0 {
+		return in, fmt.Errorf("nome e valor inicial são obrigatórios")
+	}
+	if in.System != finance.LoanSAC && in.System != finance.LoanPrice {
+		in.System = finance.LoanNone
+		return in, nil
+	}
+	if in.MonthlyRate, err = parseRate(r.FormValue("rate")); err != nil || in.MonthlyRate < 0 || in.MonthlyRate > 20 {
+		return in, fmt.Errorf("taxa mensal inválida")
+	}
+	if in.Term = formInt(r, "term", 0); in.Term < 1 || in.Term > 600 {
+		return in, fmt.Errorf("prazo inválido")
+	}
+	if in.FirstDue, err = finance.ParseDate(r.FormValue("first_due")); err != nil {
+		return in, fmt.Errorf("data da 1ª parcela inválida")
+	}
+	if v := r.FormValue("fees"); v != "" {
+		if in.Fees, err = ParseMoney(v); err != nil || in.Fees < 0 {
+			return in, fmt.Errorf("seguros/taxas inválidos")
+		}
+	}
+	in.AnchorN = formInt(r, "anchor_n", 0)
+	if in.AnchorN < 0 || in.AnchorN >= in.Term {
+		return in, fmt.Errorf("parcela do saldo informado inválida")
+	}
+	if in.AnchorN > 0 {
+		if in.AnchorBalance, err = ParseMoney(r.FormValue("anchor_balance")); err != nil || in.AnchorBalance <= 0 {
+			return in, fmt.Errorf("saldo devedor informado inválido")
+		}
+	}
+	return in, nil
+}
+
 func (s *Server) saveDebt(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(r.FormValue("name"))
-	initial, err := ParseMoney(r.FormValue("initial"))
-	if name == "" || err != nil || initial <= 0 {
-		badRequest(w, "nome e valor inicial são obrigatórios")
+	in, err := debtFromForm(r)
+	if err != nil {
+		badRequest(w, err.Error())
 		return
 	}
 	if r.PathValue("id") != "" {
@@ -687,9 +778,9 @@ func (s *Server) saveDebt(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		err = s.st.UpdateDebt(id, name, initial)
+		err = s.st.UpdateDebt(id, in)
 	} else {
-		_, err = s.st.AddDebt(name, initial)
+		_, err = s.st.AddDebt(in)
 	}
 	if err != nil {
 		s.fail(w, err)

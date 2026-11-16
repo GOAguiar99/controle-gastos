@@ -1,6 +1,7 @@
 package web
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -92,13 +93,31 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 	post("/recorrentes", url.Values{"kind": {"expense"}, "description": {"IPVA"}, "new_category": {"Impostos"}, "amount": {"1200"},
 		"day": {"31"}, "start": {"2026-11"}, "interval": {"12"}, "end_mode": {"never"}})
 	post("/dividas", url.Values{"name": {"Fulano"}, "initial": {"1000"}})
+	post("/dividas", url.Values{"name": {"Banco"}, "initial": {"380.000,00"}, "system": {"sac"}, "rate": {"0,9631393"},
+		"term": {"420"}, "first_due": {"2026-01-16"}, "fees": {"79,88"}, "anchor_n": {"7"}, "anchor_balance": {"377.957,86"}})
+	// recurrence paying the loan (debt id 2); its projected parcel comes from the SAC table
+	post("/recorrentes", url.Values{"kind": {"expense"}, "description": {"Financiamento"}, "new_category": {"Financiamento"},
+		"amount": {"4651,45"}, "day": {"16"}, "start": {"2026-11"}, "interval": {"1"}, "end_mode": {"never"}, "debt_id": {"2"}})
 
 	for _, p := range []string{"/", "/?mes=2027-02", "/receitas?mes=2026-11", "/gastos?mes=2026-11", "/recorrentes",
-		"/recorrentes?tipo=income&editar=1", "/dividas", "/config", "/lancamentos/1/editar", "/export/lancamentos.csv", "/export/backup.db"} {
+		"/recorrentes?tipo=income&editar=1", "/recorrentes?editar=3", "/dividas", "/dividas?editar=2", "/config",
+		"/lancamentos/1/editar", "/export/lancamentos.csv", "/export/backup.db"} {
 		res, err := client.Get(ts.URL + p)
 		if err != nil || res.StatusCode != http.StatusOK {
 			t.Errorf("GET %s: %v %v", p, res.StatusCode, err)
 		}
+	}
+
+	// Dec/2026 projected parcel = parcela 12 of the SAC table (915,15 + 3.605,00 + 79,88)
+	res, _ = client.Get(ts.URL + "/gastos?mes=2026-12")
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "R$ 4.600,03") {
+		t.Errorf("expected SAC installment R$ 4.600,03 in dez/2026 gastos")
+	}
+	res, _ = client.Get(ts.URL + "/dividas")
+	body, _ = io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "SAC") || !strings.Contains(string(body), "0/420") {
+		t.Errorf("debts page missing loan info")
 	}
 
 	// cross-origin POST is rejected

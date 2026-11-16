@@ -173,14 +173,15 @@ func (s *Store) DeleteTx(id int64) error {
 // ---------- recurrences ----------
 
 const recSelect = `SELECT r.id, r.kind, r.description, r.category_id, c.name, c.bucket, r.amount_cents, r.day_of_month,
-	r.interval_months, r.start_month, r.end_mode, COALESCE(r.occurrences, 0), COALESCE(r.end_month, ''), r.active
+	r.interval_months, r.start_month, r.end_mode, COALESCE(r.occurrences, 0), COALESCE(r.end_month, ''), r.active,
+	COALESCE(r.debt_id, 0)
 	FROM recurrences r JOIN categories c ON c.id = r.category_id`
 
 func scanRec(sc interface{ Scan(...any) error }) (finance.Recurrence, error) {
 	var r finance.Recurrence
 	var start, end string
 	err := sc.Scan(&r.ID, &r.Kind, &r.Description, &r.CategoryID, &r.Category, &r.Bucket, &r.Amount, &r.Day,
-		&r.Interval, &start, &r.EndMode, &r.Count, &end, &r.Active)
+		&r.Interval, &start, &r.EndMode, &r.Count, &end, &r.Active, &r.DebtID)
 	if err != nil {
 		return r, err
 	}
@@ -229,18 +230,31 @@ func (s *Store) SaveRecurrence(r finance.Recurrence) (int64, error) {
 		r.Interval = 1
 	}
 	if r.ID == 0 {
-		res, err := s.DB.Exec(`INSERT INTO recurrences (kind, description, category_id, amount_cents, day_of_month, interval_months, start_month, end_mode, occurrences, end_month, active)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.Kind, r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active)
+		res, err := s.DB.Exec(`INSERT INTO recurrences (kind, description, category_id, amount_cents, day_of_month, interval_months, start_month, end_mode, occurrences, end_month, active, debt_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.Kind, r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID))
 		if err != nil {
 			return 0, err
 		}
 		return res.LastInsertId()
 	}
 	_, err := s.DB.Exec(`UPDATE recurrences SET description = ?, category_id = ?, amount_cents = ?, day_of_month = ?, interval_months = ?,
-		start_month = ?, end_mode = ?, occurrences = ?, end_month = ?, active = ? WHERE id = ?`,
-		r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, r.ID)
-	return r.ID, err
+		start_month = ?, end_mode = ?, occurrences = ?, end_month = ?, active = ?, debt_id = ? WHERE id = ?`,
+		r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.ID)
+	if err != nil {
+		return r.ID, err
+	}
+	return r.ID, s.linkRecurrencePayments(r.ID, r.DebtID)
+}
+
+// linkRecurrencePayments marks the recurrence's confirmed occurrences as payments
+// of debtID (only those not already pointing at another debt).
+func (s *Store) linkRecurrencePayments(recID, debtID int64) error {
+	if debtID == 0 {
+		return nil
+	}
+	_, err := s.DB.Exec(`UPDATE transactions SET debt_id = ? WHERE recurrence_id = ? AND debt_id IS NULL`, debtID, recID)
+	return err
 }
 
 func (s *Store) DeleteRecurrence(id int64) error {
@@ -300,10 +314,48 @@ func (s *Store) Entries(from, to finance.Month) (active, skipped []finance.Entry
 		return nil, nil, err
 	}
 	proj, skipped := finance.Project(recs, done, sk, from, to)
+	if err := s.applyLoanInstallments(recs, proj); err != nil {
+		return nil, nil, err
+	}
 	active = append(txs, proj...)
 	finance.SortEntries(active)
 	finance.SortEntries(skipped)
 	return active, skipped, nil
+}
+
+// applyLoanInstallments replaces the fixed amount of projected occurrences of
+// recurrences that pay an interest-bearing debt with that month's installment
+// (amortização + juros + seguros), so SAC parcels shrink month by month.
+func (s *Store) applyLoanInstallments(recs []finance.Recurrence, proj []finance.Entry) error {
+	recDebt := map[int64]int64{}
+	for _, r := range recs {
+		if r.DebtID != 0 {
+			recDebt[r.ID] = r.DebtID
+		}
+	}
+	if len(recDebt) == 0 {
+		return nil
+	}
+	loans, err := s.Loans()
+	if err != nil {
+		return err
+	}
+	scheds := map[int64][]finance.Installment{}
+	for i := range proj {
+		debtID := recDebt[proj[i].RecurrenceID]
+		loan, ok := loans[debtID]
+		if !ok || !loan.HasInterest() {
+			continue
+		}
+		if _, ok := scheds[debtID]; !ok {
+			scheds[debtID] = loan.Schedule()
+		}
+		if in, ok := loan.InstallmentFor(scheds[debtID], finance.MonthOf(proj[i].Date)); ok {
+			proj[i].Amount = in.Total
+			proj[i].DebtID = debtID
+		}
+	}
+	return nil
 }
 
 // FirstMonth is the month of the oldest transaction (or fallback).
@@ -343,54 +395,150 @@ func (s *Store) AddSnapshot(date time.Time, amount int64, note string) error {
 
 // ---------- debts ----------
 
+// Debt is either a simple debt (saldo = inicial - pagamentos) or a loan with
+// interest, whose balance follows the amortization schedule: each payment
+// made up to today counts as one installment.
 type Debt struct {
-	ID      int64
-	Name    string
-	Initial int64
-	Paid    int64
+	ID       int64
+	Name     string
+	Initial  int64 // valor inicial / financiado
+	Paid     int64 // soma dos pagamentos vinculados
+	Payments int   // pagamentos vinculados até hoje
+	Loan     finance.Loan
+	Status   finance.LoanStatus // só para dívidas com juros
 }
 
-func (d Debt) Current() int64 { return d.Initial - d.Paid }
-func (d Debt) PaidPct() int {
+func (d Debt) HasInterest() bool { return d.Loan.HasInterest() }
+
+func (d Debt) Current() int64 {
+	if d.HasInterest() {
+		return d.Status.Balance
+	}
+	return d.Initial - d.Paid
+}
+
+// Progress is the share of the original amount already paid off (0..1).
+func (d Debt) Progress() float64 {
+	if d.HasInterest() {
+		return d.Status.ProgressPct
+	}
 	if d.Initial <= 0 {
 		return 0
 	}
-	p := int(d.Paid * 100 / d.Initial)
-	if p > 100 {
-		p = 100
-	}
-	return p
+	return min(1, float64(d.Paid)/float64(d.Initial))
 }
 
-func (s *Store) Debts() ([]Debt, error) {
-	rows, err := s.DB.Query(`SELECT d.id, d.name, d.initial_cents, COALESCE(SUM(t.amount_cents), 0)
-		FROM debts d LEFT JOIN transactions t ON t.debt_id = d.id
-		GROUP BY d.id ORDER BY d.name`)
+func (d Debt) PaidPct() int { return int(d.Progress() * 100) }
+
+type DebtInput struct {
+	Name          string
+	Initial       int64
+	System        string
+	MonthlyRate   float64
+	Term          int
+	FirstDue      time.Time
+	Fees          int64
+	AnchorN       int
+	AnchorBalance int64
+}
+
+const debtSelect = `SELECT d.id, d.name, d.initial_cents, d.system, d.monthly_rate, d.term_months, COALESCE(d.first_due, ''),
+	d.fees_cents, d.anchor_n, d.anchor_balance_cents FROM debts d`
+
+func scanDebt(sc interface{ Scan(...any) error }) (Debt, error) {
+	var d Debt
+	var first string
+	err := sc.Scan(&d.ID, &d.Name, &d.Initial, &d.Loan.System, &d.Loan.MonthlyRate, &d.Loan.Term, &first,
+		&d.Loan.Fees, &d.Loan.AnchorN, &d.Loan.AnchorBalance)
+	if err != nil {
+		return d, err
+	}
+	d.Loan.Principal = d.Initial
+	if first != "" {
+		d.Loan.FirstDue, _ = time.Parse(dateFmt, first)
+	}
+	return d, nil
+}
+
+// Loans returns every debt's loan terms by id.
+func (s *Store) Loans() (map[int64]finance.Loan, error) {
+	rows, err := s.DB.Query(debtSelect)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Debt
+	out := map[int64]finance.Loan{}
 	for rows.Next() {
-		var d Debt
-		if err := rows.Scan(&d.ID, &d.Name, &d.Initial, &d.Paid); err != nil {
+		d, err := scanDebt(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, d)
+		out[d.ID] = d.Loan
 	}
 	return out, rows.Err()
 }
 
-func (s *Store) AddDebt(name string, initial int64) (int64, error) {
-	res, err := s.DB.Exec(`INSERT INTO debts (name, initial_cents) VALUES (?, ?)`, name, initial)
+// Debts returns all debts with their payments made up to today.
+func (s *Store) Debts(today time.Time) ([]Debt, error) {
+	rows, err := s.DB.Query(debtSelect + ` ORDER BY d.name`)
+	if err != nil {
+		return nil, err
+	}
+	var out []Debt
+	for rows.Next() {
+		d, err := scanDebt(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		d := &out[i]
+		err := s.DB.QueryRow(`SELECT COALESCE(SUM(amount_cents), 0), COUNT(*) FROM transactions WHERE debt_id = ? AND date <= ?`,
+			d.ID, today.Format(dateFmt)).Scan(&d.Paid, &d.Payments)
+		if err != nil {
+			return nil, err
+		}
+		if d.HasInterest() {
+			d.Status = d.Loan.Status(d.Payments)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) Debt(id int64) (Debt, error) {
+	return scanDebt(s.DB.QueryRow(debtSelect+` WHERE d.id = ?`, id))
+}
+
+func debtArgs(in DebtInput) []any {
+	if in.System != finance.LoanSAC && in.System != finance.LoanPrice {
+		in = DebtInput{Name: in.Name, Initial: in.Initial, System: finance.LoanNone}
+	}
+	var first any
+	if !in.FirstDue.IsZero() {
+		first = in.FirstDue.Format(dateFmt)
+	}
+	return []any{in.Name, in.Initial, in.System, in.MonthlyRate, in.Term, first, in.Fees, in.AnchorN, in.AnchorBalance}
+}
+
+func (s *Store) AddDebt(in DebtInput) (int64, error) {
+	res, err := s.DB.Exec(`INSERT INTO debts (name, initial_cents, system, monthly_rate, term_months, first_due, fees_cents, anchor_n, anchor_balance_cents)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, debtArgs(in)...)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-func (s *Store) UpdateDebt(id int64, name string, initial int64) error {
-	_, err := s.DB.Exec(`UPDATE debts SET name = ?, initial_cents = ? WHERE id = ?`, name, initial, id)
+func (s *Store) UpdateDebt(id int64, in DebtInput) error {
+	args := append(debtArgs(in), id)
+	_, err := s.DB.Exec(`UPDATE debts SET name = ?, initial_cents = ?, system = ?, monthly_rate = ?, term_months = ?, first_due = ?,
+		fees_cents = ?, anchor_n = ?, anchor_balance_cents = ? WHERE id = ?`, args...)
 	return err
 }
 

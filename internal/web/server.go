@@ -243,6 +243,14 @@ var funcs = template.FuncMap{
 	"add":        func(a, b int) int { return a + b },
 	"isZeroTime": func(t time.Time) bool { return t.IsZero() },
 	"intervals":  func() []option { return intervalOptions },
+	"newDebt":    func() db.Debt { return db.Debt{} },
+	// rate prints a % rate with a comma and no trailing zeros: 0,9631393
+	"rate": func(f float64) string {
+		return strings.Replace(strconv.FormatFloat(f, 'f', -1, 64), ".", ",", 1)
+	},
+	"pctDec": func(f float64) string { return strings.Replace(fmt.Sprintf("%.1f%%", f*100), ".", ",", 1) },
+	// pctWidth is a CSS width (0..100) with one decimal so small progress still shows
+	"pctWidth": func(f float64) string { return fmt.Sprintf("%.1f", math.Max(0, math.Min(100, f*100))) },
 	"kindLabel": func(k finance.Kind) string {
 		if k == finance.Income {
 			return "Receita"
