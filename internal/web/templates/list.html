@@ -29,6 +29,20 @@
   </article>
 </section>
 
+{{if not .IsIncome}}
+<section class="card split-card">
+  <div class="card-head"><h2>Estrutura dos gastos</h2><a class="link" href="/config">grupos das categorias</a></div>
+  <div class="split-bar" role="img" aria-label="Divisão dos gastos entre cartão, fixos e outros">
+    {{range .Split}}{{if .Total}}<span class="b-{{.Key}}" style="width: {{pctWidth .Pct}}%" title="{{.Label}}: {{brl .Total}}"></span>{{end}}{{end}}
+  </div>
+  <div class="split-legend">
+    {{range .Split}}
+    <div><span class="dot b-{{.Key}}"></span><span>{{.Label}}</span><strong>{{brl .Total}}</strong><small class="muted">{{pctDec .Pct}}</small></div>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
 <section class="two-col wide-left">
   <article class="card">
     <div class="card-head"><h2>Lançamentos</h2></div>

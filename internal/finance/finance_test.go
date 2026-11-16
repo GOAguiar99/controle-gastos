@@ -109,29 +109,6 @@ func TestSummarizeStatus(t *testing.T) {
 	}
 }
 
-func TestVariableEstimate(t *testing.T) {
-	es := []Entry{
-		{Kind: Expense, Date: d("2026-11-05"), Amount: 3000, Bucket: Card},
-		{Kind: Expense, Date: d("2026-11-06"), Amount: 9999, Bucket: Fixed}, // fixed doesn't count
-		{Kind: Expense, Date: d("2026-12-05"), Amount: 6000, Bucket: Card},  // already above estimate
-	}
-	out := AddVariableEstimate(es, 5000, d("2026-11-16"), 3)
-	var est []Entry
-	for _, e := range out {
-		if e.Estimate {
-			est = append(est, e)
-		}
-	}
-	// nov: 5000-3000 on the last day (10th already passed); dez: none; jan: full on the 10th
-	if len(est) != 2 || est[0].Amount != 2000 || !est[0].Date.Equal(d("2026-11-30")) ||
-		est[1].Amount != 5000 || !est[1].Date.Equal(d("2027-01-10")) {
-		t.Fatalf("estimates: %+v", est)
-	}
-	if got := AverageVariable([]MonthSummary{{Card: 100, Other: 200}, {Card: 300}}); got != 300 {
-		t.Fatalf("average: %d", got)
-	}
-}
-
 func TestCashFlow(t *testing.T) {
 	es := []Entry{
 		{Kind: Income, Date: d("2026-11-05"), Amount: 1000},   // before snapshot: ignored for current
@@ -148,6 +125,10 @@ func TestCashFlow(t *testing.T) {
 	}
 	if len(cf.Months) != 2 || cf.Months[0].Closing != -800 || cf.Months[1].Closing != 4100 {
 		t.Fatalf("months: %+v", cf.Months)
+	}
+	// buckets (entries above have no bucket → Outros) and month surplus
+	if dez := cf.Months[1]; dez.Other != 100 || dez.Card != 0 || dez.Net() != 4900 || cf.Months[1].Partial || !cf.Months[0].Partial {
+		t.Fatalf("buckets: %+v", cf.Months)
 	}
 	if cf.Low != -800 || !cf.LowDate.Equal(d("2026-11-20")) || !cf.FirstNegative.Equal(d("2026-11-20")) {
 		t.Fatalf("low: %+v", cf)

@@ -98,7 +98,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	lo, hi := min(yFrom, cur.Add(-3)), max(yTo, cur.Add(horizonMonths-1))
+	lo, hi := min(yFrom, cur), max(yTo, cur.Add(horizonMonths-1))
 	if snap.Set {
 		lo = min(lo, finance.MonthOf(snap.Date))
 	}
@@ -109,18 +109,11 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	lim := s.st.Limits()
 	sums := finance.Summarize(entries, yFrom, yTo, lim)
-
-	// Future card/other spending isn't known yet: project it from the setting
-	// or the average of the last 3 closed months.
-	variable, variableAuto := s.st.SettingInt("variable_estimate_cents"), false
-	if variable < 0 {
-		variable, variableAuto = finance.AverageVariable(finance.Summarize(entries, cur.Add(-3), cur.Add(-1), lim)), true
-	}
-	flowEntries := finance.AddVariableEstimate(entries, variable, today, horizonMonths)
-
-	finance.FillClosing(sums, flowEntries, snap)
+	// The future only counts what is launched (recurrences, loan parcels and
+	// future-dated expenses): what's left is what can still be spent.
+	finance.FillClosing(sums, entries, snap)
 	selSum := sums[sel-yFrom]
-	flow := finance.ProjectCash(flowEntries, snap, today, horizonMonths)
+	flow := finance.ProjectCash(entries, snap, today, horizonMonths)
 
 	monthEntries := filter(entries, func(e finance.Entry) bool { return finance.MonthOf(e.Date) == sel })
 	expCats := byCategory(filter(monthEntries, func(e finance.Entry) bool { return e.Kind == finance.Expense }))
@@ -146,6 +139,12 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		FlowX    []string   `json:"flowX"`
 		FlowY    []float64  `json:"flowY"`
 		FlowLow  float64    `json:"flowLow"`
+		// committed per future month (Cartão / Fixos / Outros vs entradas)
+		ComX     []string  `json:"comX"`
+		ComIn    []float64 `json:"comIn"`
+		ComCard  []float64 `json:"comCard"`
+		ComFixed []float64 `json:"comFixed"`
+		ComOther []float64 `json:"comOther"`
 	}
 	cd := chartData{Selected: int(sel - yFrom), Current: int(cur - yFrom), Limit: reais(lim.CardLimit), FlowLow: reais(flow.Low)}
 	for _, m := range sums {
@@ -167,12 +166,22 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		cd.FlowX = append(cd.FlowX, p.Date.Format("2006-01-02"))
 		cd.FlowY = append(cd.FlowY, reais(p.Balance))
 	}
+	for _, fm := range flow.Months {
+		label := fm.Month.Label()
+		if fm.Partial {
+			label += "*"
+		}
+		cd.ComX = append(cd.ComX, label)
+		cd.ComIn = append(cd.ComIn, reais(fm.In))
+		cd.ComCard = append(cd.ComCard, reais(fm.Card))
+		cd.ComFixed = append(cd.ComFixed, reais(fm.Fixed))
+		cd.ComOther = append(cd.ComOther, reais(fm.Other))
+	}
 
 	s.render(w, r, "dashboard", page{
 		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur,
-		"Today": today, "Sum": selSum, "Sums": sums, "Limits": lim, "Snap": snap, "Flow": flow,
+		"Today": today, "Sum": selSum, "Sums": sums, "Limits": lim, "Snap": snap, "Flow": flow, "FlowTot": flow.Totals(),
 		"ExpCats": expCats, "ProjectedCount": projectedCount, "Chart": cd,
-		"Variable": variable, "VariableAuto": variableAuto,
 		"CardPct": barPct(selSum.Card, lim.CardLimit), "CardRatio": ratioOf(selSum.Card, lim.CardLimit),
 	})
 }
@@ -225,11 +234,26 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 		skipped = filter(skipped, func(e finance.Entry) bool { return ofKind(e) && finance.MonthOf(e.Date) == mes })
 
 		var total, prevTotal, projected int64
+		buckets := map[finance.Bucket]int64{}
 		for _, e := range cur {
 			total += e.Amount
+			buckets[e.Bucket] += e.Amount
 			if e.Projected {
 				projected += e.Amount
 			}
+		}
+		type bucketRow struct {
+			Key   finance.Bucket
+			Label string
+			Total int64
+			Pct   float64
+		}
+		var split []bucketRow
+		for _, b := range []struct {
+			k finance.Bucket
+			l string
+		}{{finance.Card, "Cartão de crédito"}, {finance.Fixed, "Fixos"}, {finance.Other, "Outros"}} {
+			split = append(split, bucketRow{Key: b.k, Label: b.l, Total: buckets[b.k], Pct: ratioOf(buckets[b.k], total)})
 		}
 		for _, e := range prev {
 			prevTotal += e.Amount
@@ -263,7 +287,7 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 			"Title": title, "Kind": string(kind), "IsIncome": kind == finance.Income, "Path": kindPath(kind),
 			"Month": mes, "Prev": mes.Add(-1), "Next": mes.Add(1), "Today": today,
 			"Entries": cur, "Skipped": skipped, "Total": total, "PrevTotal": prevTotal, "Diff": total - prevTotal,
-			"Projected": projected, "Real": total - projected, "ByCat": byCat, "MaxCat": maxCat,
+			"Projected": projected, "Real": total - projected, "ByCat": byCat, "MaxCat": maxCat, "Split": split,
 			"Categories": cats, "Debts": debts, "DefaultDate": defDate,
 			"NewRec": finance.Recurrence{Interval: 1, EndMode: finance.EndNever},
 			"Back":   kindPath(kind) + "?mes=" + mes.String(),
@@ -821,7 +845,6 @@ func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
 	snap, _ := s.st.LatestSnapshot()
 	s.render(w, r, "config", page{
 		"Title": "Configurações", "Limits": s.st.Limits(), "IncomeCats": inc, "ExpenseCats": exp, "Snap": snap,
-		"Variable": s.st.SettingInt("variable_estimate_cents"),
 	})
 }
 
@@ -840,19 +863,6 @@ func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.SetSettingInt("min_savings_cents", minS); err != nil {
-		s.fail(w, err)
-		return
-	}
-	variable := int64(-1) // empty = automatic
-	if v := strings.TrimSpace(r.FormValue("variable_estimate")); v != "" {
-		n, err := ParseMoney(v)
-		if err != nil || n < 0 {
-			badRequest(w, "estimativa inválida")
-			return
-		}
-		variable = n
-	}
-	if err := s.st.SetSettingInt("variable_estimate_cents", variable); err != nil {
 		s.fail(w, err)
 		return
 	}

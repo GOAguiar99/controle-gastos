@@ -141,7 +141,6 @@ type Entry struct {
 	OccMonth     string
 	DebtID       int64
 	Projected    bool
-	Estimate     bool // synthetic variable-spending estimate (cash flow only)
 }
 
 // Signed returns +amount for income and -amount for expense.

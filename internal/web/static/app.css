@@ -207,6 +207,15 @@ td.actions form { display: inline; }
 .pop-body { position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(11, 47, 74, .18); padding: 12px; width: 220px; display: flex; flex-direction: column; gap: 8px; }
 
 .repeat { border: 1px dashed #cfd8df; border-radius: 10px; padding: 8px 10px; }
+.split-card { margin-bottom: 16px; }
+.split-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: #eef1f4; }
+.split-bar span { display: block; height: 100%; }
+.split-legend { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 12px; }
+.split-legend div { display: flex; align-items: baseline; gap: 6px; }
+.split-legend .dot { width: 10px; height: 10px; border-radius: 3px; align-self: center; }
+.b-cartao { background: var(--card); }
+.b-fixo { background: var(--fixed); }
+.b-outros { background: var(--other); }
 .loan-fields { display: flex; flex-direction: column; gap: 10px; }
 form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { display: none; }
 .edit-debt { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }

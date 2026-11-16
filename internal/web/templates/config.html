@@ -8,9 +8,6 @@
       <form method="post" action="/config/limites" class="form">
         <label>Limite mensal do cartão (R$)<input name="card_limit" value="{{money .Limits.CardLimit}}" inputmode="decimal" data-money></label>
         <label>Meta de sobra mínima (R$)<input name="min_savings" value="{{money .Limits.MinSavings}}" inputmode="decimal" placeholder="0,00" data-money></label>
-        <label>Gastos variáveis estimados por mês (R$)
-          <input name="variable_estimate" value="{{if ge .Variable 0}}{{if eq .Variable 0}}0{{else}}{{money .Variable}}{{end}}{{end}}" inputmode="decimal" placeholder="automático (média de 3 meses)" data-money></label>
-        <p class="hint">Usado só no fluxo de caixa futuro, para cartão + outros que ainda não foram lançados. Vazio = média automática; 0 = não estimar.</p>
         <button class="btn primary">Salvar</button>
       </form>
     </article>

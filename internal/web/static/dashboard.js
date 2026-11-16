@@ -84,6 +84,26 @@
     options: { scales: { x: xAxis, y: yAxis }, onClick: goMonth }
   });
 
+  // What is already committed in each future month, split like the spreadsheet.
+  chart('chartCommitted', {
+    data: {
+      labels: d.comX, datasets: [
+        { type: 'line', label: 'Entradas', data: d.comIn, borderColor: C.income, backgroundColor: C.income, pointRadius: 3, tension: .2, order: 0, stack: 'in' },
+        { type: 'bar', label: 'Cartão', data: d.comCard, backgroundColor: C.card, stack: 'out', order: 1 },
+        { type: 'bar', label: 'Fixos', data: d.comFixed, backgroundColor: C.fixed, stack: 'out', order: 1 },
+        { type: 'bar', label: 'Outros', data: d.comOther, backgroundColor: C.other, stack: 'out', order: 1 }
+      ]
+    },
+    options: {
+      interaction: { mode: 'index', intersect: false },
+      scales: { x: Object.assign({ stacked: true }, xAxis), y: Object.assign({ stacked: true }, yAxis) },
+      plugins: { tooltip: { callbacks: { footer: function (items) {
+        var i = items[0].dataIndex, out = d.comCard[i] + d.comFixed[i] + d.comOther[i];
+        return 'Sobra: ' + brl.format(d.comIn[i] - out);
+      } } } }
+    }
+  });
+
   // Future cash flow: stepped balance line, red below zero.
   var flowLabels = d.flowX.map(function (s) { var p = s.split('-'); return p[2] + '/' + p[1] + '/' + p[0].slice(2); });
   chart('chartFlow', {

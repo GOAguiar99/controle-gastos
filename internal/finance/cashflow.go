@@ -17,11 +17,31 @@ type FlowPoint struct {
 
 type FlowMonth struct {
 	Month   Month
+	Partial bool // current month: only what is still to come after today
 	Opening int64
 	In      int64
 	Out     int64
+	Card    int64 // saídas por grupo, como na planilha
+	Fixed   int64
+	Other   int64
 	Closing int64
 	Low     int64
+}
+
+// Net is the month's surplus: income minus everything already committed.
+func (f FlowMonth) Net() int64 { return f.In - f.Out }
+
+// FlowTotals sums the months of a cash flow.
+func (cf CashFlow) Totals() FlowMonth {
+	var t FlowMonth
+	for _, m := range cf.Months {
+		t.In += m.In
+		t.Out += m.Out
+		t.Card += m.Card
+		t.Fixed += m.Fixed
+		t.Other += m.Other
+	}
+	return t
 }
 
 type CashFlow struct {
@@ -82,7 +102,7 @@ func ProjectCash(entries []Entry, snap Snapshot, today time.Time, n int) CashFlo
 		i++
 	}
 	for m := start; m <= MonthOf(end); m++ {
-		fm := FlowMonth{Month: m, Opening: bal, Low: bal}
+		fm := FlowMonth{Month: m, Partial: m == start, Opening: bal, Low: bal}
 		for i < len(entries) && MonthOf(entries[i].Date) == m {
 			e := entries[i]
 			i++
@@ -90,6 +110,14 @@ func ProjectCash(entries []Entry, snap Snapshot, today time.Time, n int) CashFlo
 				fm.In += e.Amount
 			} else {
 				fm.Out += e.Amount
+				switch e.Bucket {
+				case Card:
+					fm.Card += e.Amount
+				case Fixed:
+					fm.Fixed += e.Amount
+				default:
+					fm.Other += e.Amount
+				}
 			}
 			bal += e.Signed()
 			if last := len(cf.Points) - 1; cf.Points[last].Date.Equal(e.Date) {

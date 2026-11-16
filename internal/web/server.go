@@ -2,7 +2,9 @@
 package web
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -31,6 +33,20 @@ type Server struct {
 	tpl  map[string]*template.Template
 	now  func() time.Time
 }
+
+// assetVersion is a short hash of the embedded static files, appended to their
+// URLs so browsers fetch new CSS/JS right after a deploy.
+var assetVersion = func() string {
+	h := sha256.New()
+	fs.WalkDir(staticFS, "static", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := staticFS.ReadFile(p)
+			h.Write(b)
+		}
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:10]
+}()
 
 func New(st *db.Store, auth *Auth, loc *time.Location) (*Server, error) {
 	s := &Server{st: st, auth: auth, loc: loc, now: time.Now, tpl: map[string]*template.Template{}}
@@ -244,6 +260,7 @@ var funcs = template.FuncMap{
 	"isZeroTime": func(t time.Time) bool { return t.IsZero() },
 	"intervals":  func() []option { return intervalOptions },
 	"newDebt":    func() db.Debt { return db.Debt{} },
+	"asset":      func(name string) string { return "/static/" + name + "?v=" + assetVersion },
 	// rate prints a % rate with a comma and no trailing zeros: 0,9631393
 	"rate": func(f float64) string {
 		return strings.Replace(strconv.FormatFloat(f, 'f', -1, 64), ".", ",", 1)

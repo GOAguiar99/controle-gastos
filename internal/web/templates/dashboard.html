@@ -61,9 +61,8 @@
     <h2>Fluxo de caixa futuro</h2>
     <span class="muted">próximos 12 meses a partir do caixa de hoje</span>
   </div>
-  <p class="hint flow-note">Inclui recorrências, lançamentos futuros e
-    {{if .Variable}}<strong>{{brl .Variable}}/mês</strong> de gastos variáveis estimados ({{if .VariableAuto}}média de cartão + outros dos últimos 3 meses{{else}}valor fixo{{end}}; o que já foi lançado no mês é descontado).{{else}}nenhuma estimativa de gastos variáveis.{{end}}
-    <a class="link" href="/config">ajustar</a></p>
+  <p class="hint flow-note">Só o que está lançado: recorrências, parcelas de financiamento e gastos futuros que você já lançou.
+    A <strong>sobra</strong> de cada mês é o que ainda dá para gastar sem mexer no caixa.</p>
   <div class="flow-stats">
     <div><span>Hoje</span><strong>{{brl .Flow.Current}}</strong></div>
     <div><span>Menor saldo</span><strong class="{{if neg .Flow.Low}}negc{{end}}">{{brl .Flow.Low}}</strong><small>{{dmy .Flow.LowDate}}</small></div>
@@ -71,15 +70,27 @@
     {{if not (isZeroTime .Flow.FirstNegative)}}<div class="alert"><span>Fica negativo em</span><strong>{{dmy .Flow.FirstNegative}}</strong></div>{{end}}
   </div>
   <div class="chart tall"><canvas id="chartFlow" aria-label="Saldo projetado"></canvas></div>
+  <h3>Comprometido por mês</h3>
+  <div class="chart"><canvas id="chartCommitted" aria-label="Entradas e saídas comprometidas por mês"></canvas></div>
   <div class="table-scroll">
     <table class="grid">
-      <thead><tr><th>Mês</th><th class="num">Saldo inicial</th><th class="num">Entradas</th><th class="num">Saídas</th><th class="num">Saldo final</th><th class="num">Menor saldo</th></tr></thead>
+      <thead><tr><th>Mês</th><th class="num">Saldo inicial</th><th class="num">Entradas</th>
+        <th class="num">Cartão</th><th class="num">Fixos</th><th class="num">Outros</th><th class="num">Total saídas</th>
+        <th class="num">Sobra</th><th class="num">Saldo final</th></tr></thead>
       <tbody>
       {{range .Flow.Months}}
-        <tr><td>{{.Month.Label}}</td><td class="num">{{brl .Opening}}</td><td class="num pos">{{brl .In}}</td><td class="num negc">{{brl .Out}}</td>
-          <td class="num"><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></td><td class="num {{if neg .Low}}negc{{end}}">{{brl .Low}}</td></tr>
+        <tr><td>{{.Month.Label}}{{if .Partial}} <small class="muted">(restante)</small>{{end}}</td>
+          <td class="num">{{brl .Opening}}</td><td class="num pos">{{brl .In}}</td>
+          <td class="num">{{brl .Card}}</td><td class="num">{{brl .Fixed}}</td><td class="num">{{brl .Other}}</td>
+          <td class="num negc">{{brl .Out}}</td>
+          <td class="num"><span class="pill {{if neg .Net}}warn{{else}}ok{{end}}">{{brl .Net}}</span></td>
+          <td class="num"><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></td></tr>
       {{end}}
       </tbody>
+      <tfoot><tr><td><strong>12 meses</strong></td><td></td><td class="num pos"><strong>{{brl .FlowTot.In}}</strong></td>
+        <td class="num"><strong>{{brl .FlowTot.Card}}</strong></td><td class="num"><strong>{{brl .FlowTot.Fixed}}</strong></td><td class="num"><strong>{{brl .FlowTot.Other}}</strong></td>
+        <td class="num negc"><strong>{{brl .FlowTot.Out}}</strong></td>
+        <td class="num"><strong class="{{if neg .FlowTot.Net}}negc{{end}}">{{brl .FlowTot.Net}}</strong></td><td></td></tr></tfoot>
     </table>
   </div>
 </section>
@@ -128,7 +139,7 @@
 {{end}}
 
 {{define "scripts"}}
-<script src="/static/chart.umd.min.js" defer></script>
+<script src="{{asset "chart.umd.min.js"}}" defer></script>
 <script type="application/json" id="chart-data">{{json .Chart}}</script>
-<script src="/static/dashboard.js" defer></script>
+<script src="{{asset "dashboard.js"}}" defer></script>
 {{end}}
