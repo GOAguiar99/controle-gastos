@@ -61,6 +61,18 @@
     <h2>Fluxo de caixa</h2>
     <span class="muted">{{.PastN}} meses de histórico + próximos {{.NextN}} a partir do caixa de hoje</span>
   </div>
+  <div class="flow-filters" data-flow-filters>
+    <div class="seg" role="group" aria-label="Período">
+      <button type="button" data-period="all" class="on">Tudo</button>
+      <button type="button" data-period="past">Histórico</button>
+      <button type="button" data-period="next">Próximos</button>
+    </div>
+    <div class="seg" role="group" aria-label="Exibir">
+      <button type="button" data-view="all" class="on">Ambos</button>
+      <button type="button" data-view="charts">Gráficos</button>
+      <button type="button" data-view="table">Tabela</button>
+    </div>
+  </div>
   <p class="hint flow-note">Meses passados mostram o realizado; do mês atual em diante, só o que está lançado (recorrências, parcelas de financiamento e gastos futuros).
     A <strong>sobra</strong> de cada mês é o que ainda dá para gastar sem mexer no caixa.</p>
   <div class="flow-stats">
@@ -69,40 +81,35 @@
     {{with index .Flow.Months (add (len .Flow.Months) -1)}}<div><span>Em {{.Month.Label}}</span><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></div>{{end}}
     {{if not (isZeroTime .Flow.FirstNegative)}}<div class="alert"><span>Fica negativo em</span><strong>{{dmy .Flow.FirstNegative}}</strong></div>{{end}}
   </div>
-  <div class="chart tall"><canvas id="chartFlow" aria-label="Saldo projetado"></canvas></div>
-  <h3>Realizado e comprometido por mês</h3>
-  <div class="chart"><canvas id="chartCommitted" aria-label="Entradas e saídas por mês: realizado e comprometido"></canvas></div>
-  <div class="table-scroll">
-    <table class="grid">
-      <thead><tr><th>Mês</th><th class="num">Saldo inicial</th><th class="num">Entradas</th>
-        <th class="num">Cartão</th><th class="num">Fixos</th><th class="num">Outros</th><th class="num">Total saídas</th>
+  <div class="flow-charts" data-flow-part="charts">
+    <div class="chart tall" data-period-hide="past"><canvas id="chartFlow" aria-label="Saldo projetado"></canvas></div>
+    <h3>Realizado e comprometido por mês</h3>
+    <div class="chart"><canvas id="chartCommitted" aria-label="Entradas e saídas por mês: realizado e comprometido"></canvas></div>
+  </div>
+  <div class="table-scroll" data-flow-part="table">
+    <table class="grid flow-table">
+      <thead><tr><th>Mês</th><th class="num opt">Saldo inicial</th><th class="num">Entradas</th>
+        <th class="num">Cartão</th><th class="num">Fixos</th><th class="num">Outros</th><th class="num opt">Total saídas</th>
         <th class="num">Sobra</th><th class="num">Saldo final</th></tr></thead>
       <tbody>
       {{range .FlowRows}}
-        <tr class="{{if .Past}}past{{end}} {{if .Current}}sel{{end}}"><td>{{.Month.Label}} <small class="muted">{{if .Past}}realizado{{else if .Current}}atual{{else}}previsto{{end}}</small></td>
-          <td class="num">{{brl .Opening}}</td><td class="num pos">{{brl .In}}</td>
+        <tr class="{{if .Past}}past{{end}} {{if .Current}}sel{{end}}" data-when="{{if .Past}}past{{else}}next{{end}}"><td>{{.Month.Label}} <small class="muted">{{if .Past}}realizado{{else if .Current}}atual{{else}}previsto{{end}}</small></td>
+          <td class="num opt">{{brl .Opening}}</td><td class="num pos">{{brl .In}}</td>
           <td class="num">{{brl .Card}}</td><td class="num">{{brl .Fixed}}</td><td class="num">{{brl .Other}}</td>
-          <td class="num negc">{{brl .Out}}</td>
+          <td class="num negc opt">{{brl .Out}}</td>
           <td class="num"><span class="pill {{if neg .Net}}warn{{else}}ok{{end}}">{{brl .Net}}</span></td>
           <td class="num"><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></td></tr>
       {{end}}
       </tbody>
       <tfoot>
-        {{template "flow-total" (dict "Label" (printf "Últimos %d meses" .PastN) "T" .PastTot)}}
-        {{template "flow-total" (dict "Label" (printf "Próximos %d meses" .NextN) "T" .NextTot)}}
+        {{template "flow-total" (dict "Label" (printf "Últimos %d meses" .PastN) "T" .PastTot "When" "past")}}
+        {{template "flow-total" (dict "Label" (printf "Próximos %d meses" .NextN) "T" .NextTot "When" "next")}}
       </tfoot>
     </table>
   </div>
 </section>
 
-<section class="charts">
-  <article class="card"><div class="card-head"><h2>Receitas × Gastos por mês</h2><span class="muted">{{.WinFrom.Label}} – {{.WinTo.Label}}</span></div><div class="chart"><canvas id="chartIncExp"></canvas></div></article>
-  <article class="card"><div class="card-head"><h2>Sobra mensal e caixa no fim do mês</h2></div><div class="chart"><canvas id="chartBalance"></canvas></div></article>
-  <article class="card"><div class="card-head"><h2>Composição dos gastos</h2></div><div class="chart"><canvas id="chartComp"></canvas></div></article>
-  <article class="card"><div class="card-head"><h2>Cartão × Limite mensal</h2></div><div class="chart"><canvas id="chartCard"></canvas></div></article>
-</section>
-
-<section class="two-col">
+<section>
   <article class="card">
     <div class="card-head"><h2>Gastos de {{.Month.Label}} por categoria</h2><a class="link" href="/gastos?mes={{.Month}}">ver gastos →</a></div>
     {{if .ExpCats}}
@@ -116,32 +123,13 @@
     </ul>
     {{else}}<p class="empty">Nenhum gasto neste mês.</p>{{end}}
   </article>
-  <article class="card">
-    <div class="card-head"><h2>Resumo mês a mês</h2><span class="muted">{{.WinFrom.Label}} – {{.WinTo.Label}}</span></div>
-    <div class="table-scroll">
-    <table class="grid compact">
-      <thead><tr><th>Mês</th><th class="num">Receitas</th><th class="num">Gastos</th><th class="num">Sobra</th><th class="num">Caixa fim</th><th>Status</th></tr></thead>
-      <tbody>
-      {{range .Sums}}
-        <tr class="{{if eq .Month $.Month}}sel{{end}}">
-          <td><a href="/?mes={{.Month}}">{{.Month.Label}}</a></td>
-          <td class="num">{{brl .Income}}</td><td class="num">{{brl .Expense}}</td>
-          <td class="num {{if neg .Balance}}negc{{end}}">{{brl .Balance}}</td>
-          <td class="num">{{if .HasClosing}}{{brl .Closing}}{{else}}—{{end}}</td>
-          <td>{{with .Status}}<span class="pill {{if eq . "OK"}}ok{{else}}warn{{end}}">{{.}}</span>{{end}}</td>
-        </tr>
-      {{end}}
-      </tbody>
-    </table>
-    </div>
-  </article>
 </section>
 {{end}}
 
 {{define "flow-total"}}
-<tr><td><strong>{{.Label}}</strong></td><td></td><td class="num pos"><strong>{{brl .T.In}}</strong></td>
+<tr data-when="{{.When}}"><td><strong>{{.Label}}</strong></td><td class="opt"></td><td class="num pos"><strong>{{brl .T.In}}</strong></td>
   <td class="num"><strong>{{brl .T.Card}}</strong></td><td class="num"><strong>{{brl .T.Fixed}}</strong></td><td class="num"><strong>{{brl .T.Other}}</strong></td>
-  <td class="num negc"><strong>{{brl .T.Out}}</strong></td>
+  <td class="num negc opt"><strong>{{brl .T.Out}}</strong></td>
   <td class="num"><strong class="{{if neg .T.Net}}negc{{end}}">{{brl .T.Net}}</strong></td><td></td></tr>
 {{end}}
 

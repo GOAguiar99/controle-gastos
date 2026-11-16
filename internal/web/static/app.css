@@ -167,6 +167,14 @@ table.grid tbody tr:nth-child(even) td { background: #fafbfc; }
 table.grid tr.sel td { background: var(--blue-soft) !important; }
 table.grid tr.inactive td { opacity: .55; }
 table.grid tr.past td { color: var(--muted); }
+[hidden] { display: none !important; }
+
+/* flow card filters: segmented buttons, big enough to tap */
+.flow-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.seg { display: inline-flex; background: #e9eef2; border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: .86rem;
+  padding: 7px 12px; border-radius: 8px; cursor: pointer; min-height: 36px; }
+.seg button.on { background: #fff; color: var(--navy); box-shadow: var(--shadow); }
 table.grid tfoot td { border-top: 2px solid var(--line); background: #f3f6f8; }
 table.grid.compact td { padding: 6px 8px; }
 table.grid td a { text-decoration: none; font-weight: 600; }
@@ -252,5 +260,13 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
   .e-actions { grid-column: 2 / -1; justify-content: flex-start; }
   .pop-body { left: 0; right: auto; }
   .chart { height: 230px; }
+  .chart.tall { height: 240px; }
+  .card-head { flex-direction: column; gap: 2px; }
+  .flow-filters, .seg { width: 100%; }
+  .seg button { flex: 1; }
+  .flow-table .opt { display: none; }
+  .flow-table td, .flow-table th { padding: 7px 6px; font-size: .8rem; }
+  .flow-table td small { display: block; }
+  .flow-table .pill { padding: 1px 6px; }
   .bars li { grid-template-columns: minmax(80px, 1fr) 1fr auto; }
 }

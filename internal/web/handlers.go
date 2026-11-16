@@ -18,7 +18,7 @@ import (
 
 const (
 	horizonMonths = 12
-	dashWindow    = 6 // months shown before and after the selected month
+	dashWindow    = 6 // months of history in the cash-flow table/chart
 )
 
 // shortMonth is "nov/26": short enough for chart axes, unambiguous across years.
@@ -99,17 +99,13 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	today := s.today()
 	cur := finance.MonthOf(today)
 	sel := s.monthParam(r)
-	// Charts and the summary table show a rolling window: 6 months before and
-	// 6 months after the selected month (the current one by default).
-	yFrom := sel.Add(-dashWindow)
-	yTo := sel.Add(dashWindow)
 
 	snap, err := s.st.LatestSnapshot()
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	lo, hi := min(yFrom, cur.Add(-dashWindow)), max(yTo, cur.Add(horizonMonths-1))
+	lo, hi := min(sel, cur.Add(-dashWindow)), max(sel, cur.Add(horizonMonths-1))
 	if snap.Set {
 		lo = min(lo, finance.MonthOf(snap.Date))
 	}
@@ -119,11 +115,9 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lim := s.st.Limits()
-	sums := finance.Summarize(entries, yFrom, yTo, lim)
+	selSum := finance.Summarize(entries, sel, sel, lim)[0]
 	// The future only counts what is launched (recurrences, loan parcels and
 	// future-dated expenses): what's left is what can still be spent.
-	finance.FillClosing(sums, entries, snap)
-	selSum := sums[sel-yFrom]
 	flow := finance.ProjectCash(entries, snap, today, horizonMonths)
 	// Month-by-month table: 6 months of history + current + next 11 months.
 	flowRows := finance.MonthlyFlow(entries, snap, today, cur.Add(-dashWindow), cur.Add(horizonMonths-1))
@@ -146,21 +140,8 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type chartData struct {
-		Labels   []string   `json:"labels"`
-		Months   []string   `json:"months"` // YYYY-MM for each label (click → that month)
-		Selected int        `json:"selected"`
-		Current  int        `json:"current"`
-		Income   []float64  `json:"income"`
-		Expense  []float64  `json:"expense"`
-		Balance  []float64  `json:"balance"`
-		Card     []float64  `json:"card"`
-		Fixed    []float64  `json:"fixed"`
-		Other    []float64  `json:"other"`
-		Limit    float64    `json:"limit"`
-		Closing  []*float64 `json:"closing"`
-		FlowX    []string   `json:"flowX"`
-		FlowY    []float64  `json:"flowY"`
-		FlowLow  float64    `json:"flowLow"`
+		FlowX []string  `json:"flowX"` // daily projected balance
+		FlowY []float64 `json:"flowY"`
 		// per month, history + committed future (Cartão / Fixos / Outros vs entradas)
 		ComX     []string  `json:"comX"`
 		ComPast  []bool    `json:"comPast"`
@@ -169,23 +150,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		ComFixed []float64 `json:"comFixed"`
 		ComOther []float64 `json:"comOther"`
 	}
-	cd := chartData{Selected: int(sel - yFrom), Current: int(cur - yFrom), Limit: reais(lim.CardLimit), FlowLow: reais(flow.Low)}
-	for _, m := range sums {
-		cd.Labels = append(cd.Labels, shortMonth(m.Month))
-		cd.Months = append(cd.Months, m.Month.String())
-		cd.Income = append(cd.Income, reais(m.Income))
-		cd.Expense = append(cd.Expense, reais(m.Expense))
-		cd.Balance = append(cd.Balance, reais(m.Balance))
-		cd.Card = append(cd.Card, reais(m.Card))
-		cd.Fixed = append(cd.Fixed, reais(m.Fixed))
-		cd.Other = append(cd.Other, reais(m.Other))
-		if m.HasClosing {
-			v := reais(m.Closing)
-			cd.Closing = append(cd.Closing, &v)
-		} else {
-			cd.Closing = append(cd.Closing, nil)
-		}
-	}
+	var cd chartData
 	for _, p := range flow.Points {
 		cd.FlowX = append(cd.FlowX, p.Date.Format("2006-01-02"))
 		cd.FlowY = append(cd.FlowY, reais(p.Balance))
@@ -201,8 +166,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, r, "dashboard", page{
 		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur,
-		"WinFrom": yFrom, "WinTo": yTo,
-		"Today": today, "Sum": selSum, "Sums": sums, "Limits": lim, "Snap": snap, "Flow": flow,
+		"Today": today, "Sum": selSum, "Limits": lim, "Snap": snap, "Flow": flow,
 		"FlowRows": flowRows, "PastTot": finance.SumFlow(pastRows), "NextTot": finance.SumFlow(nextRows),
 		"PastN": len(pastRows), "NextN": len(nextRows),
 		"ExpCats": expCats, "ProjectedCount": projectedCount, "Chart": cd,
