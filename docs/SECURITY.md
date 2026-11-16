@@ -146,8 +146,8 @@ Feito no código:
 - [x] Medidas técnicas (§2) e procedimento de incidente (§4.4) e registro de operações (§6).
 
 Pendente (operador / jurídico):
-- [ ] Preencher `APP_CONTROLLER_NAME` e `APP_CONTACT_EMAIL` (canal do titular; o encarregado pode
-      ser dispensado para agente de pequeno porte, Res. CD/ANPD nº 2/2022, mas o canal é obrigatório).
+- [x] `APP_CONTROLLER_NAME` e `APP_CONTACT_EMAIL` preenchidos na VM (canal do titular; o encarregado
+      pode ser dispensado para agente de pequeno porte, Res. CD/ANPD nº 2/2022, mas o canal é obrigatório).
 - [ ] Revisão jurídica da Política e dos Termos (são rascunhos técnicos).
 - [ ] Confirmar enquadramento como agente de pequeno porte (sem tratamento de alto risco em larga escala).
 - [ ] Manter registro de incidentes e de pedidos de titulares (planilha simples serve) e responder em até 15 dias.
