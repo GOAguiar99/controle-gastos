@@ -96,7 +96,7 @@
 </section>
 
 <section class="charts">
-  <article class="card"><div class="card-head"><h2>Receitas × Gastos por mês</h2><span class="muted">{{.Month.Year}}</span></div><div class="chart"><canvas id="chartIncExp"></canvas></div></article>
+  <article class="card"><div class="card-head"><h2>Receitas × Gastos por mês</h2><span class="muted">{{.WinFrom.Label}} – {{.WinTo.Label}}</span></div><div class="chart"><canvas id="chartIncExp"></canvas></div></article>
   <article class="card"><div class="card-head"><h2>Sobra mensal e caixa no fim do mês</h2></div><div class="chart"><canvas id="chartBalance"></canvas></div></article>
   <article class="card"><div class="card-head"><h2>Composição dos gastos</h2></div><div class="chart"><canvas id="chartComp"></canvas></div></article>
   <article class="card"><div class="card-head"><h2>Cartão × Limite mensal</h2></div><div class="chart"><canvas id="chartCard"></canvas></div></article>
@@ -117,7 +117,7 @@
     {{else}}<p class="empty">Nenhum gasto neste mês.</p>{{end}}
   </article>
   <article class="card">
-    <div class="card-head"><h2>Resumo {{.Month.Year}}</h2></div>
+    <div class="card-head"><h2>Resumo mês a mês</h2><span class="muted">{{.WinFrom.Label}} – {{.WinTo.Label}}</span></div>
     <div class="table-scroll">
     <table class="grid compact">
       <thead><tr><th>Mês</th><th class="num">Receitas</th><th class="num">Gastos</th><th class="num">Sobra</th><th class="num">Caixa fim</th><th>Status</th></tr></thead>

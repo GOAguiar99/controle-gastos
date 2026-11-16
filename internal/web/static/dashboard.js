@@ -35,10 +35,7 @@
 
   function goMonth(evt, els) {
     if (!els.length) return;
-    var i = els[0].index;
-    var y = new URLSearchParams(location.search).get('mes');
-    var year = (y || '').slice(0, 4) || String(new Date().getFullYear());
-    location.href = '/?mes=' + year + '-' + String(i + 1).padStart(2, '0');
+    location.href = '/?mes=' + d.months[els[0].index];
   }
 
   chart('chartIncExp', {

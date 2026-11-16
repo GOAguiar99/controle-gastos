@@ -16,7 +16,16 @@ import (
 	"controle-gastos/internal/finance"
 )
 
-const horizonMonths = 12
+const (
+	horizonMonths = 12
+	dashWindow    = 6 // months shown before and after the selected month
+)
+
+// shortMonth is "nov/26": short enough for chart axes, unambiguous across years.
+func shortMonth(m finance.Month) string {
+	l := m.Label()
+	return l[:len(l)-4] + l[len(l)-2:]
+}
 
 // ---------- login ----------
 
@@ -90,8 +99,10 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	today := s.today()
 	cur := finance.MonthOf(today)
 	sel := s.monthParam(r)
-	yFrom := finance.NewMonth(sel.Year(), time.January)
-	yTo := yFrom.Add(11)
+	// Charts and the summary table show a rolling window: 6 months before and
+	// 6 months after the selected month (the current one by default).
+	yFrom := sel.Add(-dashWindow)
+	yTo := sel.Add(dashWindow)
 
 	snap, err := s.st.LatestSnapshot()
 	if err != nil {
@@ -126,6 +137,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	type chartData struct {
 		Labels   []string   `json:"labels"`
+		Months   []string   `json:"months"` // YYYY-MM for each label (click → that month)
 		Selected int        `json:"selected"`
 		Current  int        `json:"current"`
 		Income   []float64  `json:"income"`
@@ -148,7 +160,8 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	cd := chartData{Selected: int(sel - yFrom), Current: int(cur - yFrom), Limit: reais(lim.CardLimit), FlowLow: reais(flow.Low)}
 	for _, m := range sums {
-		cd.Labels = append(cd.Labels, m.Month.Label()[:3])
+		cd.Labels = append(cd.Labels, shortMonth(m.Month))
+		cd.Months = append(cd.Months, m.Month.String())
 		cd.Income = append(cd.Income, reais(m.Income))
 		cd.Expense = append(cd.Expense, reais(m.Expense))
 		cd.Balance = append(cd.Balance, reais(m.Balance))
@@ -180,6 +193,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, r, "dashboard", page{
 		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur,
+		"WinFrom": yFrom, "WinTo": yTo,
 		"Today": today, "Sum": selSum, "Sums": sums, "Limits": lim, "Snap": snap, "Flow": flow, "FlowTot": flow.Totals(),
 		"ExpCats": expCats, "ProjectedCount": projectedCount, "Chart": cd,
 		"CardPct": barPct(selSum.Card, lim.CardLimit), "CardRatio": ratioOf(selSum.Card, lim.CardLimit),
