@@ -22,7 +22,8 @@ Row-Level Security no banco. Sem framework JS, sem build de frontend; Chart.js v
   todos os meses futuros mudam. Cada ocorrência prevista pode ser **confirmada** (com o valor real)
   ou **pulada**.
 - **Dívidas** com progresso; pagamentos são gastos marcados com "abate dívida".
-- Exportar CSV. Login com Google; cada pessoa tem sua carteira.
+- Exportar CSV e JSON. Login com Google; cada pessoa tem sua carteira, e o dono pode **compartilhá-la**
+  (Config → Compartilhar carteira) convidando até 4 pessoas pelo e-mail.
 - **Conector MCP para o Claude**: o Claude lê e altera tudo (lança faturas, confirma recorrências,
   responde "quanto gastei com X em 2026?"). Veja abaixo.
 

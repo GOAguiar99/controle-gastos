@@ -34,6 +34,7 @@ procedimentos operacionais e o que ainda é responsabilidade de quem opera o ser
 | Abuso | limite de 1 MiB por requisição (UI e MCP); rate limit 30/min por IP em `/auth/*` e 120/min por link MCP; timeouts no servidor HTTP | `ratelimit.go`, `main.go` |
 | CSV | exportação neutraliza fórmulas (`= + - @`); importação de planilha é só por CLI | `handlers.go` |
 | Admin | papel no banco, checado no servidor a cada operação; login com menos de 12 h; 404 para quem não é admin; não pode suspender a si nem outro admin; tudo auditado | `internal/app/admin.go` |
+| Compartilhamento | só o dono convida/remove; convite preso ao e-mail verificado, 7 dias, máx. 5 pessoas; aceitar nunca apaga carteira com dados; remoção revoga sessões e links MCP; tudo auditado | `internal/app/sharing.go`, `internal/db/sharing.go` |
 | Cadastro | aprovação manual; limite de 200 pendentes; recusa apaga os dados do pedido | `accounts.go` |
 | Senha (self-host) | argon2id (19 MiB, t=2), 12–128 caracteres, definida só pela CLI (sem argv/env), bloqueio de 15 min após 5 erros (persistido), mesmo erro para tudo, hash falso para e-mail inexistente (tempo constante), sessões revogadas ao trocar | `password.go` |
 | Contas | suspensão (bloqueia login, sessões e links MCP); exclusão pelo usuário e pelo operador | CLI, Config |
@@ -132,6 +133,7 @@ Depois, confira os totais do dashboard de uma conta de teste e o DNS.
 | Conta e login | sub, nome, e-mail, foto (Google) | autenticar | execução de contrato (7º V) | enquanto a conta existir | Google (login) |
 | Pedido de cadastro | sub, nome, e-mail, foto | avaliar o acesso | procedimentos preliminares de contrato (7º V) | até aprovação ou recusa (recusa apaga) | Google (login) |
 | Finanças | lançamentos, categorias, recorrências, dívidas, caixa | prestar o serviço | execução de contrato (7º V) | enquanto a conta existir; backups até 14 dias após exclusão | Oracle Cloud (operador, BR) |
+| Convites de carteira | e-mail convidado, quem convidou, datas | compartilhar a carteira a pedido do dono | execução de contrato (7º V) | até aceite, recusa, cancelamento ou expiração (7 dias) | — |
 | Sessões | hash do token, IP, user agent, datas | segurança | legítimo interesse (7º IX) | até 30 dias + revogadas | — |
 | Logs de segurança | id do usuário, IP, evento | prevenção a fraude, auditoria | legítimo interesse (7º IX) | 6 meses | — |
 | Conector Claude | dados da carteira, quando o usuário cria o link | a pedido do titular | execução de contrato / pedido do titular | enquanto o link existir | Anthropic (EUA, transferência a pedido do titular, art. 33 VIII/IX) |

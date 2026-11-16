@@ -98,6 +98,14 @@ func (a *App) SignIn(ctx context.Context, g db.GoogleUser) (Actor, error) {
 	}
 	auto := a.AllowEmail != nil && a.AllowEmail(g.Email)
 	if !auto {
+		// an invite to a ledger is approval: the owner vouched for this email
+		invited, err := a.db.HasOpenInvite(ctx, g.Email, a.now())
+		if err != nil {
+			return Actor{}, err
+		}
+		auto = invited
+	}
+	if !auto {
 		exists, err := a.db.UserExists(ctx, g.Sub)
 		if err != nil {
 			return Actor{}, err
@@ -138,6 +146,9 @@ func (a *App) activate(ctx context.Context, u db.User) (Actor, error) {
 	}
 	actor := Actor{User: u, Source: SourceManual, AuthAt: a.now()}
 	id, ok, err := a.db.UserLedger(ctx, u.ID)
+	if err == nil && !ok {
+		id, ok, err = a.joinInvitedLedger(ctx, u)
+	}
 	if err == nil && !ok {
 		id, ok, err = a.db.ClaimLedger(ctx, u.ID, u.Email)
 	}

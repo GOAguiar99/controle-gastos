@@ -258,7 +258,14 @@ func (d *DB) DeleteUser(ctx context.Context, userID int64) (ledgerID int64, err 
 			if _, err := tx.Exec(ctx, `DELETE FROM ledgers WHERE id = $1`, ledgerID); err != nil {
 				return err
 			}
-		} else {
+		} else if ledgerID != 0 {
+			// a shared ledger stays with the others; if its owner leaves,
+			// the longest-standing member becomes the owner
+			if _, err := tx.Exec(ctx, `UPDATE ledger_members SET role = 'owner'
+				WHERE ledger_id = $1 AND user_id = (SELECT user_id FROM ledger_members WHERE ledger_id = $1 AND user_id <> $2 ORDER BY joined_at LIMIT 1)
+				AND NOT EXISTS (SELECT 1 FROM ledger_members WHERE ledger_id = $1 AND user_id <> $2 AND role = 'owner')`, ledgerID, userID); err != nil {
+				return err
+			}
 			ledgerID = 0
 		}
 		tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)

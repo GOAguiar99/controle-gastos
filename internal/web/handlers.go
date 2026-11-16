@@ -730,6 +730,11 @@ func (s *Server) configData(r *http.Request) (page, error) {
 		"Title": "Configurações", "Limits": st.Limits(), "IncomeCats": inc, "ExpenseCats": exp, "Snap": snap,
 		"MCPEnabled": s.mcp != nil,
 	}
+	sh, err := s.app.Sharing(r.Context(), actorOf(r))
+	if err != nil {
+		return nil, err
+	}
+	data["Sharing"] = sh
 	if s.mcp != nil {
 		tokens, err := s.app.MCPTokens(r.Context(), actorOf(r))
 		if err != nil {
@@ -854,4 +859,64 @@ func (s *Server) legalPage(name, title string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, name, page{"Title": title})
 	}
+}
+
+// ---------- sharing a ledger ----------
+
+func (s *Server) sharingDone(w http.ResponseWriter, r *http.Request, err error, msg, to string) {
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	http.Redirect(w, r, to+"?msg="+url.QueryEscape(msg)+"#compartilhar", http.StatusSeeOther)
+}
+
+func (s *Server) inviteMember(w http.ResponseWriter, r *http.Request) {
+	err := s.app.InviteToLedger(r.Context(), actorOf(r), r.FormValue("email"))
+	s.sharingDone(w, r, err, "Convite criado. Peça para a pessoa entrar no app com esse e-mail em até 7 dias.", "/config")
+}
+
+func (s *Server) cancelInvite(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.sharingDone(w, r, s.app.CancelInvite(r.Context(), actorOf(r), id), "Convite cancelado.", "/config")
+}
+
+func (s *Server) removeMember(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.sharingDone(w, r, s.app.RemoveMember(r.Context(), actorOf(r), id), "Pessoa removida da carteira.", "/config")
+}
+
+func (s *Server) leaveLedger(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.LeaveLedger(r.Context(), actorOf(r)); err != nil {
+		s.fail(w, err)
+		return
+	}
+	s.setCookie(w, s.sessionCookie(), "", -1)
+	http.Redirect(w, r, "/login?msg="+url.QueryEscape("Você saiu da carteira compartilhada. Entre de novo para usar a sua."), http.StatusSeeOther)
+}
+
+func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.sharingDone(w, r, s.app.AcceptInvite(r.Context(), actorOf(r), id), "Pronto: você agora usa a carteira compartilhada.", "/")
+}
+
+func (s *Server) declineInvite(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.sharingDone(w, r, s.app.DeclineInvite(r.Context(), actorOf(r), id), "Convite recusado.", "/config")
 }

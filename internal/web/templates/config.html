@@ -20,9 +20,52 @@
       </div>
       <form method="post" action="/logout" class="card-actions"><button class="btn ghost">Sair</button></form>
     </article>
+    <article class="card" id="compartilhar">
+      <div class="card-head"><h2>Compartilhar carteira</h2></div>
+      {{with .Sharing}}
+      {{range .ForMe}}
+      <div class="flash">
+        <b>{{or .InviterName "Alguém"}}</b> convidou você para a carteira <b>{{.LedgerName}}</b> (até {{dmy .ExpiresAt}}).
+        <div class="card-actions">
+          <form method="post" action="/convites/{{.ID}}/aceitar" class="inline-form tight" data-confirm="Entrar nesta carteira? Sua carteira atual precisa estar vazia e será substituída."><button class="btn small primary">Aceitar</button></form>
+          <form method="post" action="/convites/{{.ID}}/recusar" class="inline-form tight"><button class="btn small ghost">Recusar</button></form>
+        </div>
+      </div>
+      {{end}}
+      <p class="hint">Quem está na carteira vê e altera tudo: lançamentos, recorrências, dívidas e caixa.</p>
+      <table class="grid compact">
+        <thead><tr><th>Pessoa</th><th>Papel</th><th></th></tr></thead>
+        <tbody>
+        {{range .Members}}
+          <tr>
+            <td>{{or .Name .Email}}<br><span class="muted">{{.Email}}</span></td>
+            <td>{{if eq .Role "owner"}}Dono{{else}}Membro{{end}}</td>
+            <td>{{if and (eq $.Sharing.Role "owner") (eq .Role "member")}}<form method="post" action="/config/membros/{{.UserID}}/remover" data-confirm="Remover esta pessoa? Ela perde o acesso na hora."><button class="btn small ghost">Remover</button></form>{{end}}</td>
+          </tr>
+        {{end}}
+        {{range .Invites}}
+          <tr>
+            <td>{{.Email}}<br><span class="muted">convite até {{dmy .ExpiresAt}}</span></td>
+            <td>Convidado</td>
+            <td><form method="post" action="/config/convites/{{.ID}}/cancelar"><button class="btn small ghost">Cancelar</button></form></td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{if eq .Role "owner"}}
+      <form method="post" action="/config/compartilhar" class="form">
+        <label>Convidar pelo e-mail da conta Google<input name="email" type="email" required maxlength="254" placeholder="pessoa@gmail.com"></label>
+        <button class="btn">Convidar</button>
+      </form>
+      <p class="hint">A pessoa entra no app com esse e-mail e cai direto nesta carteira (até {{.MaxPeople}} pessoas). O convite vale 7 dias.</p>
+      {{else}}
+      <form method="post" action="/config/sair-da-carteira" class="card-actions" data-confirm="Sair desta carteira? Você perde o acesso a estes dados."><button class="btn ghost">Sair desta carteira</button></form>
+      {{end}}
+      {{end}}
+    </article>
     <article class="card" id="excluir">
       <div class="card-head"><h2>Excluir conta</h2></div>
-      <p class="hint">Apaga sua conta, sua carteira com todos os lançamentos, recorrências e dívidas, e os links do Claude. Não dá para desfazer. Baixe seus dados antes, se quiser guardá-los. Cópias de segurança são apagadas em até 14 dias.</p>
+      <p class="hint">Apaga sua conta, sua carteira com todos os lançamentos, recorrências e dívidas, e os links do Claude (se a carteira for compartilhada, ela continua com as outras pessoas). Não dá para desfazer. Baixe seus dados antes, se quiser guardá-los. Cópias de segurança são apagadas em até 14 dias.</p>
       <form method="post" action="/config/excluir-conta" class="form" data-confirm="Excluir sua conta e todos os dados para sempre?">
         <label>Para confirmar, digite seu e-mail ({{.User.Email}})<input name="confirm" autocomplete="off" required></label>
         <button class="btn danger">Excluir minha conta e meus dados</button>

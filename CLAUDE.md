@@ -46,6 +46,17 @@ tenant table by it, so a query can't reach another ledger's rows even without a 
   foreign keys `(ledger_id, x_id)` (FK checks bypass RLS).
 - The app's DB role must not be superuser or BYPASSRLS (`db.Open` refuses it).
 - Multi-statement writes go through `Store.InTx`.
+- The tenant is set when a pooled connection is acquired (`PrepareConn`), not per query. Inside a
+  `pgx` transaction begun without a ledger in ctx, RLS hides every tenant row; set it with
+  `set_config('app.ledger_id', ..., true)` if such a transaction must read tenant data
+  (see `db.JoinViaInvite`).
+
+Sharing: a ledger has members (`ledger_members.role` = `owner` | `member`, still one ledger per user).
+The owner invites by email (`ledger_invites`, 7 days, max 5 people counting open invites). Signing
+in with that exact email counts as approval and joins the ledger; someone who already has a ledger
+accepts in Config, and their own ledger is dropped only if it is empty. Owners remove members and
+members leave; removal revokes sessions and MCP links. Web-only (account-level), in
+`internal/app/sharing.go`.
 
 ## Identity
 
