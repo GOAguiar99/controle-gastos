@@ -8,6 +8,12 @@ cd "$(dirname "$0")"
 apt-get update
 apt-get install -y sqlite3 curl debian-keyring debian-archive-keyring apt-transport-https gnupg
 
+# Oracle Cloud Ubuntu images ship iptables rules that block everything but SSH.
+if command -v netfilter-persistent >/dev/null && ! iptables -C INPUT -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j ACCEPT 2>/dev/null; then
+  iptables -I INPUT -p tcp -m multiport --dports 80,443 -m conntrack --ctstate NEW -j ACCEPT
+  netfilter-persistent save
+fi
+
 # Caddy (HTTPS automático)
 if ! command -v caddy >/dev/null; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg

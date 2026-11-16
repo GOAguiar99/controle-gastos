@@ -55,12 +55,14 @@ O volume de dados é minúsculo (~300 lançamentos/ano → < 1 MB), então um ar
 grátis resolve. Cloudflare Pages não executa Go nem guarda SQLite, por isso o app roda como um
 único serviço:
 
-1. Crie uma VM **Google Cloud e2-micro** (Always Free: `us-east1`, `us-west1` ou `us-central1`,
-   disco padrão 30 GB, Debian/Ubuntu). Alternativa: Oracle Cloud Always Free (região São Paulo).
-   Libere as portas 80/443.
+1. Crie uma VM no **Oracle Cloud Always Free** (VM e IP público grátis, sem prazo):
+   região home *Brazil East (São Paulo)*, imagem *Canonical Ubuntu 24.04*, shape
+   `VM.Standard.E2.1.Micro` (x86 — o CI compila linux/amd64), sub-rede pública com IPv4 público.
+   Na *Security List* da VCN, libere entrada TCP 80 e 443 de `0.0.0.0/0`
+   (o firewall interno da VM o `setup-vm.sh` abre sozinho).
 2. Aponte um domínio para o IP da VM. Grátis: um subdomínio no [DuckDNS](https://www.duckdns.org).
    Se você já tem domínio na Cloudflare, pode usar Cloudflare Tunnel no lugar do Caddy.
-3. Na VM:
+3. Na VM (usuário `ubuntu`):
    ```sh
    git clone https://github.com/<você>/controle-gastos && cd controle-gastos
    sudo sh deploy/setup-vm.sh seu-subdominio.duckdns.org
@@ -70,7 +72,7 @@ grátis resolve. Cloudflare Pages não executa Go nem guarda SQLite, por isso o 
    `scp data/app.db vm:/tmp/ && ssh vm 'sudo install -o controle-gastos -g controle-gastos -m 600 /tmp/app.db /var/lib/controle-gastos/app.db'`
 5. No GitHub, em *Settings → Secrets and variables → Actions*, crie:
    - `DEPLOY_HOST` — IP ou domínio da VM
-   - `DEPLOY_USER` — usuário SSH com `sudo` sem senha (o padrão das VMs do GCP)
+   - `DEPLOY_USER` — usuário SSH com `sudo` sem senha (`ubuntu` na Oracle)
    - `DEPLOY_SSH_KEY` — chave privada (gere uma só para deploy e adicione a pública na VM)
    - `DEPLOY_KNOWN_HOSTS` — saída de `ssh-keyscan <host>`
 
