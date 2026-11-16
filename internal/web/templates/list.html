@@ -74,7 +74,7 @@
         <div class="e-date"><strong>{{dm .Date}}</strong><small>{{weekday .Date}}</small></div>
         <div class="e-main">
           <span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
-          <span class="e-meta">{{.Category}}{{if .RecurrenceID}} · <span class="tag">{{if .Projected}}previsto{{else}}recorrente{{end}}</span>{{end}}{{if .DebtID}} · <span class="tag">dívida</span>{{end}}</span>
+          <span class="e-meta">{{.Category}}{{if .RecurrenceID}} · <span class="tag">{{if .Projected}}previsto{{else}}recorrente{{end}}</span>{{end}}{{if .DebtID}} · <span class="tag">dívida</span>{{end}}{{if and $.Shared .CreatedBy}} · por {{.CreatedBy}}{{end}}</span>
         </div>
         <div class="e-amount {{if $.IsIncome}}pos{{else}}negc{{end}}">{{brl .Amount}}</div>
         <div class="e-actions">

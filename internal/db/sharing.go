@@ -231,3 +231,10 @@ func (d *DB) RemoveMember(ctx context.Context, ledgerID, userID int64) (bool, er
 	})
 	return ok, err
 }
+
+// MemberCount is the number of people in a ledger.
+func (d *DB) MemberCount(ctx context.Context, ledgerID int64) (int, error) {
+	var n int
+	err := d.pool.QueryRow(ctx, `SELECT count(*) FROM ledger_members WHERE ledger_id = $1`, ledgerID).Scan(&n)
+	return n, err
+}

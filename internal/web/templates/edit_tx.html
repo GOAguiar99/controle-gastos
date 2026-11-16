@@ -1,5 +1,6 @@
 {{define "content"}}
 <div class="page-head"><div><h1>Editar {{if .IsIncome}}receita{{else}}gasto{{end}}</h1>
+  {{if and .Shared .Tx.CreatedBy}}<p class="muted">Lançado por {{.Tx.CreatedBy}}.</p>{{end}}
   {{with .Rec}}<p class="muted">Confirmação de “{{.Description}}” ({{$.Tx.OccMonth}}). Excluir volta a mostrar o valor previsto.</p>{{end}}</div></div>
 <article class="card narrow">
   <form method="post" action="/lancamentos/{{.Tx.ID}}" class="form">

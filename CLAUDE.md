@@ -56,7 +56,8 @@ The owner invites by email (`ledger_invites`, 7 days, max 5 people counting open
 in with that exact email counts as approval and joins the ledger; someone who already has a ledger
 accepts in Config, and their own ledger is dropped only if it is empty. Owners remove members and
 members leave; removal revokes sessions and MCP links. Web-only (account-level), in
-`internal/app/sharing.go`.
+`internal/app/sharing.go`. Transactions record `created_by` from the acting user bound to the Store
+(`Store.WithUser`, set in `App.For`), never from input; the UI shows it only in shared ledgers.
 
 ## Identity
 

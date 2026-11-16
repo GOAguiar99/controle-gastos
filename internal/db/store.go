@@ -27,6 +27,7 @@ type Store struct {
 	q        querier
 	ctx      context.Context
 	ledgerID int64
+	userID   int64 // who is acting; recorded as created_by on new transactions (0 = unknown)
 }
 
 // LedgerID is the ledger this store is bound to.
@@ -37,6 +38,14 @@ func (s *Store) LedgerID() int64 { return s.ledgerID }
 func (s *Store) WithContext(ctx context.Context) *Store {
 	c := *s
 	c.ctx = withLedger(ctx, s.ledgerID)
+	return &c
+}
+
+// WithUser returns a copy of the store that records userID as the author of
+// the transactions it creates.
+func (s *Store) WithUser(userID int64) *Store {
+	c := *s
+	c.userID = userID
 	return &c
 }
 
@@ -159,13 +168,14 @@ type TxInput struct {
 }
 
 const txSelect = `SELECT t.id, t.kind, t.date, t.amount_cents, t.category_id, c.name, c.bucket, t.description,
-	COALESCE(t.recurrence_id, 0), COALESCE(t.occurrence_month, ''), COALESCE(t.debt_id, 0)
-	FROM transactions t JOIN categories c ON c.id = t.category_id`
+	COALESCE(t.recurrence_id, 0), COALESCE(t.occurrence_month, ''), COALESCE(t.debt_id, 0),
+	COALESCE(t.created_by, 0), COALESCE(NULLIF(u.name, ''), u.email, '')
+	FROM transactions t JOIN categories c ON c.id = t.category_id LEFT JOIN users u ON u.id = t.created_by`
 
 func scanTx(sc interface{ Scan(...any) error }) (finance.Entry, error) {
 	var e finance.Entry
 	err := sc.Scan(&e.ID, &e.Kind, &e.Date, &e.Amount, &e.CategoryID, &e.Category, &e.Bucket, &e.Description,
-		&e.RecurrenceID, &e.OccMonth, &e.DebtID)
+		&e.RecurrenceID, &e.OccMonth, &e.DebtID, &e.CreatedByID, &e.CreatedBy)
 	return e, err
 }
 
@@ -205,19 +215,21 @@ func (s *Store) Tx(id int64) (finance.Entry, error) {
 	return scanTx(s.queryRow(txSelect+` WHERE t.id = $1`, id))
 }
 
-const txInsert = `INSERT INTO transactions (kind, date, amount_cents, category_id, description, recurrence_id, occurrence_month, debt_id, source)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+const txInsert = `INSERT INTO transactions (kind, date, amount_cents, category_id, description, recurrence_id, occurrence_month, debt_id, source, created_by)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
 
-func txArgs(in TxInput) []any {
+// txArgs builds the insert arguments; the author is always the store's
+// acting user, never something from the input.
+func (s *Store) txArgs(in TxInput) []any {
 	if in.Source == "" {
 		in.Source = "manual"
 	}
 	return []any{in.Kind, in.Date, in.Amount, in.CategoryID, in.Description,
-		nz(in.RecurrenceID), nzs(in.OccMonth), nz(in.DebtID), in.Source}
+		nz(in.RecurrenceID), nzs(in.OccMonth), nz(in.DebtID), in.Source, nz(s.userID)}
 }
 
 func (s *Store) InsertTx(in TxInput) (int64, error) {
-	return s.insert(txInsert, txArgs(in)...)
+	return s.insert(txInsert, s.txArgs(in)...)
 }
 
 // InsertTxs inserts all transactions in one SQL transaction: either every row
@@ -226,7 +238,7 @@ func (s *Store) InsertTxs(ins []TxInput) ([]int64, error) {
 	ids := make([]int64, 0, len(ins))
 	err := s.InTx(func(s *Store) error {
 		for _, in := range ins {
-			id, err := s.insert(txInsert, txArgs(in)...)
+			id, err := s.insert(txInsert, s.txArgs(in)...)
 			if err != nil {
 				return err
 			}

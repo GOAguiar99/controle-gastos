@@ -197,3 +197,10 @@ func (a *App) joinInvitedLedger(ctx context.Context, u db.User) (int64, bool, er
 	Audit("ledger_joined", "user_id", u.ID, "ledger_id", id, "invite_id", invs[0].ID)
 	return id, true, nil
 }
+
+// IsShared reports whether more than one person uses the actor's ledger (the
+// UI then shows who entered each transaction).
+func (a *App) IsShared(ctx context.Context, actor Actor) bool {
+	n, err := a.db.MemberCount(ctx, actor.LedgerID)
+	return err == nil && n > 1
+}

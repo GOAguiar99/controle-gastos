@@ -46,6 +46,7 @@ type ExportTx struct {
 	Description  string `json:"description"`
 	RecurrenceID int64  `json:"recurrence_id,omitempty"`
 	DebtID       int64  `json:"debt_id,omitempty"`
+	CreatedBy    string `json:"created_by,omitempty"`
 }
 
 type ExportRec struct {
@@ -98,7 +99,7 @@ func (s *Service) ExportData(user db.User) (DataExport, error) {
 		return out, err
 	}
 	for _, e := range txs {
-		out.Transactions = append(out.Transactions, ExportTx{e.ID, e.Date.Format("2006-01-02"), string(e.Kind), e.Amount, e.Category, e.Description, e.RecurrenceID, e.DebtID})
+		out.Transactions = append(out.Transactions, ExportTx{e.ID, e.Date.Format("2006-01-02"), string(e.Kind), e.Amount, e.Category, e.Description, e.RecurrenceID, e.DebtID, e.CreatedBy})
 	}
 	recs, err := s.st.Recurrences()
 	if err != nil {

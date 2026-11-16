@@ -17,9 +17,14 @@ func TestShareLedgerHTTP(t *testing.T) {
 	ts, ana, env := newTestServer(t)
 	env.app.AllowEmail = func(e string) bool { return e == "ana@x.com" } // carolina and beto aren't allow-listed
 	env.mustLogin(t, ana, anaUser)
-	anaData(t, env) // "segredo da ana" in ana's ledger
+	_, _, _, _, cat := anaData(t, env) // "segredo da ana" in ana's ledger
 
-	res, _ := ana.PostForm(ts.URL+"/config/compartilhar", url.Values{"email": {"carolina@x.com"}})
+	// alone in the ledger: no author clutter
+	res, _ := ana.Get(ts.URL + "/gastos?mes=2026-11")
+	if body, _ := io.ReadAll(res.Body); strings.Contains(string(body), " · por ") {
+		t.Error("unshared ledger shows authors")
+	}
+	res, _ = ana.PostForm(ts.URL+"/config/compartilhar", url.Values{"email": {"carolina@x.com"}})
 	if res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("invite: %d", res.StatusCode)
 	}
@@ -37,6 +42,21 @@ func TestShareLedgerHTTP(t *testing.T) {
 	}
 	if res, _ := carol.PostForm(ts.URL+"/config/compartilhar", url.Values{"email": {"zed@x.com"}}); res.StatusCode != http.StatusBadRequest {
 		t.Errorf("member invited someone: %d", res.StatusCode)
+	}
+
+	// entries say who entered them, once the ledger is shared
+	res, _ = carol.PostForm(ts.URL+"/lancamentos", url.Values{"kind": {"expense"}, "date": {"2026-11-12"}, "amount": {"10,00"},
+		"category_id": {itoa(cat)}, "description": {"pão de queijo"}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("carolina adds an entry: %d", res.StatusCode)
+	}
+	res, _ = ana.Get(ts.URL + "/gastos?mes=2026-11")
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "por Ana Souza") {
+		t.Error("ana's entry doesn't show its author")
+	}
+	if !strings.Contains(string(body), "pão de queijo") || !strings.Contains(string(body), "por Carolina") {
+		t.Error("carolina's entry doesn't show its author")
 	}
 
 	// an uninvited person still only gets the waiting page

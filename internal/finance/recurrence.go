@@ -142,6 +142,8 @@ type Entry struct {
 	OccMonth     string
 	DebtID       int64
 	Projected    bool
+	CreatedByID  int64  // user who entered it (0 = unknown or projected)
+	CreatedBy    string // their name (or email)
 }
 
 // Signed returns +amount for income and -amount for expense.

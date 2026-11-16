@@ -139,3 +139,67 @@ func TestSharedLedgerSurvivesOwnerDeletion(t *testing.T) {
 }
 
 func d0() time.Time { return time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC) }
+
+func TestCreatedBy(t *testing.T) {
+	a, d, _ := newApp(t)
+	ana, _ := a.SignIn(ctx, ana())
+	a.InviteToLedger(ctx, ana, "carolina@x.com")
+	c, err := a.SignIn(ctx, carol())
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := TxIn{Kind: finance.Expense, Date: d0(), Amount: 100, Category: CategoryRef{Name: "Mercado", Create: true}}
+	byAna, _ := a.For(ctx, ana).AddTx(in)
+	byCarol, _ := a.For(ctx, c).AddTx(in)
+	bulk, err := a.For(ctx, c).AddTxs([]TxIn{in})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := a.For(ctx, ana).SaveRecurrence(RecIn{Kind: finance.Expense, Category: CategoryRef{Name: "Mercado"}, Amount: 900, Day: 5,
+		Interval: 1, Start: finance.NewMonth(2026, 11), EndMode: "never", Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmed, err := a.For(ctx, c).ConfirmOccurrence(rec, finance.NewMonth(2026, 11), 0, time.Time{}, SourceManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[int64]int64{byAna: ana.User.ID, byCarol: c.User.ID, bulk[0]: c.User.ID, confirmed: c.User.ID}
+	for id, who := range want {
+		e, err := a.For(ctx, ana).Tx(id)
+		if err != nil || e.CreatedByID != who || e.CreatedBy == "" {
+			t.Errorf("tx %d: created_by %d %q, want %d (%v)", id, e.CreatedByID, e.CreatedBy, who, err)
+		}
+	}
+	// editing keeps the author
+	if _, err := a.For(ctx, ana).UpdateTx(byCarol, TxIn{Date: d0(), Amount: 200, Category: CategoryRef{Name: "Mercado"}}); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := a.For(ctx, ana).Tx(byCarol); e.CreatedByID != c.User.ID {
+		t.Errorf("edit changed the author to %d", e.CreatedByID)
+	}
+	// bulk loaders (no acting user) leave it unknown
+	id, err := d.Ledger(ana.LedgerID).InsertTx(db.TxInput{Kind: finance.Expense, Date: d0(), Amount: 1, CategoryID: mustCat(t, a, ana), Source: "import"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := a.For(ctx, ana).Tx(id); e.CreatedByID != 0 {
+		t.Errorf("import got an author: %d", e.CreatedByID)
+	}
+	// if the author deletes their account, the entry stays, author unknown
+	if err := a.DeleteAccount(ctx, c, "carolina@x.com"); err != nil {
+		t.Fatal(err)
+	}
+	if e, err := a.For(ctx, ana).Tx(byCarol); err != nil || e.CreatedByID != 0 {
+		t.Errorf("after author deletion: %+v %v", e, err)
+	}
+}
+
+func mustCat(t *testing.T, a *App, act Actor) int64 {
+	t.Helper()
+	cats, err := a.For(ctx, act).Categories(finance.Expense)
+	if err != nil || len(cats) == 0 {
+		t.Fatal(err)
+	}
+	return cats[0].ID
+}

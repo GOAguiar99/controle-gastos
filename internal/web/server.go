@@ -185,6 +185,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 		a := actorOf(r)
 		data["User"] = a.User
 		data["PendingRecs"] = svc.Store().PendingRecurrences()
+		data["Shared"] = s.app.IsShared(r.Context(), a)
 		if app.IsAdmin(a) {
 			data["IsAdmin"] = true
 			data["PendingUsers"] = s.app.PendingCount(r.Context(), a)

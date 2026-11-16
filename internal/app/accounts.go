@@ -72,7 +72,7 @@ func (a *App) Today() time.Time { return finance.DateOnly(a.now().In(a.loc)) }
 // For returns the Service of the actor's ledger. Queries use ctx and can only
 // reach that ledger's rows.
 func (a *App) For(ctx context.Context, actor Actor) *Service {
-	return New(a.db.Ledger(actor.LedgerID).WithContext(ctx), a.loc).withClock(a.now)
+	return New(a.db.Ledger(actor.LedgerID).WithContext(ctx).WithUser(actor.User.ID), a.loc).withClock(a.now)
 }
 
 // AllowList parses "a@x.com, b@y.com" into an AllowEmail func; "*" allows

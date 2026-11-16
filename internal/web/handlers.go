@@ -803,13 +803,13 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("\xEF\xBB\xBF")) // BOM so Excel reads UTF-8
 	cw := csv.NewWriter(w)
 	cw.Comma = ';'
-	cw.Write([]string{"data", "tipo", "categoria", "valor", "descricao", "recorrente"})
+	cw.Write([]string{"data", "tipo", "categoria", "valor", "descricao", "recorrente", "lancado_por"})
 	for _, e := range all {
 		rec := ""
 		if e.RecurrenceID != 0 {
 			rec = "sim"
 		}
-		cw.Write([]string{e.Date.Format("2006-01-02"), string(e.Kind), csvText(e.Category), moneyInput(e.Amount), csvText(e.Description), rec})
+		cw.Write([]string{e.Date.Format("2006-01-02"), string(e.Kind), csvText(e.Category), moneyInput(e.Amount), csvText(e.Description), rec, csvText(e.CreatedBy)})
 	}
 	cw.Flush()
 	Audit("data_export", "user_id", actorOf(r).User.ID, "format", "csv")

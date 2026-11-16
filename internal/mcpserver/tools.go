@@ -107,12 +107,13 @@ type txOut struct {
 	RecurrenceID int64  `json:"recurrence_id,omitempty"`
 	Month        string `json:"occurrence_month,omitempty" jsonschema:"mês da ocorrência da recorrência (AAAA-MM)"`
 	DebtID       int64  `json:"debt_id,omitempty"`
+	CreatedBy    string `json:"created_by,omitempty" jsonschema:"quem lançou (em carteiras compartilhadas)"`
 }
 
 func txOf(e finance.Entry) txOut {
 	return txOut{ID: e.ID, Kind: string(e.Kind), Date: iso(e.Date), AmountCents: e.Amount, AmountBRL: finance.BRL(e.Amount),
 		Category: e.Category, Bucket: string(e.Bucket), Description: e.Description, Projected: e.Projected,
-		RecurrenceID: e.RecurrenceID, Month: e.OccMonth, DebtID: e.DebtID}
+		RecurrenceID: e.RecurrenceID, Month: e.OccMonth, DebtID: e.DebtID, CreatedBy: e.CreatedBy}
 }
 
 func iso(t time.Time) string {
