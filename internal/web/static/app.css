@@ -270,3 +270,21 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
   .flow-table .pill { padding: 1px 6px; }
   .bars li { grid-template-columns: minmax(80px, 1fr) 1fr auto; }
 }
+
+/* Receitas / Gastos: yearly per-category chart + composition bar */
+.cat-charts { margin-bottom: 16px; }
+.cat-charts .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.year-table { margin: 8px 0 4px; }
+.year-table summary { cursor: pointer; color: var(--muted); font-size: .86rem; }
+.year-table td .dot { margin-right: 4px; vertical-align: -1px; }
+.comp-head { margin-top: 20px; flex-wrap: wrap; gap: 8px; }
+.comp-head h3 { margin: 0; }
+.comp-bar { display: flex; gap: 2px; height: 36px; border-radius: 6px; overflow: hidden; }
+.comp-bar span { display: flex; align-items: center; justify-content: center; min-width: 2px; flex-basis: 0;
+  color: #fff; font-size: .78rem; font-weight: 600; text-shadow: 0 1px 1px rgba(0, 0, 0, .35); white-space: nowrap; overflow: hidden; }
+.comp-bar .empty { margin: auto; }
+.comp-legend { list-style: none; padding: 0; margin: 12px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 24px; }
+.comp-legend li { display: grid; grid-template-columns: 10px 1fr auto 3.5em; align-items: baseline; gap: 8px; font-size: .9rem; }
+.comp-legend .dot { align-self: center; }
+.comp-legend small { text-align: right; }
+.comp-legend .comp-total { border-top: 1px solid var(--line); padding-top: 4px; }

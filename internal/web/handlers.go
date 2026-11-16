@@ -266,6 +266,24 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 		if kind == finance.Income {
 			title = "Receitas"
 		}
+		// Yearly history per category: from the first transaction through next year (previsto).
+		lastYear := today.Year() + 1
+		firstM := finance.MonthOf(today).Add(-11)
+		if t, ok, err := s.st.FirstTxDate(); err != nil {
+			s.fail(w, err)
+			return
+		} else if ok {
+			firstM = finance.MonthOf(t)
+		}
+		firstM = min(firstM, mes)
+		lastYear = max(lastYear, mes.Year())
+		yearEntries, _, err := s.st.Entries(firstM, finance.NewMonth(lastYear, time.December))
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		chart := buildCatChart(filter(yearEntries, ofKind), firstM, mes, today, lastYear)
+
 		byCat := byCategory(cur)
 		var maxCat int64
 		if len(byCat) > 0 {
@@ -279,6 +297,7 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 			"Categories": cats, "Debts": debts, "DefaultDate": defDate,
 			"NewRec": finance.Recurrence{Interval: 1, EndMode: finance.EndNever},
 			"Back":   kindPath(kind) + "?mes=" + mes.String(),
+			"Chart":  chart,
 		})
 	}
 }

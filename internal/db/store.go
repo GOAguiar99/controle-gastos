@@ -136,6 +136,16 @@ func (s *Store) Transactions(from, to time.Time) ([]finance.Entry, error) {
 	return out, rows.Err()
 }
 
+// FirstTxDate returns the date of the oldest transaction (ok=false when there are none).
+func (s *Store) FirstTxDate() (t time.Time, ok bool, err error) {
+	var date sql.NullString
+	if err = s.DB.QueryRow(`SELECT MIN(date) FROM transactions`).Scan(&date); err != nil || !date.Valid {
+		return t, false, err
+	}
+	t, err = time.Parse(dateFmt, date.String)
+	return t, err == nil, err
+}
+
 func (s *Store) AllTransactions() ([]finance.Entry, error) {
 	return s.Transactions(time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC))
 }

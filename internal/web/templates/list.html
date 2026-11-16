@@ -29,6 +29,27 @@
   </article>
 </section>
 
+{{if .Chart.Years}}
+<section class="card cat-charts" data-cat-charts>
+  <div class="card-head">
+    <h2>{{if .IsIncome}}Recebido{{else}}Gasto{{end}} por {{if .IsIncome}}fonte{{else}}categoria{{end}}, ano a ano</h2>
+    <span class="muted">anos em andamento e futuros somam o que já está previsto</span>
+  </div>
+  <div class="chart tall"><canvas id="chartYears" aria-label="Total por {{if .IsIncome}}fonte{{else}}categoria{{end}} em cada ano"></canvas></div>
+  <details class="year-table">
+    <summary>Ver tabela</summary>
+    <div class="table-scroll"><table class="grid" data-year-table></table></div>
+  </details>
+
+  <div class="card-head comp-head">
+    <h3>Composição</h3>
+    <div class="seg" role="group" aria-label="Período da composição" data-comp-periods></div>
+  </div>
+  <div class="comp-bar" data-comp-bar role="img"></div>
+  <ul class="comp-legend" data-comp-legend></ul>
+</section>
+{{end}}
+
 {{if not .IsIncome}}
 <section class="card split-card">
   <div class="card-head"><h2>Estrutura dos gastos</h2><a class="link" href="/config">grupos das categorias</a></div>
@@ -152,4 +173,12 @@
     </article>
   </div>
 </section>
+{{end}}
+
+{{define "scripts"}}
+{{if .Chart.Years}}
+<script src="{{asset "chart.umd.min.js"}}" defer></script>
+<script type="application/json" id="cat-data">{{json .Chart}}</script>
+<script src="{{asset "categories.js"}}" defer></script>
+{{end}}
 {{end}}
