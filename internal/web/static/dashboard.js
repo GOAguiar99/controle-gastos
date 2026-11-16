@@ -81,14 +81,19 @@
     options: { scales: { x: xAxis, y: yAxis }, onClick: goMonth }
   });
 
-  // What is already committed in each future month, split like the spreadsheet.
+  // Realized months are drawn lighter than the current/committed ones.
+  function past(color) {
+    return d.comX.map(function (_, i) { return d.comPast[i] ? color + '80' : color; });
+  }
+
+  // History + what is already committed in each future month, split like the spreadsheet.
   chart('chartCommitted', {
     data: {
       labels: d.comX, datasets: [
         { type: 'line', label: 'Entradas', data: d.comIn, borderColor: C.income, backgroundColor: C.income, pointRadius: 3, tension: .2, order: 0, stack: 'in' },
-        { type: 'bar', label: 'Cartão', data: d.comCard, backgroundColor: C.card, stack: 'out', order: 1 },
-        { type: 'bar', label: 'Fixos', data: d.comFixed, backgroundColor: C.fixed, stack: 'out', order: 1 },
-        { type: 'bar', label: 'Outros', data: d.comOther, backgroundColor: C.other, stack: 'out', order: 1 }
+        { type: 'bar', label: 'Cartão', data: d.comCard, backgroundColor: past(C.card), stack: 'out', order: 1 },
+        { type: 'bar', label: 'Fixos', data: d.comFixed, backgroundColor: past(C.fixed), stack: 'out', order: 1 },
+        { type: 'bar', label: 'Outros', data: d.comOther, backgroundColor: past(C.other), stack: 'out', order: 1 }
       ]
     },
     options: {

@@ -137,6 +137,22 @@ func TestCashFlow(t *testing.T) {
 	if len(cf.Points) != 4 || cf.Points[2].Balance != 4100 || !cf.Points[3].Date.Equal(d("2026-12-31")) {
 		t.Fatalf("points: %+v", cf.Points)
 	}
+	// whole months with history: out (past), nov (current, full), dez (future)
+	rows := MonthlyFlow(es, snap, d("2026-11-16"), m("2026-10"), m("2026-12"))
+	if len(rows) != 3 || !rows[0].Past || !rows[1].Current || rows[2].Past || rows[2].Current {
+		t.Fatalf("flags: %+v", rows)
+	}
+	// nov: +1000 -300 -2000; opening = balance on 31/10 = 1500 - 1000 (income before the snapshot) = 500
+	if nov := rows[1]; nov.In != 1000 || nov.Out != 2300 || nov.Opening != 500 || nov.Closing != -800 {
+		t.Fatalf("nov: %+v", nov)
+	}
+	if dez := rows[2]; dez.Opening != -800 || dez.Closing != 4100 || dez.Net() != 4900 {
+		t.Fatalf("dez: %+v", dez)
+	}
+	if tot := SumFlow(rows[1:]); tot.In != 6000 || tot.Out != 2400 {
+		t.Fatalf("totals: %+v", tot)
+	}
+
 	// balance before the snapshot walks backwards
 	if got := BalanceAt(es, snap, d("2026-11-01")); got != 500 {
 		t.Fatalf("backwards: %d", got)

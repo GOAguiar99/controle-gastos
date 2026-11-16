@@ -17,7 +17,9 @@ type FlowPoint struct {
 
 type FlowMonth struct {
 	Month   Month
-	Partial bool // current month: only what is still to come after today
+	Partial bool // ProjectCash only: current month counts just what comes after today
+	Past    bool // MonthlyFlow: month already closed (valores realizados)
+	Current bool // MonthlyFlow: the current month
 	Opening int64
 	In      int64
 	Out     int64
@@ -31,10 +33,26 @@ type FlowMonth struct {
 // Net is the month's surplus: income minus everything already committed.
 func (f FlowMonth) Net() int64 { return f.In - f.Out }
 
-// FlowTotals sums the months of a cash flow.
-func (cf CashFlow) Totals() FlowMonth {
+func (f *FlowMonth) add(e Entry) {
+	if e.Kind == Income {
+		f.In += e.Amount
+		return
+	}
+	f.Out += e.Amount
+	switch e.Bucket {
+	case Card:
+		f.Card += e.Amount
+	case Fixed:
+		f.Fixed += e.Amount
+	default:
+		f.Other += e.Amount
+	}
+}
+
+// SumFlow adds up the given months (opening/closing are left empty).
+func SumFlow(months []FlowMonth) FlowMonth {
 	var t FlowMonth
-	for _, m := range cf.Months {
+	for _, m := range months {
 		t.In += m.In
 		t.Out += m.Out
 		t.Card += m.Card
@@ -42,6 +60,31 @@ func (cf CashFlow) Totals() FlowMonth {
 		t.Other += m.Other
 	}
 	return t
+}
+
+// MonthlyFlow lists whole months from..to: realized values for the past,
+// realized + committed for the current month and committed for the future.
+// Opening/closing balances are end-of-month cash anchored on snap, so past
+// months show the history and future months the projection.
+func MonthlyFlow(entries []Entry, snap Snapshot, today time.Time, from, to Month) []FlowMonth {
+	today = DateOnly(today)
+	if !snap.Set {
+		snap = Snapshot{Date: today}
+	}
+	cur := MonthOf(today)
+	out := make([]FlowMonth, 0, int(to-from)+1)
+	for m := from; m <= to; m++ {
+		fm := FlowMonth{Month: m, Past: m < cur, Current: m == cur,
+			Opening: BalanceAt(entries, snap, m.First().AddDate(0, 0, -1)),
+			Closing: BalanceAt(entries, snap, m.Last())}
+		for _, e := range entries {
+			if MonthOf(e.Date) == m {
+				fm.add(e)
+			}
+		}
+		out = append(out, fm)
+	}
+	return out
 }
 
 type CashFlow struct {
@@ -106,19 +149,7 @@ func ProjectCash(entries []Entry, snap Snapshot, today time.Time, n int) CashFlo
 		for i < len(entries) && MonthOf(entries[i].Date) == m {
 			e := entries[i]
 			i++
-			if e.Kind == Income {
-				fm.In += e.Amount
-			} else {
-				fm.Out += e.Amount
-				switch e.Bucket {
-				case Card:
-					fm.Card += e.Amount
-				case Fixed:
-					fm.Fixed += e.Amount
-				default:
-					fm.Other += e.Amount
-				}
-			}
+			fm.add(e)
 			bal += e.Signed()
 			if last := len(cf.Points) - 1; cf.Points[last].Date.Equal(e.Date) {
 				cf.Points[last].Balance = bal

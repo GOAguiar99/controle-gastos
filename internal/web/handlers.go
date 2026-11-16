@@ -109,7 +109,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	lo, hi := min(yFrom, cur), max(yTo, cur.Add(horizonMonths-1))
+	lo, hi := min(yFrom, cur.Add(-dashWindow)), max(yTo, cur.Add(horizonMonths-1))
 	if snap.Set {
 		lo = min(lo, finance.MonthOf(snap.Date))
 	}
@@ -125,6 +125,16 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	finance.FillClosing(sums, entries, snap)
 	selSum := sums[sel-yFrom]
 	flow := finance.ProjectCash(entries, snap, today, horizonMonths)
+	// Month-by-month table: 6 months of history + current + next 11 months.
+	flowRows := finance.MonthlyFlow(entries, snap, today, cur.Add(-dashWindow), cur.Add(horizonMonths-1))
+	var pastRows, nextRows []finance.FlowMonth
+	for _, fm := range flowRows {
+		if fm.Past {
+			pastRows = append(pastRows, fm)
+		} else {
+			nextRows = append(nextRows, fm)
+		}
+	}
 
 	monthEntries := filter(entries, func(e finance.Entry) bool { return finance.MonthOf(e.Date) == sel })
 	expCats := byCategory(filter(monthEntries, func(e finance.Entry) bool { return e.Kind == finance.Expense }))
@@ -151,8 +161,9 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		FlowX    []string   `json:"flowX"`
 		FlowY    []float64  `json:"flowY"`
 		FlowLow  float64    `json:"flowLow"`
-		// committed per future month (Cartão / Fixos / Outros vs entradas)
+		// per month, history + committed future (Cartão / Fixos / Outros vs entradas)
 		ComX     []string  `json:"comX"`
+		ComPast  []bool    `json:"comPast"`
 		ComIn    []float64 `json:"comIn"`
 		ComCard  []float64 `json:"comCard"`
 		ComFixed []float64 `json:"comFixed"`
@@ -179,12 +190,9 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		cd.FlowX = append(cd.FlowX, p.Date.Format("2006-01-02"))
 		cd.FlowY = append(cd.FlowY, reais(p.Balance))
 	}
-	for _, fm := range flow.Months {
-		label := fm.Month.Label()
-		if fm.Partial {
-			label += "*"
-		}
-		cd.ComX = append(cd.ComX, label)
+	for _, fm := range flowRows {
+		cd.ComX = append(cd.ComX, shortMonth(fm.Month))
+		cd.ComPast = append(cd.ComPast, fm.Past)
 		cd.ComIn = append(cd.ComIn, reais(fm.In))
 		cd.ComCard = append(cd.ComCard, reais(fm.Card))
 		cd.ComFixed = append(cd.ComFixed, reais(fm.Fixed))
@@ -194,7 +202,9 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "dashboard", page{
 		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur,
 		"WinFrom": yFrom, "WinTo": yTo,
-		"Today": today, "Sum": selSum, "Sums": sums, "Limits": lim, "Snap": snap, "Flow": flow, "FlowTot": flow.Totals(),
+		"Today": today, "Sum": selSum, "Sums": sums, "Limits": lim, "Snap": snap, "Flow": flow,
+		"FlowRows": flowRows, "PastTot": finance.SumFlow(pastRows), "NextTot": finance.SumFlow(nextRows),
+		"PastN": len(pastRows), "NextN": len(nextRows),
 		"ExpCats": expCats, "ProjectedCount": projectedCount, "Chart": cd,
 		"CardPct": barPct(selSum.Card, lim.CardLimit), "CardRatio": ratioOf(selSum.Card, lim.CardLimit),
 	})

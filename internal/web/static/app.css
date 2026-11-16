@@ -166,6 +166,8 @@ table.grid td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertica
 table.grid tbody tr:nth-child(even) td { background: #fafbfc; }
 table.grid tr.sel td { background: var(--blue-soft) !important; }
 table.grid tr.inactive td { opacity: .55; }
+table.grid tr.past td { color: var(--muted); }
+table.grid tfoot td { border-top: 2px solid var(--line); background: #f3f6f8; }
 table.grid.compact td { padding: 6px 8px; }
 table.grid td a { text-decoration: none; font-weight: 600; }
 .num { text-align: right !important; white-space: nowrap; }

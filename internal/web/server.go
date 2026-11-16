@@ -260,7 +260,14 @@ var funcs = template.FuncMap{
 	"isZeroTime": func(t time.Time) bool { return t.IsZero() },
 	"intervals":  func() []option { return intervalOptions },
 	"newDebt":    func() db.Debt { return db.Debt{} },
-	"asset":      func(name string) string { return "/static/" + name + "?v=" + assetVersion },
+	"dict": func(kv ...any) map[string]any {
+		m := map[string]any{}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i].(string)] = kv[i+1]
+		}
+		return m
+	},
+	"asset": func(name string) string { return "/static/" + name + "?v=" + assetVersion },
 	// rate prints a % rate with a comma and no trailing zeros: 0,9631393
 	"rate": func(f float64) string {
 		return strings.Replace(strconv.FormatFloat(f, 'f', -1, 64), ".", ",", 1)
