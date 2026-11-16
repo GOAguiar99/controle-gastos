@@ -148,6 +148,18 @@ func TestToolsRoundTrip(t *testing.T) {
 		t.Fatalf("report: %+v", rep)
 	}
 
+	var debt debtSavedOut
+	call(t, cs, "save_debt", map[string]any{"name": "Carro", "initial": 12000, "system": "sac", "monthly_rate_pct": 1.5,
+		"term": 12, "first_due": "2026-12-10"}, &debt, false)
+	if debt.RecurrenceID == 0 || !strings.Contains(debt.Message, "recorrência das parcelas") {
+		t.Fatalf("loan recurrence: %+v", debt)
+	}
+	var simple debtSavedOut
+	call(t, cs, "save_debt", map[string]any{"name": "Pais", "initial": 5000}, &simple, false)
+	if simple.RecurrenceID != 0 {
+		t.Fatalf("simple debt got a recurrence: %+v", simple)
+	}
+
 	var del txResult
 	call(t, cs, "delete_transaction", map[string]any{"id": added.IDs[0]}, &del, false)
 	call(t, cs, "delete_transaction", map[string]any{"id": added.IDs[0]}, nil, true)

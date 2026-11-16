@@ -62,7 +62,7 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "save_recurrence", Annotations: write,
 		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma recorrência."}, t.saveRecurrence)
 	mcp.AddTool(s, &mcp.Tool{Name: "save_debt", Annotations: write,
-		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma dívida. system: none (sem juros), sac ou price."}, t.saveDebt)
+		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma dívida. system: none (sem juros; pagamentos lançados avulsos com debt_id) ou sac/price (financiamento: se nenhuma recorrência paga a dívida, cria automaticamente a recorrência mensal das parcelas restantes, com o valor de cada parcela da tabela)."}, t.saveDebt)
 	mcp.AddTool(s, &mcp.Tool{Name: "set_cash", Annotations: write,
 		Description: "Informa o caixa real (soma das contas) numa data, padrão hoje. Lançamentos até essa data passam a ser considerados já incluídos."},
 		t.setCash)
@@ -79,7 +79,7 @@ func (t *tools) register(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{Name: "delete_recurrence", Annotations: destructive,
 		Description: "Exclui uma recorrência e suas previsões futuras; lançamentos já confirmados ficam (irreversível)."}, t.deleteRecurrence)
 	mcp.AddTool(s, &mcp.Tool{Name: "delete_debt", Annotations: destructive,
-		Description: "Exclui uma dívida; pagamentos vinculados ficam sem vínculo (irreversível)."}, t.deleteDebt)
+		Description: "Exclui uma dívida e as recorrências que a pagam; pagamentos já lançados continuam como gastos, sem vínculo (irreversível)."}, t.deleteDebt)
 }
 
 // ---------- shared shapes ----------
@@ -721,18 +721,28 @@ type debtIn struct {
 	AnchorBalance float64 `json:"anchor_balance,omitempty" jsonschema:"saldo devedor após a parcela anchor_n, em reais"`
 }
 
-func (t *tools) saveDebt(_ context.Context, _ *mcp.CallToolRequest, in debtIn) (*mcp.CallToolResult, idOut, error) {
+func (t *tools) saveDebt(_ context.Context, _ *mcp.CallToolRequest, in debtIn) (*mcp.CallToolResult, debtSavedOut, error) {
 	d := db.DebtInput{Name: in.Name, Initial: finance.FromReais(in.Initial), System: in.System, MonthlyRate: in.MonthlyRate,
 		Term: in.Term, Fees: finance.FromReais(in.Fees), AnchorN: in.AnchorN, AnchorBalance: finance.FromReais(in.AnchorBalance)}
 	var err error
 	if d.FirstDue, err = date(in.FirstDue); err != nil {
-		return nil, idOut{}, err
+		return nil, debtSavedOut{}, err
 	}
-	id, err := t.svc.SaveDebt(in.ID, d)
+	res, err := t.svc.SaveDebt(in.ID, d)
 	if err != nil {
-		return nil, idOut{}, toolErr(err)
+		return nil, debtSavedOut{}, toolErr(err)
 	}
-	return nil, idOut{ID: id, Message: "dívida salva"}, nil
+	out := debtSavedOut{ID: res.ID, RecurrenceID: res.RecurrenceID, Message: "dívida salva"}
+	if res.RecurrenceID != 0 {
+		out.Message += "; recorrência das parcelas criada (as parcelas já aparecem como gastos previstos)"
+	}
+	return nil, out, nil
+}
+
+type debtSavedOut struct {
+	ID           int64  `json:"id"`
+	RecurrenceID int64  `json:"recurrence_id,omitempty" jsonschema:"recorrência das parcelas criada agora (só financiamentos SAC/Price sem recorrência)"`
+	Message      string `json:"message"`
 }
 
 type cashIn struct {

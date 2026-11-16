@@ -74,9 +74,12 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 	post("/dividas", url.Values{"name": {"Fulano"}, "initial": {"1000"}})
 	post("/dividas", url.Values{"name": {"Banco"}, "initial": {"380.000,00"}, "system": {"sac"}, "rate": {"0,9631393"},
 		"term": {"420"}, "first_due": {"2026-01-16"}, "fees": {"79,88"}, "anchor_n": {"7"}, "anchor_balance": {"377.957,86"}})
-	// recurrence paying the loan (debt id 2); its projected parcel comes from the SAC table
-	post("/recorrentes", url.Values{"kind": {"expense"}, "description": {"Financiamento"}, "new_category": {"Financiamento"},
+	// the loan (debt id 2) got its installment recurrence automatically; a second one is refused
+	res, _ = client.PostForm(ts.URL+"/recorrentes", url.Values{"kind": {"expense"}, "description": {"Financiamento"}, "new_category": {"Financiamento"},
 		"amount": {"4651,45"}, "day": {"16"}, "start": {"2026-11"}, "interval": {"1"}, "end_mode": {"never"}, "debt_id": {"2"}})
+	if res.StatusCode != http.StatusBadRequest {
+		t.Errorf("duplicate loan recurrence: %d", res.StatusCode)
+	}
 
 	for _, p := range []string{"/", "/?mes=2027-02", "/receitas?mes=2026-11", "/gastos?mes=2026-11", "/recorrentes",
 		"/recorrentes?tipo=income&editar=1", "/recorrentes?editar=3", "/dividas", "/dividas?editar=2", "/config",

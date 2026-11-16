@@ -176,11 +176,11 @@ func TestDebtAndConfigRules(t *testing.T) {
 	mustInvalid(t, err, "prazo")
 	_, err = s.SaveDebt(0, db.DebtInput{Name: " ", Initial: 1})
 	mustInvalid(t, err, "obrigatórios")
-	id, err := s.SaveDebt(0, db.DebtInput{Name: "Fulano", Initial: 100000})
-	if err != nil {
-		t.Fatal(err)
+	res, err := s.SaveDebt(0, db.DebtInput{Name: "Fulano", Initial: 100000})
+	if err != nil || res.RecurrenceID != 0 {
+		t.Fatalf("simple debt must not get a recurrence: %+v %v", res, err)
 	}
-	_, err = s.SaveDebt(id+10, db.DebtInput{Name: "X", Initial: 1})
+	_, err = s.SaveDebt(res.ID+10, db.DebtInput{Name: "X", Initial: 1})
 	mustInvalid(t, err, "não encontrada")
 
 	mustInvalid(t, s.SetLimits(finance.Limits{CardLimit: -1}), "inválidos")
@@ -206,4 +206,72 @@ func d(s string) time.Time {
 		panic(err)
 	}
 	return t
+}
+
+func TestLoanGetsInstallmentRecurrence(t *testing.T) {
+	s := newSvc(t) // today: 2026-11-16
+	loan := db.DebtInput{Name: "Carro", Initial: 1200000, System: finance.LoanSAC, MonthlyRate: 1.5, Term: 12,
+		FirstDue: d("2026-12-10"), Fees: 2500}
+	res, err := s.SaveDebt(0, loan)
+	if err != nil || res.RecurrenceID == 0 {
+		t.Fatalf("loan should get a recurrence: %+v %v", res, err)
+	}
+	r, _ := s.Recurrence(res.RecurrenceID)
+	if r.DebtID != res.ID || r.Description != "Carro" || r.Category != LoanCategory || r.Bucket != finance.Fixed ||
+		r.Day != 10 || r.Start.String() != "2026-12" || r.EndMode != finance.EndCount || r.Count != 12 || r.Amount != 120500 {
+		t.Fatalf("recurrence: %+v", r)
+	}
+	// projected installments follow the SAC table and stop at the last one
+	es, err := s.ListTx(TxFilter{From: finance.MonthOf(d("2026-11-01")), To: finance.MonthOf(d("2028-03-01")), IncludeProjected: true})
+	if err != nil || len(es) != 12 {
+		t.Fatalf("installments: %d %v", len(es), err)
+	}
+	if es[0].Amount != 120500 || es[1].Amount != 119000 || !es[11].Date.Equal(d("2027-11-10")) || es[0].DebtID != res.ID {
+		t.Fatalf("schedule: %+v", es)
+	}
+	// saving again doesn't duplicate it
+	if again, err := s.SaveDebt(res.ID, loan); err != nil || again.RecurrenceID != 0 {
+		t.Fatalf("resave: %+v %v", again, err)
+	}
+	if recs, _ := s.Recurrences(finance.Expense); len(recs) != 1 {
+		t.Fatalf("recurrences: %d", len(recs))
+	}
+	_, err = s.SaveRecurrence(RecIn{Kind: finance.Expense, Category: CategoryRef{Name: LoanCategory}, Amount: 1, Day: 1,
+		Interval: 1, Start: r.Start, Active: true, DebtID: res.ID})
+	mustInvalid(t, err, "já é pago")
+	r.Amount = 99 // editing the existing one is fine
+	if _, err := s.SaveRecurrence(RecIn{ID: r.ID, Kind: r.Kind, Category: CategoryRef{ID: r.CategoryID}, Amount: 99, Day: r.Day,
+		Interval: 1, Start: r.Start, EndMode: r.EndMode, Count: r.Count, Active: true, DebtID: res.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// a loan already running starts now, with only the remaining installments
+	run := loan
+	run.Name, run.FirstDue, run.Term = "Casa", d("2026-01-16"), 24
+	res2, _ := s.SaveDebt(0, run)
+	r2, _ := s.Recurrence(res2.RecurrenceID)
+	if r2.Start.String() != "2026-11" || r2.Count != 14 || r2.Day != 16 {
+		t.Fatalf("running loan: %+v", r2)
+	}
+	// a paid-off loan gets nothing
+	old := loan
+	old.Name, old.FirstDue = "Antigo", d("2020-01-10")
+	if res3, err := s.SaveDebt(0, old); err != nil || res3.RecurrenceID != 0 {
+		t.Fatalf("paid-off loan: %+v %v", res3, err)
+	}
+
+	// deleting the loan removes its recurrence; launched payments stay
+	txID, err := s.ConfirmOccurrence(res.RecurrenceID, finance.MonthOf(d("2026-12-01")), 0, time.Time{}, SourceManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DeleteDebt(res.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Recurrence(res.RecurrenceID); !IsValidation(err) {
+		t.Fatalf("recurrence should be gone: %v", err)
+	}
+	if e, err := s.Tx(txID); err != nil || e.Amount != 120500 {
+		t.Fatalf("payment should stay: %+v %v", e, err)
+	}
 }

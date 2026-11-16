@@ -672,11 +672,16 @@ func (s *Server) saveDebt(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := s.svc.SaveDebt(id, in); err != nil {
+	res, err := s.svc.SaveDebt(id, in)
+	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/dividas?msg="+url.QueryEscape("Dívida salva"), http.StatusSeeOther)
+	msg := "Dívida salva"
+	if res.RecurrenceID != 0 {
+		msg += " — parcelas lançadas em Recorrentes"
+	}
+	http.Redirect(w, r, "/dividas?msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 func (s *Server) deleteDebt(w http.ResponseWriter, r *http.Request) {

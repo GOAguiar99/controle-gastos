@@ -19,7 +19,7 @@ Modelo:
 - Cada categoria de gasto pertence a um grupo (bucket): cartao (fatura do cartão), fixo (contas fixas) ou outros.
 - Recorrências geram ocorrências previstas (projected) mês a mês até serem confirmadas (viram lançamento real) ou puladas. Use confirm_occurrence / skip_occurrence com recurrence_id + month (AAAA-MM) vindos de list_transactions(include_projected=true).
 - "Caixa hoje" (set_cash) é o saldo real informado numa data: lançamentos com data até essa data já estão incluídos nele; o caixa futuro = caixa informado + lançamentos posteriores (reais e previstos).
-- Dívidas podem ser simples (sem juros) ou financiamentos SAC/Price; gastos e recorrências com debt_id abatem a dívida.
+- Dívidas podem ser simples (sem juros: cada pagamento é um gasto avulso com debt_id) ou financiamentos SAC/Price. Ao criar um financiamento, o app já cria a recorrência das parcelas (categoria Financiamento), cujos valores seguem a tabela mês a mês; não crie outra.
 
 Convenções:
 - Valores de entrada em reais como número decimal (1234.56). Saídas trazem amount_cents e amount_brl.

@@ -80,8 +80,21 @@ func (s *Service) SaveRecurrence(in RecIn) (int64, error) {
 		if in.Kind != finance.Expense {
 			return 0, invalid("só gastos podem abater dívidas")
 		}
-		if _, err := s.st.Debt(in.DebtID); err != nil {
+		debt, err := s.st.Debt(in.DebtID)
+		if err != nil {
 			return 0, invalid("dívida inválida")
+		}
+		// a loan's installments come from one recurrence; a second would double them
+		if debt.HasInterest() {
+			recs, err := s.st.Recurrences()
+			if err != nil {
+				return 0, err
+			}
+			for _, r := range recs {
+				if r.DebtID == in.DebtID && r.ID != in.ID {
+					return 0, invalid("o financiamento %s já é pago pela recorrência %q (#%d); edite essa", debt.Name, r.Description, r.ID)
+				}
+			}
 		}
 	}
 	c, err := s.resolveCategory(in.Kind, in.Category)
