@@ -89,7 +89,7 @@
 
       {{with index $.Payments .ID}}
       <details><summary>{{len .}} pagamento(s) vinculados</summary>
-        <ul class="entries">{{range .}}<li class="entry"><div class="e-date"><strong>{{dmy .Date}}</strong></div><div class="e-main"><span class="e-desc">{{.Description}}</span></div><div class="e-amount">{{brl .Amount}}</div><div class="e-actions"><a class="btn ghost small" href="/lancamentos/{{.ID}}/editar">Editar</a></div></li>{{end}}</ul>
+        <ul class="entries">{{range .}}<li class="entry"><div class="e-date"><strong>{{dm .Date}}</strong><small>{{.Date.Year}}</small></div><div class="e-main"><span class="e-desc">{{.Description}}</span></div><div class="e-amount">{{brl .Amount}}</div><div class="e-actions"><a class="btn ghost small" href="/lancamentos/{{.ID}}/editar">Editar</a></div></li>{{end}}</ul>
       </details>
       {{end}}
 
