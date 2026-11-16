@@ -67,14 +67,41 @@ Variáveis de ambiente:
 | variável | padrão | uso |
 |---|---|---|
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | cliente OAuth do Google (tipo "Aplicativo da Web") |
-| `APP_BASE_URL` | — | URL pública https; o redirect autorizado no Google é `<APP_BASE_URL>/auth/google/callback` |
-| `APP_ALLOWED_EMAILS` | — | quem pode entrar (vírgulas; `*` = qualquer conta Google verificada) |
+| `APP_AUTH` | `google` | `google` (Login com Google) ou `password` (e-mail e senha, para instalar sem Google) |
+| `APP_BASE_URL` | — | URL pública https (http só para `localhost`); o redirect autorizado no Google é `<APP_BASE_URL>/auth/google/callback` |
+| `APP_SIGNUP` | `approval` | `approval`: contas novas aguardam aprovação de um admin em `/admin`; `closed`: só a lista abaixo e quem já tem conta |
+| `APP_ALLOWED_EMAILS` | — | aprovados na hora (vírgulas). `*` aprova qualquer conta Google verificada: não recomendado |
 | `APP_CONTROLLER_NAME`, `APP_CONTACT_EMAIL` | — | controlador e canal do titular mostrados em `/privacidade` e `/termos` (LGPD) |
 | `APP_SECRET` | aleatório | assina o cookie temporário do login (32+ chars) |
 | `DATABASE_URL` | — | conexão PostgreSQL (papel comum, sem superuser/BYPASSRLS) |
 | `ADDR` | `:8080` | endereço HTTP |
 | `APP_TZ` | `America/Sao_Paulo` | fuso usado para "hoje" |
 | `APP_INSECURE_NO_AUTH` | — | `1` liga o login de desenvolvimento (recusado fora de localhost) |
+
+## Instalação simples (sem Google)
+
+Para usar só você (ou sua família) sem configurar o Google: Docker, login por e-mail e senha.
+
+```sh
+cp deploy/selfhost.env.example .env    # preencha os 3 segredos: openssl rand -hex 32
+docker compose up -d --build
+docker compose exec app /controle-gastos set-password voce@exemplo.com   # pede a senha (mín. 12)
+```
+
+Abra http://localhost:8080. Cada e-mail com senha tem a própria carteira. A senha só é definida pela
+linha de comando (nunca por argumento ou variável de ambiente), fica guardada como hash argon2id, e
+5 tentativas erradas bloqueiam a conta por 15 minutos. O app só escuta em `127.0.0.1`: para acessar de
+outro computador ou do celular, coloque um proxy HTTPS na frente (ex.: Caddy) e use
+`APP_BASE_URL=https://...`; o app se recusa a iniciar com `http://` fora de `localhost`.
+Backup: `docker compose exec db pg_dump -U postgres -Fc controle > backup.dump`.
+
+## Administração (instância pública)
+
+Com `APP_SIGNUP=approval` (padrão), quem entra com uma conta Google nova vê "aguardando aprovação" e
+nenhuma carteira é criada. Dê o papel de admin pela linha de comando no servidor
+(`controle-gastos grant-admin voce@gmail.com`) e aprove, recuse ou suspenda contas em `/admin`. Essa
+página não mostra dados financeiros e exige um login de menos de 12 horas. Detalhes em
+[docs/SECURITY.md](docs/SECURITY.md).
 
 ## Hospedagem gratuita
 
@@ -120,14 +147,15 @@ segurança, recuperação, incidentes e LGPD: [docs/SECURITY.md](docs/SECURITY.m
 ## Estrutura
 
 ```
-cmd/app/            main: serve | import | migrate-sqlite | claim-ledger | suspend-user | unsuspend-user | delete-user
+cmd/app/            main: serve | import | migrate-sqlite | claim-ledger | set-password | suspend-user | unsuspend-user
+                    | delete-user | grant-admin | revoke-admin
 internal/finance/   regras puras (meses, recorrências, resumo, fluxo de caixa) + testes
 internal/db/        PostgreSQL, migrations embutidas, RLS por carteira, Store (dbtest: banco por teste)
 internal/app/       a API do app: regras de negócio e validação (usada pela web e pelo MCP) + testes
 internal/web/       handlers HTTP finos, login com Google (OIDC + PKCE), templates e estáticos embutidos
 internal/mcpserver/ ferramentas MCP (finas, sobre internal/app) + teste em memória
 internal/importer/  leitura da planilha .xlsx (stdlib) e conferência
-deploy/             systemd, Caddy, backup, setup da VM
+deploy/             systemd, Caddy, backup, setup da VM; selfhost/ (Docker, modo senha)
 ```
 
 ## Roadmap

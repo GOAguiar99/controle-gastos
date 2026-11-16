@@ -153,6 +153,7 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 
 func TestGoogleLoginRejections(t *testing.T) {
 	ts, _, env := newTestServer(t)
+	env.app.Signup = app.SignupClosed // unknown accounts are refused instead of waiting for approval
 	for name, c := range map[string]struct {
 		u      idpUser
 		tamper func(map[string]any)

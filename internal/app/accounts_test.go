@@ -33,8 +33,10 @@ func TestSignIn(t *testing.T) {
 	g.EmailVerified = false
 	_, err := a.SignIn(ctx, g)
 	mustInvalid(t, err, "verificado")
+	a.Signup = SignupClosed
 	_, err = a.SignIn(ctx, db.GoogleUser{Sub: "g-eve", Email: "eve@x.com", EmailVerified: true})
 	mustInvalid(t, err, "não tem acesso")
+	a.Signup = SignupApproval
 
 	// first sign-in creates a seeded ledger; the next one keeps it
 	first, err := a.SignIn(ctx, ana())

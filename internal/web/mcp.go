@@ -32,8 +32,8 @@ func (s *Server) mcpGate(h http.Handler) http.Handler {
 
 // mcpURL is the full connector URL for token, as seen from the browser.
 func (s *Server) mcpURL(r *http.Request, token string) string {
-	if s.cfg.Google != nil && s.cfg.Google.BaseURL != "" {
-		return strings.TrimRight(s.cfg.Google.BaseURL, "/") + "/mcp/" + token
+	if s.cfg.BaseURL != "" {
+		return strings.TrimRight(s.cfg.BaseURL, "/") + "/mcp/" + token
 	}
 	scheme := "http"
 	if r.TLS != nil {

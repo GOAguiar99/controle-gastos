@@ -7,6 +7,14 @@
     <a class="btn primary block" href="/auth/google">Entrar com Google</a>
     <p class="hint">Usamos só seu nome, e-mail e foto da conta Google. Nenhuma senha fica guardada aqui. Ao entrar, você concorda com os <a href="/termos">Termos de uso</a> e a <a href="/privacidade">Política de privacidade</a>.</p>
     {{end}}
+    {{if .PasswordLogin}}
+    <form method="post" action="/auth/password" class="form">
+      <label>E-mail<input name="email" type="email" autocomplete="username" required></label>
+      <label>Senha<input name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="128"></label>
+      <button class="btn primary block">Entrar</button>
+    </form>
+    <p class="hint">Contas e senhas são criadas por quem administra o servidor (<code>controle-gastos set-password</code>). Ao entrar, você concorda com os <a href="/termos">Termos de uso</a> e a <a href="/privacidade">Política de privacidade</a>.</p>
+    {{end}}
     {{if .DevLogin}}
     <form method="post" action="/auth/dev" class="form">
       <button class="btn">Entrar como dev (só local)</button>

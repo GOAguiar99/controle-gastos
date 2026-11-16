@@ -11,8 +11,13 @@ procedimentos operacionais e o que ainda é responsabilidade de quem opera o ser
 - PostgreSQL na mesma VM, **só socket Unix** (`listen_addresses = ''`), autenticação *peer*, sem senha.
 - Login: Google OIDC (code flow + PKCE + `state` + `nonce`). Identidade = claim `sub`.
 - Superfícies: UI web (sessão por cookie) e MCP em `/mcp/{token}` (link secreto por usuário).
-- Administração: **só por SSH** na VM (`controle-gastos suspend-user|unsuspend-user|delete-user`).
-  Não existe papel de administrador na web, então nenhuma sessão web alcança dados de outra pessoa.
+- Administração: papéis `user` e `admin`. O papel de admin só é dado por SSH
+  (`controle-gastos grant-admin`), nunca por comparação de e-mail. A página `/admin` aprova, recusa,
+  suspende e reativa contas e **não mostra dados financeiros**; nenhuma sessão alcança a carteira de
+  outra pessoa. Exclusão de contas ativas continua só pelo próprio usuário ou por SSH (`delete-user`).
+- Cadastro: `APP_SIGNUP=approval` (padrão) deixa contas novas aguardando aprovação, sem carteira e sem
+  sessão; no máximo 200 pendentes ao mesmo tempo.
+- Modo self-host `APP_AUTH=password` (Docker): e-mail e senha no lugar do Google.
 
 ## 2. Controles implementados
 
@@ -28,6 +33,9 @@ procedimentos operacionais e o que ainda é responsabilidade de quem opera o ser
 | Cabeçalhos | HSTS (1 ano), nosniff, X-Frame-Options, Referrer-Policy, Permissions-Policy, `Cache-Control: no-store` em páginas autenticadas | middleware |
 | Abuso | limite de 1 MiB por requisição (UI e MCP); rate limit 30/min por IP em `/auth/*` e 120/min por link MCP; timeouts no servidor HTTP | `ratelimit.go`, `main.go` |
 | CSV | exportação neutraliza fórmulas (`= + - @`); importação de planilha é só por CLI | `handlers.go` |
+| Admin | papel no banco, checado no servidor a cada operação; login com menos de 12 h; 404 para quem não é admin; não pode suspender a si nem outro admin; tudo auditado | `internal/app/admin.go` |
+| Cadastro | aprovação manual; limite de 200 pendentes; recusa apaga os dados do pedido | `accounts.go` |
+| Senha (self-host) | argon2id (19 MiB, t=2), 12–128 caracteres, definida só pela CLI (sem argv/env), bloqueio de 15 min após 5 erros (persistido), mesmo erro para tudo, hash falso para e-mail inexistente (tempo constante), sessões revogadas ao trocar | `password.go` |
 | Contas | suspensão (bloqueia login, sessões e links MCP); exclusão pelo usuário e pelo operador | CLI, Config |
 | Titular (LGPD) | exportação completa em JSON, CSV, exclusão de conta self-service | Config |
 | Auditoria | eventos JSON `"audit":true` no journald: login ok/falha, logout, rate limit, links MCP, exportação, exclusão, suspensão, negação de acesso; sem tokens, e-mails ou descrições financeiras; retenção 6 meses | `internal/app/audit.go` |
@@ -48,12 +56,19 @@ procedimentos operacionais e o que ainda é responsabilidade de quem opera o ser
 4. **Rate limit em memória**: zera ao reiniciar o app e vale só para uma instância (que é o caso).
 5. **Sem alertas ativos**: eventos ficam no journald; ninguém é avisado automaticamente (§4.3).
 
+6. **MFA de admin não é verificável pelo app**: o Google nem sempre informa se houve 2ª etapa. Exigimos
+   login recente (12 h) para o admin e a verificação em duas etapas ativada nas contas Google de admin.
+7. **Self-host atrás de proxy**: dentro do Docker o app vê o IP do proxy/bridge, então o rate limit por IP
+   vale para todos juntos; o bloqueio por conta continua individual.
+
 ## 4. Procedimentos operacionais
 
 ### 4.1 Acesso administrativo
 - Acesso à VM só por chave SSH (sem senha). Ative **MFA na conta Oracle Cloud** e na conta Google que
   é dona do cliente OAuth e do GitHub (secrets de deploy). Este é o "MFA de administrador": a única
   forma de administrar é pelo console/SSH.
+- Admin: `controle-gastos grant-admin voce@gmail.com` (e `revoke-admin`). Ative a verificação em duas
+  etapas na conta Google de admin. Novos cadastros aparecem em `/admin` e no evento `signup_pending`.
 - Suspender: `sudo -u controle-gastos env $(sudo cat /etc/controle-gastos.env | xargs) controle-gastos suspend-user email@x.com`
   (revoga sessões na hora; links MCP param de funcionar). Reativar: `unsuspend-user`.
 - O operador não tem tela para ver finanças de clientes. Se o suporte exigir olhar dados, peça ao
@@ -115,6 +130,7 @@ Depois, confira os totais do dashboard de uma conta de teste e o DNS.
 | Operação | Dados | Finalidade | Base legal | Retenção | Compartilhamento |
 |---|---|---|---|---|---|
 | Conta e login | sub, nome, e-mail, foto (Google) | autenticar | execução de contrato (7º V) | enquanto a conta existir | Google (login) |
+| Pedido de cadastro | sub, nome, e-mail, foto | avaliar o acesso | procedimentos preliminares de contrato (7º V) | até aprovação ou recusa (recusa apaga) | Google (login) |
 | Finanças | lançamentos, categorias, recorrências, dívidas, caixa | prestar o serviço | execução de contrato (7º V) | enquanto a conta existir; backups até 14 dias após exclusão | Oracle Cloud (operador, BR) |
 | Sessões | hash do token, IP, user agent, datas | segurança | legítimo interesse (7º IX) | até 30 dias + revogadas | — |
 | Logs de segurança | id do usuário, IP, evento | prevenção a fraude, auditoria | legítimo interesse (7º IX) | 6 meses | — |

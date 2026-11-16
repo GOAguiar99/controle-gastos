@@ -1,0 +1,32 @@
+{{define "content"}}
+<div class="page-head"><div><h1>Admin</h1><p class="muted">Contas e cadastros. Esta página não mostra dados financeiros de ninguém.</p></div></div>
+<article class="card">
+  <table class="grid compact">
+    <thead><tr><th>E-mail</th><th>Nome</th><th>Cadastro</th><th>Situação</th><th></th></tr></thead>
+    <tbody>
+    {{range .Users}}
+      <tr>
+        <td>{{.Email}}</td>
+        <td>{{.Name}}</td>
+        <td>{{dmy .CreatedAt}}</td>
+        <td>{{if .Suspended}}Suspensa{{else if not .Approved}}<b>Pendente</b>{{else}}Ativa{{end}}{{if eq .Role "admin"}} · admin{{end}}</td>
+        <td class="actions">
+          {{if not .Approved}}
+            <form method="post" action="/admin/usuarios/{{.ID}}/aprovar" class="inline-form tight"><button class="btn small primary">Aprovar</button></form>
+            <form method="post" action="/admin/usuarios/{{.ID}}/rejeitar" class="inline-form tight" data-confirm="Recusar e apagar este cadastro?"><button class="btn small ghost">Recusar</button></form>
+          {{else if and (ne .ID $.Me) (ne .Role "admin")}}
+            {{if .Suspended}}
+              <form method="post" action="/admin/usuarios/{{.ID}}/reativar" class="inline-form tight"><button class="btn small">Reativar</button></form>
+            {{else}}
+              <form method="post" action="/admin/usuarios/{{.ID}}/suspender" class="inline-form tight" data-confirm="Suspender esta conta? A pessoa sai na hora e os links do Claude param."><button class="btn small danger">Suspender</button></form>
+            {{end}}
+          {{end}}
+        </td>
+      </tr>
+    {{else}}
+      <tr><td colspan="5" class="muted">Nenhuma conta.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</article>
+{{end}}

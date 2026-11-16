@@ -20,6 +20,7 @@
       <a href="/recorrentes" {{if eq .Nav "recurrences"}}class="on"{{end}}>Recorrentes{{with .PendingRecs}} <span class="badge" title="{{.}} sugestão(ões) para revisar">{{.}}</span>{{end}}</a>
       <a href="/dividas" {{if eq .Nav "debts"}}class="on"{{end}}>Dívidas</a>
       <a href="/config" {{if eq .Nav "config"}}class="on"{{end}}>Config</a>
+      {{if .IsAdmin}}<a href="/admin" {{if eq .Nav "admin"}}class="on"{{end}}>Admin{{with .PendingUsers}} <span class="badge" title="{{.}} cadastro(s) aguardando aprovação">{{.}}</span>{{end}}</a>{{end}}
     </nav>
     {{with .User}}<span class="who" title="{{.Email}}">{{if .PictureURL}}<img src="{{.PictureURL}}" alt="" referrerpolicy="no-referrer">{{end}}{{.Name}}</span>{{end}}
   </div>

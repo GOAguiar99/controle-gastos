@@ -1,0 +1,46 @@
+# Instalação simples, sem Google: login por e-mail e senha (APP_AUTH=password).
+#   cp deploy/selfhost.env.example .env   # e preencha as senhas
+#   docker compose up -d --build
+#   docker compose exec app /controle-gastos set-password voce@exemplo.com
+# O app fica só em http://localhost:8080 (127.0.0.1). Para acessar de outra máquina,
+# coloque um proxy HTTPS na frente (ex.: Caddy) e use APP_BASE_URL=https://...
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?defina APP_DB_PASSWORD no .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/selfhost/initdb.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 3s
+      retries: 20
+    # sem portas publicadas: só o app (na rede interna do compose) chega ao banco
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_AUTH: password
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      # rede interna do compose, na mesma máquina: sem TLS entre app e banco
+      DATABASE_URL: postgres://controle:${APP_DB_PASSWORD}@db:5432/controle?sslmode=disable
+      APP_SECRET: ${APP_SECRET:?defina APP_SECRET no .env}
+      ADDR: ":8080"
+      APP_TZ: ${APP_TZ:-America/Sao_Paulo}
+      APP_CONTROLLER_NAME: ${APP_CONTROLLER_NAME:-}
+      APP_CONTACT_EMAIL: ${APP_CONTACT_EMAIL:-}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  pgdata:

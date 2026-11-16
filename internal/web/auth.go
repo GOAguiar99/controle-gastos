@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -30,7 +31,12 @@ type GoogleConfig struct {
 
 // Config is the web server's security configuration.
 type Config struct {
-	Google *GoogleConfig // nil only together with DevLogin
+	Google *GoogleConfig // nil in password mode or with only DevLogin
+	// Password enables email + password sign-in (APP_AUTH=password) for
+	// self-hosted installs without Google. Accounts are created by the CLI.
+	Password bool
+	// BaseURL is the public URL (connector links); empty = from the request.
+	BaseURL string
 	// DevLogin adds a "sign in as dev" button with no Google account. Local
 	// development only: main refuses it unless the server listens on loopback.
 	DevLogin bool
@@ -181,6 +187,22 @@ func (s *Server) devLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) signIn(w http.ResponseWriter, r *http.Request, g db.GoogleUser) {
 	actor, err := s.app.SignIn(r.Context(), g)
+	s.startSession(w, r, actor, err)
+}
+
+// passwordLogin is the self-hosted sign-in (Config.Password).
+func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request) {
+	actor, err := s.app.PasswordSignIn(r.Context(), r.FormValue("email"), r.FormValue("password"), clientIP(r))
+	s.startSession(w, r, actor, err)
+}
+
+// startSession finishes any sign-in: a session for an active account, the
+// "waiting for approval" page (no session) for a pending one.
+func (s *Server) startSession(w http.ResponseWriter, r *http.Request, actor app.Actor, err error) {
+	if errors.Is(err, app.ErrPending) {
+		s.render(w, r, "pending", page{"Title": "Aguardando aprovação", "Email": actor.User.Email})
+		return
+	}
 	if err != nil {
 		s.loginFailed(w, r, err)
 		return
@@ -334,4 +356,23 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		guarded.ServeHTTP(w, r)
 	})
+}
+
+// ValidateBaseURL checks APP_BASE_URL: https, or plain http only on this
+// machine (localhost/127.0.0.1/::1), since session cookies and passwords
+// must never cross a network unencrypted. It reports whether it is https.
+func ValidateBaseURL(raw string) (secure bool, err error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Path != "" && u.Path != "/" || u.RawQuery != "" || u.User != nil {
+		return false, errors.New("APP_BASE_URL inválida: use só esquema e host, ex.: https://gastos.exemplo.com")
+	}
+	switch u.Scheme {
+	case "https":
+		return true, nil
+	case "http":
+		if h := u.Hostname(); h == "localhost" || h == "127.0.0.1" || h == "::1" {
+			return false, nil
+		}
+	}
+	return false, errors.New("APP_BASE_URL precisa ser https (http só é aceito para localhost)")
 }

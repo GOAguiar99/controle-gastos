@@ -1,0 +1,11 @@
+.git
+.github
+bin
+*.db
+*.db-*
+*.xlsx
+*.xls
+*.csv
+*.dump
+.env
+*.env

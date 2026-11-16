@@ -59,10 +59,19 @@ through `db.DB` methods, never a ledger `Store`. Locally, `APP_INSECURE_NO_AUTH=
 To try the MCP locally, create a link in `/config` ("Conectar ao Claude"), then run
 `claude mcp add --transport http cg-local http://localhost:8080/mcp/<token>`.
 
-Accounts can be suspended (`users.suspended_at`): `SignIn`, `ResumeSession` and `MCPActor` refuse
-them. Administration is CLI-only over SSH (`suspend-user`, `unsuspend-user`, `delete-user`); there is
-deliberately no admin role in the web app. Account deletion (Config) and the JSON data export are
-web-only on purpose (an MCP link is a bearer URL driven by an LLM). Security events go through
+Access control (`users`): `approved_at` NULL = sign-up waiting for approval (`APP_SIGNUP=approval`,
+default; `SignIn` returns `app.ErrPending`, creates no ledger and no session), `suspended_at`, and
+`role` (`user` | `admin`). `App.actor` reloads the user on every request, so these apply at once.
+Admins use `/admin` (approve, reject pending, suspend, reactivate; never financial data). Every admin
+method in `internal/app/admin.go` checks the role server-side plus a fresh sign-in
+(`Actor.AuthAt`, `AdminFreshness`); non-admins get 404. The admin role is granted only by the CLI
+(`grant-admin`), never by email or env. Admin actions, account deletion and the JSON export are
+web-only on purpose (an MCP link is a bearer URL driven by an LLM).
+
+`APP_AUTH=password` replaces Google with email + password for self-hosting (`docker-compose.yml`):
+accounts are `google_sub = "local:<email>"`, created only by the CLI `set-password`, argon2id hashes,
+5 failures lock 15 min, one generic error for every failure, and `web.ValidateBaseURL` refuses plain
+HTTP off localhost. Security events go through
 `app.Audit` (JSON to stderr/journald): pass ids and categories, never tokens, emails or financial text.
 See `docs/SECURITY.md` for controls, runbooks and the LGPD checklist.
 

@@ -63,8 +63,14 @@ var assetVersion = func() string {
 // New builds the web server. mcp, when non-nil, is served at the secret URLs
 // /mcp/{token}; it finds the link owner's Service with ServiceFrom.
 func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server, error) {
-	if cfg.Google == nil && !cfg.DevLogin {
-		return nil, errors.New("configure o login com Google")
+	if cfg.Google == nil && !cfg.DevLogin && !cfg.Password {
+		return nil, errors.New("configure o login com Google ou APP_AUTH=password")
+	}
+	if cfg.Google != nil && cfg.Password {
+		return nil, errors.New("escolha um só modo de login: Google ou senha")
+	}
+	if cfg.BaseURL == "" && cfg.Google != nil {
+		cfg.BaseURL = cfg.Google.BaseURL
 	}
 	if len(cfg.Secret) < 32 {
 		return nil, errors.New("segredo do servidor curto demais (mínimo 32 bytes)")
@@ -78,7 +84,7 @@ func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server
 		}
 		s.google = g
 	}
-	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login", "privacy", "terms"}
+	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login", "privacy", "terms", "pending", "admin"}
 	for _, p := range pages {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html")
 		if err != nil {
@@ -102,6 +108,9 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.cfg.DevLogin {
 		mux.HandleFunc("POST /auth/dev", s.devLogin)
+	}
+	if s.cfg.Password {
+		mux.HandleFunc("POST /auth/password", s.passwordLogin)
 	}
 	mux.HandleFunc("POST /logout", s.logout)
 
@@ -138,6 +147,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /export/dados.json", s.exportJSON)
 	mux.HandleFunc("POST /config/excluir-conta", s.deleteAccount)
 	mux.HandleFunc("GET /privacidade", s.legalPage("privacy", "Política de Privacidade"))
+	mux.HandleFunc("GET /admin", s.adminPage)
+	mux.HandleFunc("POST /admin/usuarios/{id}/{action}", s.adminAction)
 	mux.HandleFunc("GET /termos", s.legalPage("terms", "Termos de Uso"))
 	mux.HandleFunc("POST /config/mcp", s.createMCP)
 	mux.HandleFunc("POST /config/mcp/{id}/revogar", s.revokeMCP)
@@ -165,11 +176,17 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 	data["Contact"] = s.cfg.ContactEmail
 	data["Controller"] = s.cfg.ControllerName
 	if svc := svcOf(r); svc != nil {
-		data["User"] = actorOf(r).User
+		a := actorOf(r)
+		data["User"] = a.User
 		data["PendingRecs"] = svc.Store().PendingRecurrences()
+		if app.IsAdmin(a) {
+			data["IsAdmin"] = true
+			data["PendingUsers"] = s.app.PendingCount(r.Context(), a)
+		}
 	} else {
 		data["Google"] = s.google != nil
 		data["DevLogin"] = s.cfg.DevLogin
+		data["PasswordLogin"] = s.cfg.Password
 	}
 	if _, ok := data["Flash"]; !ok {
 		data["Flash"] = r.URL.Query().Get("msg")

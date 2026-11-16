@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"time"
 
@@ -27,8 +28,19 @@ const (
 type Actor struct {
 	User     db.User
 	LedgerID int64
-	Source   string // SourceManual (web) or SourceMCP
+	Source   string    // SourceManual (web) or SourceMCP
+	AuthAt   time.Time // when the web session was created (fresh sign-in check for admins)
 }
+
+// Sign-up policies (APP_SIGNUP).
+const (
+	SignupApproval = "approval" // unknown accounts wait for an admin (default)
+	SignupClosed   = "closed"   // only the allow list and existing accounts
+)
+
+// ErrPending is returned by SignIn for a sign-up waiting for approval. It is
+// not a failure: the web shows a "waiting" page and creates no session.
+var ErrPending = errors.New("cadastro aguardando aprovação")
 
 // App is the entry point above the per-ledger Service: sign-in, sessions, MCP
 // links, and building the Service for an actor.
@@ -36,8 +48,12 @@ type App struct {
 	db  *db.DB
 	loc *time.Location
 	now func() time.Time
-	// AllowEmail decides who may sign in (nil = nobody but existing users).
+	// AllowEmail lists accounts that are approved on sign-in (nil = none).
 	AllowEmail func(email string) bool
+	// Signup is SignupApproval or SignupClosed (empty = approval).
+	Signup string
+	// MaxPending caps sign-ups waiting for approval (0 = 200).
+	MaxPending int
 }
 
 func NewApp(d *db.DB, loc *time.Location) *App {
@@ -71,24 +87,56 @@ func AllowList(list string) func(string) bool {
 	return func(email string) bool { return set["*"] || set[strings.ToLower(email)] }
 }
 
-// SignIn turns a verified Google identity into a user with a ledger: an
-// existing member keeps theirs, a ledger reserved for the email is claimed,
-// otherwise a new one is created.
+// SignIn turns a verified Google identity into a user with a ledger. Accounts
+// in AllowEmail are approved on the spot; any other new account waits for an
+// admin (ErrPending, no ledger yet) or, with SignupClosed, is refused. An
+// approved user keeps their ledger, claims one reserved for the email, or
+// gets a new one.
 func (a *App) SignIn(ctx context.Context, g db.GoogleUser) (Actor, error) {
 	if g.Sub == "" || !g.EmailVerified || g.Email == "" {
 		return Actor{}, invalid("a conta Google precisa ter um e-mail verificado")
 	}
-	if a.AllowEmail == nil || !a.AllowEmail(g.Email) {
-		return Actor{}, invalid("esta conta Google não tem acesso a este app")
+	auto := a.AllowEmail != nil && a.AllowEmail(g.Email)
+	if !auto {
+		exists, err := a.db.UserExists(ctx, g.Sub)
+		if err != nil {
+			return Actor{}, err
+		}
+		if !exists {
+			if a.Signup == SignupClosed {
+				return Actor{}, invalid("esta conta Google não tem acesso a este app")
+			}
+			max := a.MaxPending
+			if max <= 0 {
+				max = 200
+			}
+			if n, err := a.db.CountPending(ctx); err != nil || n >= max {
+				if err == nil {
+					Audit("signup_refused", "reason", "pending_cap")
+					err = invalid("novos cadastros estão temporariamente fechados; tente mais tarde")
+				}
+				return Actor{}, err
+			}
+		}
 	}
-	u, err := a.db.UpsertGoogleUser(ctx, g)
+	u, err := a.db.UpsertGoogleUser(ctx, g, auto)
 	if err != nil {
 		return Actor{}, err
 	}
+	return a.activate(ctx, u)
+}
+
+// activate checks the account state and returns its actor, creating the
+// ledger on the first sign-in of an approved account.
+func (a *App) activate(ctx context.Context, u db.User) (Actor, error) {
 	if u.Suspended {
 		return Actor{}, invalid("esta conta está suspensa; fale com o suporte")
 	}
-	actor := Actor{User: u, Source: SourceManual}
+	if !u.Approved {
+		Audit("signup_pending", "user_id", u.ID)
+		return Actor{User: u}, ErrPending
+	}
+	actor := Actor{User: u, Source: SourceManual, AuthAt: a.now()}
 	id, ok, err := a.db.UserLedger(ctx, u.ID)
 	if err == nil && !ok {
 		id, ok, err = a.db.ClaimLedger(ctx, u.ID, u.Email)
@@ -127,7 +175,8 @@ func (a *App) StartSession(ctx context.Context, userID int64, ip, userAgent stri
 	if err != nil {
 		return "", err
 	}
-	return token, a.db.CreateSession(ctx, userID, hash, a.now().Add(SessionTTL), ip, userAgent)
+	now := a.now()
+	return token, a.db.CreateSession(ctx, userID, hash, now, now.Add(SessionTTL), ip, userAgent)
 }
 
 // ResumeSession returns the actor of a live session (ok=false when the token
@@ -146,12 +195,16 @@ func (a *App) ResumeSession(ctx context.Context, token string) (Actor, bool, err
 			return Actor{}, false, err
 		}
 	}
-	return a.actor(ctx, s.UserID, SourceManual)
+	actor, ok, err := a.actor(ctx, s.UserID, SourceManual)
+	actor.AuthAt = s.CreatedAt
+	return actor, ok, err
 }
 
+// actor loads the user on every request, so suspension, approval and role
+// changes apply at once.
 func (a *App) actor(ctx context.Context, userID int64, source string) (Actor, bool, error) {
 	u, err := a.db.User(ctx, userID)
-	if err != nil || u.Suspended {
+	if err != nil || u.Suspended || !u.Approved {
 		return Actor{}, false, err
 	}
 	id, ok, err := a.db.UserLedger(ctx, userID)
@@ -223,7 +276,7 @@ func (a *App) MCPActor(ctx context.Context, token string) (Actor, bool, error) {
 		return Actor{}, false, err
 	}
 	u, err := a.db.User(ctx, userID)
-	if err != nil || u.Suspended {
+	if err != nil || u.Suspended || !u.Approved {
 		return Actor{}, false, err
 	}
 	return Actor{User: u, LedgerID: ledgerID, Source: SourceMCP}, true, nil

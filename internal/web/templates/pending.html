@@ -1,0 +1,11 @@
+{{define "content"}}
+<div class="login">
+  <article class="card">
+    <div class="login-brand">Controle de Gastos</div>
+    <h2>Cadastro recebido</h2>
+    <p>Seu acesso{{with .Email}} com <b>{{.}}</b>{{end}} está aguardando aprovação. Quando for aprovado, é só entrar de novo com a mesma conta.</p>
+    <p class="hint">Enquanto isso, guardamos só seu nome, e-mail e foto da conta Google. Se o cadastro for recusado, eles são apagados.</p>
+    <a class="btn block" href="/login">Voltar</a>
+  </article>
+</div>
+{{end}}

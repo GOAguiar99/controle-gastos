@@ -10,15 +10,28 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// User is someone who signed in with Google.
+// User is someone who signs in, with Google or (self-hosted) a password.
 type User struct {
 	ID         int64
-	GoogleSub  string
+	GoogleSub  string // Google subject, or "local:<email>" for password accounts
 	Email      string
 	Name       string
 	PictureURL string
-	Suspended  bool // set by an operator (suspend-user); blocks sign-in, sessions and MCP links
+	Suspended  bool   // set by an admin or operator; blocks sign-in, sessions and MCP links
+	Approved   bool   // false = sign-up waiting for an admin (no ledger, no session)
+	Role       string // RoleUser or RoleAdmin
+	CreatedAt  time.Time
 }
+
+// Roles. Admins manage accounts; they never get access to other ledgers.
+const (
+	RoleUser  = "user"
+	RoleAdmin = "admin"
+)
+
+// LocalSubPrefix marks password accounts (APP_AUTH=password) in google_sub, so
+// they can never collide with a Google identity.
+const LocalSubPrefix = "local:"
 
 // GoogleUser is the verified identity from a Google ID token.
 type GoogleUser struct {
@@ -26,22 +39,38 @@ type GoogleUser struct {
 	EmailVerified             bool
 }
 
-const userCols = `u.id, u.google_sub, u.email, u.name, u.picture_url, u.suspended_at IS NOT NULL`
+const userCols = `u.id, u.google_sub, u.email, u.name, u.picture_url, u.suspended_at IS NOT NULL, u.approved_at IS NOT NULL, u.role, u.created_at`
 
 func scanUser(r pgx.Row) (User, error) {
 	var u User
-	err := r.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Suspended)
+	err := r.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Suspended, &u.Approved, &u.Role, &u.CreatedAt)
 	return u, err
 }
 
 // UpsertGoogleUser creates the user on first sign-in, or refreshes their
-// profile (email, name, picture can change on Google's side).
-func (d *DB) UpsertGoogleUser(ctx context.Context, g GoogleUser) (User, error) {
-	return scanUser(d.pool.QueryRow(ctx, `INSERT INTO users AS u (google_sub, email, email_verified, name, picture_url)
-		VALUES ($1, $2, $3, $4, $5)
+// profile (email, name, picture can change on Google's side). A new user is
+// pending unless autoApprove; autoApprove also approves a pending user.
+func (d *DB) UpsertGoogleUser(ctx context.Context, g GoogleUser, autoApprove bool) (User, error) {
+	return scanUser(d.pool.QueryRow(ctx, `INSERT INTO users AS u (google_sub, email, email_verified, name, picture_url, approved_at)
+		VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN now() END)
 		ON CONFLICT (google_sub) DO UPDATE SET email = excluded.email, email_verified = excluded.email_verified,
-			name = excluded.name, picture_url = excluded.picture_url, last_login_at = now()
-		RETURNING `+userCols, g.Sub, g.Email, g.EmailVerified, g.Name, g.Picture))
+			name = excluded.name, picture_url = excluded.picture_url, last_login_at = now(),
+			approved_at = coalesce(u.approved_at, excluded.approved_at)
+		RETURNING `+userCols, g.Sub, g.Email, g.EmailVerified, g.Name, g.Picture, autoApprove))
+}
+
+// UserExists reports whether someone already signed in with this subject.
+func (d *DB) UserExists(ctx context.Context, sub string) (bool, error) {
+	var ok bool
+	err := d.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE google_sub = $1)`, sub).Scan(&ok)
+	return ok, err
+}
+
+// CountPending is the number of sign-ups waiting for approval.
+func (d *DB) CountPending(ctx context.Context) (int, error) {
+	var n int
+	err := d.pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE approved_at IS NULL`).Scan(&n)
+	return n, err
 }
 
 func (d *DB) User(ctx context.Context, id int64) (User, error) {
@@ -103,9 +132,9 @@ type Session struct {
 	ExpiresAt  time.Time
 }
 
-func (d *DB) CreateSession(ctx context.Context, userID int64, tokenHash []byte, expires time.Time, ip, userAgent string) error {
-	_, err := d.pool.Exec(ctx, `INSERT INTO sessions (user_id, token_hash, expires_at, ip, user_agent) VALUES ($1, $2, $3, $4, $5)`,
-		userID, tokenHash, expires, ip, truncate(userAgent, 300))
+func (d *DB) CreateSession(ctx context.Context, userID int64, tokenHash []byte, now, expires time.Time, ip, userAgent string) error {
+	_, err := d.pool.Exec(ctx, `INSERT INTO sessions (user_id, token_hash, created_at, last_seen_at, expires_at, ip, user_agent)
+		VALUES ($1, $2, $3, $3, $4, $5, $6)`, userID, tokenHash, now, expires, ip, truncate(userAgent, 300))
 	return err
 }
 
@@ -239,6 +268,94 @@ func (d *DB) DeleteUser(ctx context.Context, userID int64) (ledgerID int64, err 
 		return err
 	})
 	return ledgerID, err
+}
+
+// ListUsers is the admin's account list: pending first, then by sign-up date.
+// It carries no financial data.
+func (d *DB) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := d.pool.Query(ctx, `SELECT `+userCols+` FROM users u ORDER BY (u.approved_at IS NULL) DESC, u.created_at DESC, u.id DESC LIMIT 1000`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (User, error) { return scanUser(r) })
+}
+
+// Approve activates a pending sign-up; ok=false when it isn't pending.
+func (d *DB) Approve(ctx context.Context, userID int64) (bool, error) {
+	tag, err := d.pool.Exec(ctx, `UPDATE users SET approved_at = now() WHERE id = $1 AND approved_at IS NULL`, userID)
+	return tag.RowsAffected() == 1, err
+}
+
+// SetRole grants or removes the admin role (operator CLI only).
+func (d *DB) SetRole(ctx context.Context, userID int64, role string) error {
+	tag, err := d.pool.Exec(ctx, `UPDATE users SET role = $2 WHERE id = $1`, userID, role)
+	if err == nil && tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return err
+}
+
+// ---------- password accounts (APP_AUTH=password) ----------
+
+// PasswordAccount is what a password sign-in needs to decide.
+type PasswordAccount struct {
+	User        User
+	Hash        string
+	LockedUntil time.Time // zero = not locked
+}
+
+// SetPassword creates or updates the password account for email (approved,
+// verified) and revokes its sessions.
+func (d *DB) SetPassword(ctx context.Context, email, hash string) (User, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	var u User
+	err := pgx.BeginFunc(ctx, d.pool, func(tx pgx.Tx) error {
+		var err error
+		u, err = scanUser(tx.QueryRow(ctx, `INSERT INTO users AS u (google_sub, email, email_verified, approved_at, password_hash)
+			VALUES ($1, $2, true, now(), $3)
+			ON CONFLICT (google_sub) DO UPDATE SET password_hash = excluded.password_hash, failed_logins = 0, locked_until = NULL
+			RETURNING `+userCols, LocalSubPrefix+email, email, hash))
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, u.ID)
+		return err
+	})
+	return u, err
+}
+
+// PasswordAccountFor finds the password account of email (ok=false if none).
+func (d *DB) PasswordAccountFor(ctx context.Context, email string) (PasswordAccount, bool, error) {
+	var a PasswordAccount
+	var locked *time.Time
+	row := d.pool.QueryRow(ctx, `SELECT `+userCols+`, coalesce(u.password_hash, ''), u.locked_until FROM users u WHERE u.google_sub = $1`,
+		LocalSubPrefix+strings.ToLower(strings.TrimSpace(email)))
+	err := row.Scan(&a.User.ID, &a.User.GoogleSub, &a.User.Email, &a.User.Name, &a.User.PictureURL, &a.User.Suspended,
+		&a.User.Approved, &a.User.Role, &a.User.CreatedAt, &a.Hash, &locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return a, false, nil
+	}
+	if locked != nil {
+		a.LockedUntil = *locked
+	}
+	return a, err == nil && a.Hash != "", err
+}
+
+// LoginFailed counts a wrong password; at max failures the account is locked
+// until lockUntil and the counter starts over. It reports whether it locked.
+func (d *DB) LoginFailed(ctx context.Context, userID int64, max int, lockUntil time.Time) (bool, error) {
+	var locked bool
+	err := d.pool.QueryRow(ctx, `UPDATE users SET
+			locked_until = CASE WHEN failed_logins + 1 >= $2 THEN $3 ELSE locked_until END,
+			failed_logins = CASE WHEN failed_logins + 1 >= $2 THEN 0 ELSE failed_logins + 1 END
+		WHERE id = $1 RETURNING locked_until IS NOT DISTINCT FROM $3`, userID, max, lockUntil).Scan(&locked)
+	return locked, err
+}
+
+// LoginSucceeded clears the failure counter and any lock.
+func (d *DB) LoginSucceeded(ctx context.Context, userID int64) error {
+	_, err := d.pool.Exec(ctx, `UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`, userID)
+	return err
 }
 
 func truncate(s string, n int) string {
