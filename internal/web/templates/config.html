@@ -65,7 +65,7 @@
     </article>
     <article class="card" id="excluir">
       <div class="card-head"><h2>Excluir conta</h2></div>
-      <p class="hint">Apaga sua conta, sua carteira com todos os lançamentos, recorrências e dívidas, e os links do Claude (se a carteira for compartilhada, ela continua com as outras pessoas). Não dá para desfazer. Baixe seus dados antes, se quiser guardá-los. Cópias de segurança são apagadas em até 14 dias.</p>
+      <p class="hint">Apaga sua conta, sua carteira com todos os lançamentos, recorrências e dívidas, e os links de assistente (se a carteira for compartilhada, ela continua com as outras pessoas). Não dá para desfazer. Baixe seus dados antes, se quiser guardá-los. Cópias de segurança são apagadas em até 14 dias.</p>
       <form method="post" action="/config/excluir-conta" class="form" data-confirm="Excluir sua conta e todos os dados para sempre?">
         <label>Para confirmar, digite seu e-mail ({{.User.Email}})<input name="confirm" autocomplete="off" required></label>
         <button class="btn danger">Excluir minha conta e meus dados</button>
@@ -73,8 +73,8 @@
     </article>
     {{if .MCPEnabled}}
     <article class="card" id="claude">
-      <div class="card-head"><h2>Conectar ao Claude</h2></div>
-      <p class="hint">Cada link dá ao Claude acesso completo para ler e alterar os dados desta carteira em seu nome. Trate como uma senha: não compartilhe e revogue se vazar.</p>
+      <div class="card-head"><h2>Conectar um assistente (MCP)</h2><a class="link" href="/como-usar">como usar</a></div>
+      <p class="hint">Cada link dá ao seu assistente de IA (Claude, por exemplo) acesso completo para ler e alterar os dados desta carteira em seu nome. Trate como uma senha: não compartilhe e revogue se vazar.</p>
       {{with .NewMCPURL}}
       <div class="copy-row">
         <input id="mcp-url" class="mono" value="{{.}}" readonly aria-label="Link do conector MCP">
@@ -97,15 +97,17 @@
       </table>
       {{end}}
       <form method="post" action="/config/mcp" class="form">
-        <label>Nome do novo link<input name="label" maxlength="60" placeholder="ex.: Claude no celular"></label>
+        <label>Nome do novo link<input name="label" maxlength="60" placeholder="ex.: Claude no notebook"></label>
         <button class="btn">Criar link</button>
       </form>
       <details class="mcp-help">
         <summary>Como conectar</summary>
+        <p>Peça ao seu assistente: <q>configure um conector MCP com este link</q> e cole o link. Qualquer assistente que aceite conectores MCP remotos (HTTP) funciona.</p>
         <ol>
-          <li><b>Claude (web, app ou celular):</b> Configurações → Conectores → Adicionar conector personalizado → cole o link.</li>
+          <li><b>Exemplo, Claude Desktop</b> (e Claude no navegador ou celular): Configurações → Conectores → Adicionar conector personalizado → cole o link.</li>
           <li><b>Claude Code:</b> <code>claude mcp add --transport http controle-gastos &lt;link&gt;</code></li>
         </ol>
+        <p>Depois, mande o extrato do banco e peça para <q>adicionar sem repetir</q>. Mais em <a href="/como-usar">Como usar</a>.</p>
       </details>
     </article>
     {{end}}
@@ -130,13 +132,17 @@
       {{end}}
       </tbody>
     </table>
+    <form method="post" action="/config/categorias" class="inline-form add-cat">
+      <input type="hidden" name="kind" value="expense">
+      <label>Nova categoria de gasto<input name="name" required placeholder="ex.: Pets"></label>
+      <label>Grupo<select name="bucket"><option value="cartao">Cartão</option><option value="fixo">Fixos</option><option value="outros" selected>Outros</option></select></label>
+      <button class="btn">Adicionar</button>
+    </form>
     <h3>Fontes de receita</h3>
     <p class="chips">{{range .IncomeCats}}<span class="chip">{{.Name}}</span>{{end}}</p>
-    <h3>Adicionar</h3>
     <form method="post" action="/config/categorias" class="inline-form">
-      <label>Nome<input name="name" required></label>
-      <label>Tipo<select name="kind"><option value="expense">Gasto</option><option value="income">Receita</option></select></label>
-      <label>Grupo<select name="bucket"><option value="outros">Outros</option><option value="fixo">Fixos</option><option value="cartao">Cartão</option></select></label>
+      <input type="hidden" name="kind" value="income">
+      <label>Nova fonte de receita<input name="name" required placeholder="ex.: Aluguel recebido"></label>
       <button class="btn">Adicionar</button>
     </form>
   </article>

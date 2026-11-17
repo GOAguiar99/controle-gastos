@@ -24,23 +24,30 @@ Row-Level Security no banco. Sem framework JS, sem build de frontend; Chart.js v
 - **Dívidas** com progresso; pagamentos são gastos marcados com "abate dívida".
 - Exportar CSV e JSON. Login com Google; cada pessoa tem sua carteira, e o dono pode **compartilhá-la**
   (Config → Compartilhar carteira) convidando até 4 pessoas pelo e-mail.
-- **Conector MCP para o Claude**: o Claude lê e altera tudo (lança faturas, confirma recorrências,
+- **Conector MCP para seu assistente de IA** (Claude ou outro que aceite MCP remoto): ele lê e altera tudo (lança faturas, confirma recorrências,
   responde "quanto gastei com X em 2026?"). Veja abaixo.
 
-## Usar com o Claude (MCP)
+## Usar com um assistente de IA (MCP)
+
+O jeito mais fácil de usar: exporte o extrato/fatura do banco, mande para o assistente e peça para
+"adicionar sem repetir". O servidor traz instruções para isso e dois prompts (`importar_extrato`,
+`revisar_mes`), que aparecem como comandos em clientes que suportam prompts MCP. O método completo
+está na página pública `/como-usar`.
 
 O app expõe um servidor MCP (Streamable HTTP) em **links secretos**: `https://<seu-domínio>/mcp/<token>`.
-Cada pessoa cria os seus em *Config → Conectar ao Claude* (o link aparece uma vez só; o app guarda só o
+Cada pessoa cria os seus em *Config → Conectar um assistente* (o link aparece uma vez só; o app guarda só o
 hash) e cola:
 
-- **Claude (web, desktop, celular):** Configurações → Conectores → Adicionar conector personalizado.
+- **Qualquer assistente com MCP remoto (HTTP):** peça para ele "configurar um conector MCP com este link".
+- **Exemplo, Claude (web, desktop, celular):** Configurações → Conectores → Adicionar conector personalizado.
 - **Claude Code:** `claude mcp add --transport http controle-gastos <link>`
 
 Não há outro login nesse endereço: **quem tiver o link tem acesso total à carteira de quem o criou**,
 então trate-o como senha. Se vazar, clique em *Revogar* (o link passa a responder 404). O Caddy padrão não grava
 log de acesso; se você ativar `log`, filtre o caminho `/mcp/*` para o token não ir para os logs.
-Exclusões são marcadas como destrutivas, então o Claude pede confirmação; lançamentos criados pelo
-Claude ficam com `source = 'mcp'`.
+Exclusões são marcadas como destrutivas, então o assistente pede confirmação; lançamentos criados pelo
+conector ficam com `source = 'mcp'`. Os esquemas de saída das ferramentas aceitam campos novos, para
+que clientes conectados antes de um deploy não quebrem.
 
 ## Rodar localmente
 

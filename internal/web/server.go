@@ -84,7 +84,7 @@ func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server
 		}
 		s.google = g
 	}
-	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login", "privacy", "terms", "pending", "admin"}
+	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login", "privacy", "terms", "pending", "admin", "guide"}
 	for _, p := range pages {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html")
 		if err != nil {
@@ -153,6 +153,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /convites/{id}/aceitar", s.acceptInvite)
 	mux.HandleFunc("POST /convites/{id}/recusar", s.declineInvite)
 	mux.HandleFunc("GET /privacidade", s.legalPage("privacy", "Política de Privacidade"))
+	mux.HandleFunc("GET /como-usar", s.legalPage("guide", "Como usar"))
 	mux.HandleFunc("GET /admin", s.adminPage)
 	mux.HandleFunc("POST /admin/usuarios/{id}/{action}", s.adminAction)
 	mux.HandleFunc("GET /termos", s.legalPage("terms", "Termos de Uso"))

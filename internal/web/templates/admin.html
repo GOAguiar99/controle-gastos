@@ -18,7 +18,7 @@
             {{if .Suspended}}
               <form method="post" action="/admin/usuarios/{{.ID}}/reativar" class="inline-form tight"><button class="btn small">Reativar</button></form>
             {{else}}
-              <form method="post" action="/admin/usuarios/{{.ID}}/suspender" class="inline-form tight" data-confirm="Suspender esta conta? A pessoa sai na hora e os links do Claude param."><button class="btn small danger">Suspender</button></form>
+              <form method="post" action="/admin/usuarios/{{.ID}}/suspender" class="inline-form tight" data-confirm="Suspender esta conta? A pessoa sai na hora e os links de assistente param."><button class="btn small danger">Suspender</button></form>
             {{end}}
           {{end}}
         </td>

@@ -1,0 +1,82 @@
+{{define "content"}}
+<article class="guide">
+<header class="guide-hero">
+  <h1>Como usar o Controle de Gastos</h1>
+  <p class="lead">Um jeito simples de saber quanto entra, quanto sai e quanto vai sobrar, sem planilha e sem digitar gasto por gasto.</p>
+  {{if not .User}}<a class="btn primary" href="/login">Entrar</a>{{end}}
+</header>
+
+<section class="card guide-sec">
+  <h2>O método em 3 ideias</h2>
+  <ol class="guide-steps">
+    <li><b>Concentre o dia a dia no cartão</b> (crédito ou débito). Mercado, farmácia, transporte, assinaturas: tudo no cartão.
+      Assim quase todo o gasto variável aparece num lugar só, o extrato do cartão, e vira um número que dá para acompanhar contra o limite que você define.</li>
+    <li><b>Contas fixas viram recorrências.</b> Aluguel, condomínio, financiamento, luz e internet você cadastra uma vez em <i>Recorrentes</i>
+      e o app prevê todos os meses seguintes. Quando a conta chega, é só confirmar o valor real.</li>
+    <li><b>Informe o caixa de vez em quando.</b> Com o saldo das suas contas hoje, o app projeta o caixa dos próximos 12 meses
+      e mostra quando ele fica mais apertado.</li>
+  </ol>
+</section>
+
+<section class="card guide-sec guide-mcp">
+  <h2>O jeito mais fácil: com seu assistente de IA</h2>
+  <p>O app é também um <b>conector MCP</b>: seu assistente de IA (Claude, por exemplo) lê e atualiza os seus dados por você, conversando.
+    Você não precisa preencher formulários; manda o extrato e pede.</p>
+
+  <h3>1. Conecte (uma vez)</h3>
+  <ol>
+    <li>Em <a href="/config#claude">Config → Conectar um assistente</a>, crie um link. Ele aparece uma vez só: copie.</li>
+    <li>Peça ao seu assistente: <q>configure um conector MCP com este link</q> e cole o link. Não tem segredo: é um conector MCP remoto (HTTP) comum.</li>
+  </ol>
+  <details class="guide-example" open>
+    <summary>Exemplo: Claude Desktop</summary>
+    <p>Configurações → Conectores → <i>Adicionar conector personalizado</i> → dê um nome (ex.: Controle de Gastos) e cole o link. Vale para o Claude no navegador e no celular também.
+      No Claude Code: <code>claude mcp add --transport http controle-gastos &lt;link&gt;</code>.</p>
+    <p class="muted">Outros assistentes e apps que aceitam conectores MCP remotos funcionam do mesmo jeito: procure por “conector”, “MCP” ou “servidor MCP personalizado” nas configurações.</p>
+  </details>
+
+  <h3>2. Use no dia a dia</h3>
+  <ol>
+    <li>No app do banco, <b>exporte o extrato ou a fatura do cartão</b> (CSV, OFX, PDF ou até um print).</li>
+    <li>Mande para o assistente e peça: <q>adicione no controle de gastos sem repetir o que já está lá</q>.</li>
+    <li>Ele lê tudo, compara com o que já foi lançado, mostra o que é novo, o que já existe e o que ficou em dúvida, e <b>só grava depois do seu ok</b>.</li>
+  </ol>
+  <p class="hint">Assistentes que mostram comandos prontos (como o Claude) também oferecem <b>“Importar extrato sem repetir”</b> e <b>“Revisar o mês”</b>,
+    que procura duplicados, recorrências não confirmadas e gastos acima do limite.</p>
+
+  <h3>Pedidos que funcionam bem</h3>
+  <ul class="guide-asks">
+    <li>“Quanto gastei com mercado este ano?”</li>
+    <li>“Lança R$ 230 de farmácia ontem no cartão.”</li>
+    <li>“A conta de luz deste mês veio R$ 187,40, confirma.”</li>
+    <li>“Vou conseguir pagar o IPVA em janeiro? Como fica o caixa?”</li>
+    <li>“Revise o mês e me diga o que está estranho.”</li>
+  </ul>
+  <p class="hint">O link dá acesso completo à sua carteira: trate como senha. Se vazar, revogue em Config e ele para de funcionar na hora.
+    Lançamentos feitos pelo assistente ficam marcados como vindos dele.</p>
+</section>
+
+<section class="card guide-sec">
+  <h2>O que tem em cada aba</h2>
+  <dl class="guide-tabs">
+    <dt>Dashboard</dt><dd>O mês em números: receitas, gastos (cartão, fixos e outros), sobra, uso do limite do cartão, caixa hoje e o fluxo de caixa dos próximos 12 meses.</dd>
+    <dt>Receitas</dt><dd>O que entrou no mês, por fonte. Na aba <i>Análise</i>, a composição e o histórico por ano.</dd>
+    <dt>Gastos</dt><dd>Os lançamentos do mês e o formulário para lançar à mão. Na aba <i>Análise</i>: cartão × fixos × outros, gasto por categoria e o histórico por ano.</dd>
+    <dt>Recorrentes</dt><dd>Contas e receitas que se repetem (mensal, bimestral, anual…), com fim ou sem fim. Mudou o valor? Altere aqui e todos os meses futuros mudam.</dd>
+    <dt>Dívidas</dt><dd>Empréstimos e financiamentos (inclusive SAC e Price, com juros), com o saldo devedor e quanto já foi pago.</dd>
+    <dt>Config</dt><dd>Limite do cartão, meta de sobra, categorias e grupos, conector do assistente, compartilhar a carteira com alguém, exportar ou excluir seus dados.</dd>
+  </dl>
+</section>
+
+<section class="card guide-sec">
+  <h2>Primeiros passos</h2>
+  <ol class="guide-check">
+    <li>No <a href="/">Dashboard</a>, informe o <b>caixa hoje</b> (soma do que você tem nas contas).</li>
+    <li>Em <a href="/recorrentes">Recorrentes</a>, cadastre as contas fixas e o salário.</li>
+    <li>Em <a href="/config">Config</a>, ajuste o <b>limite do cartão</b> e a meta de sobra.</li>
+    <li>Conecte seu assistente e importe o extrato do último mês.</li>
+    <li>Vai dividir as finanças com alguém? Em Config → <i>Compartilhar carteira</i>, convide pelo e-mail.</li>
+  </ol>
+</section>
+</article>
+{{end}}

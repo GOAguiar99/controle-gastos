@@ -29,66 +29,66 @@ var (
 
 func (t *tools) register(s *mcp.Server) {
 	// reads
-	mcp.AddTool(s, &mcp.Tool{Name: "get_overview", Annotations: readOnly,
+	addTool(s, &mcp.Tool{Name: "get_overview", Annotations: readOnly,
 		Description: "Resumo de um mês (receitas, gastos por grupo, sobra, status vs limites), caixa informado, caixa estimado hoje, ponto mais baixo projetado e fluxo mês a mês (6 meses atrás até 11 à frente). Também informa a data de hoje."},
 		t.getOverview)
-	mcp.AddTool(s, &mcp.Tool{Name: "list_transactions", Annotations: readOnly,
+	addTool(s, &mcp.Tool{Name: "list_transactions", Annotations: readOnly,
 		Description: "Lista lançamentos de um período (padrão: mês atual), com filtros. Com include_projected=true inclui ocorrências previstas de recorrências (projected=true, sem id) que podem ser confirmadas ou puladas."},
 		t.listTransactions)
-	mcp.AddTool(s, &mcp.Tool{Name: "get_cash_projection", Annotations: readOnly,
+	addTool(s, &mcp.Tool{Name: "get_cash_projection", Annotations: readOnly,
 		Description: "Projeção do caixa: saldo estimado hoje, saldo ao fim de cada mês, menor saldo e primeira data negativa."},
 		t.cashProjection)
-	mcp.AddTool(s, &mcp.Tool{Name: "category_report", Annotations: readOnly,
+	addTool(s, &mcp.Tool{Name: "category_report", Annotations: readOnly,
 		Description: "Totais por categoria e por ano (realizado/previsto) desde o primeiro lançamento até o próximo ano, mais a composição do mês, do ano e do histórico até hoje."},
 		t.categoryReport)
-	mcp.AddTool(s, &mcp.Tool{Name: "list_categories", Annotations: readOnly,
+	addTool(s, &mcp.Tool{Name: "list_categories", Annotations: readOnly,
 		Description: "Categorias existentes, com tipo e grupo (cartao, fixo, outros)."}, t.listCategories)
-	mcp.AddTool(s, &mcp.Tool{Name: "list_recurrences", Annotations: readOnly,
+	addTool(s, &mcp.Tool{Name: "list_recurrences", Annotations: readOnly,
 		Description: "Recorrências (receitas/gastos que se repetem) com periodicidade, término e próximos meses. pending=true são sugestões (parcelas de financiamento novo) ainda não adicionadas."}, t.listRecurrences)
-	mcp.AddTool(s, &mcp.Tool{Name: "list_debts", Annotations: readOnly,
+	addTool(s, &mcp.Tool{Name: "list_debts", Annotations: readOnly,
 		Description: "Dívidas e financiamentos com saldo atual, pagamentos e, para SAC/Price, parcelas pagas e juros restantes."}, t.listDebts)
-	mcp.AddTool(s, &mcp.Tool{Name: "get_limits", Annotations: readOnly,
+	addTool(s, &mcp.Tool{Name: "get_limits", Annotations: readOnly,
 		Description: "Limites configurados: limite do cartão e sobra mínima mensal."}, t.getLimits)
 
 	// writes
-	mcp.AddTool(s, &mcp.Tool{Name: "add_transactions", Annotations: write,
+	addTool(s, &mcp.Tool{Name: "add_transactions", Annotations: write,
 		Description: "Cria um ou mais lançamentos reais. Tudo ou nada: se um item for inválido, nada é salvo. Confira duplicados com list_transactions antes."},
 		t.addTransactions)
-	mcp.AddTool(s, &mcp.Tool{Name: "update_transaction", Annotations: idempotent,
+	addTool(s, &mcp.Tool{Name: "update_transaction", Annotations: idempotent,
 		Description: "Altera um lançamento existente; só os campos informados mudam."}, t.updateTransaction)
-	mcp.AddTool(s, &mcp.Tool{Name: "confirm_occurrence", Annotations: write,
+	addTool(s, &mcp.Tool{Name: "confirm_occurrence", Annotations: write,
 		Description: "Confirma a ocorrência prevista de uma recorrência num mês, criando o lançamento real (valor/data opcionais; padrão = previstos)."},
 		t.confirmOccurrence)
-	mcp.AddTool(s, &mcp.Tool{Name: "skip_occurrence", Annotations: idempotent,
+	addTool(s, &mcp.Tool{Name: "skip_occurrence", Annotations: idempotent,
 		Description: "Pula a ocorrência de uma recorrência num mês (não acontecerá)."}, t.skipOccurrence)
-	mcp.AddTool(s, &mcp.Tool{Name: "unskip_occurrence", Annotations: idempotent,
+	addTool(s, &mcp.Tool{Name: "unskip_occurrence", Annotations: idempotent,
 		Description: "Desfaz o pulo de uma ocorrência, voltando a prevê-la."}, t.unskipOccurrence)
-	mcp.AddTool(s, &mcp.Tool{Name: "save_recurrence", Annotations: write,
+	addTool(s, &mcp.Tool{Name: "save_recurrence", Annotations: write,
 		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma recorrência."}, t.saveRecurrence)
-	mcp.AddTool(s, &mcp.Tool{Name: "save_debt", Annotations: write,
+	addTool(s, &mcp.Tool{Name: "save_debt", Annotations: write,
 		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma dívida. system: none (sem juros; pagamentos lançados avulsos com debt_id) ou sac/price (financiamento: ao criar, o app sugere a recorrência mensal das parcelas restantes, com o valor de cada parcela pela tabela; ela fica pendente até accept_recurrence)."}, t.saveDebt)
-	mcp.AddTool(s, &mcp.Tool{Name: "set_cash", Annotations: write,
+	addTool(s, &mcp.Tool{Name: "set_cash", Annotations: write,
 		Description: "Informa o caixa real (soma das contas) numa data, padrão hoje. Lançamentos até essa data passam a ser considerados já incluídos."},
 		t.setCash)
-	mcp.AddTool(s, &mcp.Tool{Name: "add_category", Annotations: idempotent,
+	addTool(s, &mcp.Tool{Name: "add_category", Annotations: idempotent,
 		Description: "Cria uma categoria (se já existir com o mesmo nome, retorna a existente)."}, t.addCategory)
-	mcp.AddTool(s, &mcp.Tool{Name: "set_category_bucket", Annotations: idempotent,
+	addTool(s, &mcp.Tool{Name: "set_category_bucket", Annotations: idempotent,
 		Description: "Muda o grupo de uma categoria de gasto (cartao, fixo, outros)."}, t.setCategoryBucket)
-	mcp.AddTool(s, &mcp.Tool{Name: "set_limits", Annotations: idempotent,
+	addTool(s, &mcp.Tool{Name: "set_limits", Annotations: idempotent,
 		Description: "Altera limite do cartão e/ou sobra mínima mensal."}, t.setLimits)
 
-	mcp.AddTool(s, &mcp.Tool{Name: "accept_recurrence", Annotations: idempotent,
+	addTool(s, &mcp.Tool{Name: "accept_recurrence", Annotations: idempotent,
 		Description: "Adiciona uma recorrência sugerida (pending) aos gastos recorrentes: as ocorrências passam a aparecer como previstas. Só com o aceite do usuário."},
 		t.acceptRecurrence)
 
 	// destructive
-	mcp.AddTool(s, &mcp.Tool{Name: "dismiss_recurrence", Annotations: destructive,
+	addTool(s, &mcp.Tool{Name: "dismiss_recurrence", Annotations: destructive,
 		Description: "Descarta uma recorrência sugerida (pending); as parcelas não serão previstas."}, t.dismissRecurrence)
-	mcp.AddTool(s, &mcp.Tool{Name: "delete_transaction", Annotations: destructive,
+	addTool(s, &mcp.Tool{Name: "delete_transaction", Annotations: destructive,
 		Description: "Exclui um lançamento real (irreversível). Para não contar uma ocorrência prevista use skip_occurrence."}, t.deleteTransaction)
-	mcp.AddTool(s, &mcp.Tool{Name: "delete_recurrence", Annotations: destructive,
+	addTool(s, &mcp.Tool{Name: "delete_recurrence", Annotations: destructive,
 		Description: "Exclui uma recorrência e suas previsões futuras; lançamentos já confirmados ficam (irreversível)."}, t.deleteRecurrence)
-	mcp.AddTool(s, &mcp.Tool{Name: "delete_debt", Annotations: destructive,
+	addTool(s, &mcp.Tool{Name: "delete_debt", Annotations: destructive,
 		Description: "Exclui uma dívida e as recorrências que a pagam; pagamentos já lançados continuam como gastos, sem vínculo (irreversível)."}, t.deleteDebt)
 }
 
@@ -101,7 +101,7 @@ type txOut struct {
 	AmountCents  int64  `json:"amount_cents"`
 	AmountBRL    string `json:"amount_brl"`
 	Category     string `json:"category"`
-	Bucket       string `json:"bucket"`
+	Bucket       string `json:"bucket,omitempty" jsonschema:"grupo do gasto; ausente em receitas"`
 	Description  string `json:"description"`
 	Projected    bool   `json:"projected,omitempty" jsonschema:"ocorrência prevista de recorrência, ainda não confirmada"`
 	RecurrenceID int64  `json:"recurrence_id,omitempty"`
@@ -110,9 +110,17 @@ type txOut struct {
 	CreatedBy    string `json:"created_by,omitempty" jsonschema:"quem lançou (em carteiras compartilhadas)"`
 }
 
+// bucketOf is the expense group; income has none.
+func bucketOf(k finance.Kind, b finance.Bucket) string {
+	if k == finance.Income {
+		return ""
+	}
+	return string(b)
+}
+
 func txOf(e finance.Entry) txOut {
 	return txOut{ID: e.ID, Kind: string(e.Kind), Date: iso(e.Date), AmountCents: e.Amount, AmountBRL: finance.BRL(e.Amount),
-		Category: e.Category, Bucket: string(e.Bucket), Description: e.Description, Projected: e.Projected,
+		Category: e.Category, Bucket: bucketOf(e.Kind, e.Bucket), Description: e.Description, Projected: e.Projected,
 		RecurrenceID: e.RecurrenceID, Month: e.OccMonth, DebtID: e.DebtID, CreatedBy: e.CreatedBy}
 }
 
@@ -382,7 +390,7 @@ type categoryOut struct {
 	ID     int64  `json:"id"`
 	Name   string `json:"name"`
 	Kind   string `json:"kind"`
-	Bucket string `json:"bucket"`
+	Bucket string `json:"bucket,omitempty" jsonschema:"grupo do gasto (cartao, fixo, outros); ausente em receitas"`
 }
 
 type categoriesOut struct {
@@ -400,7 +408,7 @@ func (t *tools) listCategories(ctx context.Context, _ *mcp.CallToolRequest, in k
 		return nil, out, toolErr(err)
 	}
 	for _, c := range cats {
-		out.Categories = append(out.Categories, categoryOut{ID: c.ID, Name: c.Name, Kind: string(c.Kind), Bucket: string(c.Bucket)})
+		out.Categories = append(out.Categories, categoryOut{ID: c.ID, Name: c.Name, Kind: string(c.Kind), Bucket: bucketOf(c.Kind, c.Bucket)})
 	}
 	return nil, out, nil
 }
@@ -779,7 +787,7 @@ func (t *tools) setCash(ctx context.Context, _ *mcp.CallToolRequest, in cashIn) 
 type categoryIn struct {
 	Name   string `json:"name"`
 	Kind   string `json:"kind" jsonschema:"income ou expense"`
-	Bucket string `json:"bucket,omitempty" jsonschema:"cartao, fixo ou outros (padrão)"`
+	Bucket string `json:"bucket,omitempty" jsonschema:"só para gastos: cartao, fixo ou outros (padrão); receitas não têm grupo"`
 }
 
 func (t *tools) addCategory(ctx context.Context, _ *mcp.CallToolRequest, in categoryIn) (*mcp.CallToolResult, idOut, error) {

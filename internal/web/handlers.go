@@ -67,6 +67,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	_, hasData, _ := svcOf(r).Store().FirstTxDate()
 	today, cur := o.Today, finance.MonthOf(o.Today)
 	selSum, lim, flow, flowRows := o.Summary, o.Limits, o.Flow, o.FlowRows
 	var pastRows, nextRows []finance.FlowMonth
@@ -113,7 +114,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, r, "dashboard", page{
-		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur,
+		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur, "Welcome": !hasData,
 		"Today": today, "Sum": selSum, "Limits": lim, "Snap": o.Snapshot, "Flow": flow,
 		"FlowRows": flowRows, "PastTot": finance.SumFlow(pastRows), "NextTot": finance.SumFlow(nextRows),
 		"PastN": len(pastRows), "NextN": len(nextRows),
@@ -858,9 +859,16 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login?msg="+url.QueryEscape("Sua conta e seus dados foram excluídos."), http.StatusSeeOther)
 }
 
-// legalPage serves the public privacy policy and terms of use.
+// legalPage serves the public pages (privacy, terms, guide). They need no
+// session, but show the app's navigation to someone signed in.
 func (s *Server) legalPage(name, title string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if svcOf(r) == nil {
+			if a, ok := s.currentActor(r); ok {
+				r = s.withActor(r, a)
+				w.Header().Set("Cache-Control", "no-store") // the nav shows who is signed in
+			}
+		}
 		s.render(w, r, name, page{"Title": title})
 	}
 }

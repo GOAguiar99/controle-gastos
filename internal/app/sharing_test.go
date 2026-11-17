@@ -49,7 +49,7 @@ func TestShareLedger(t *testing.T) {
 	mustInvalid(t, a.LeaveLedger(ctx, ana), "dono")
 	mcp := ana
 	mcp.Source = SourceMCP
-	mustInvalid(t, a.InviteToLedger(ctx, mcp, "zed@x.com"), "Claude")
+	mustInvalid(t, a.InviteToLedger(ctx, mcp, "zed@x.com"), "assistente")
 
 	// removing ends access at once and the next sign-in gets a fresh ledger
 	tok, _ := a.StartSession(ctx, c.User.ID, "", "")

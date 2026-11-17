@@ -21,6 +21,7 @@
       <a href="/recorrentes" {{if eq .Nav "recurrences"}}class="on"{{end}}>Recorrentes{{with .PendingRecs}} <span class="badge" title="{{.}} sugestão(ões) para revisar">{{.}}</span>{{end}}</a>
       <a href="/dividas" {{if eq .Nav "debts"}}class="on"{{end}}>Dívidas</a>
       <a href="/config" {{if eq .Nav "config"}}class="on"{{end}}>Config</a>
+      <a href="/como-usar" {{if eq .Nav "guide"}}class="on"{{end}}>Como usar</a>
       {{if .IsAdmin}}<a href="/admin" {{if eq .Nav "admin"}}class="on"{{end}}>Admin{{with .PendingUsers}} <span class="badge" title="{{.}} cadastro(s) aguardando aprovação">{{.}}</span>{{end}}</a>{{end}}
     </nav>
     <button type="button" class="theme-toggle" data-theme-toggle data-short>◐</button>
@@ -32,7 +33,7 @@
   {{with .Flash}}<div class="flash" role="status">{{.}}</div>{{end}}
   {{template "content" .}}
 </main>
-<footer class="wrap legal-links"><a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a> · <button type="button" class="theme-toggle" data-theme-toggle>Tema</button></footer>
+<footer class="wrap legal-links"><a href="/como-usar">Como usar</a> · <a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a> · <button type="button" class="theme-toggle" data-theme-toggle>Tema</button></footer>
 <script src="{{asset "app.js"}}" defer></script>
 {{block "scripts" .}}{{end}}
 </body>

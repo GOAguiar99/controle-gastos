@@ -329,3 +329,49 @@ func TestListTabs(t *testing.T) {
 	}
 	get("/receitas?mes=2026-11&ver=analise")
 }
+
+// "Como usar" is public, linked from login and the nav; new accounts get a
+// welcome card on the dashboard until they have data.
+func TestGuideAndWelcome(t *testing.T) {
+	ts, client, env := newTestServer(t)
+	body := func(c *http.Client, p string) string {
+		t.Helper()
+		res, err := c.Get(ts.URL + p)
+		if err != nil || res.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s: %v %v", p, res.StatusCode, err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return string(b)
+	}
+	anon := body(newClient(), "/como-usar")
+	for _, want := range []string{"conector MCP", "sem repetir", "Concentre o dia a dia no cartão", `href="/login"`} {
+		if !strings.Contains(anon, want) {
+			t.Errorf("guide misses %q", want)
+		}
+	}
+	if !strings.Contains(body(newClient(), "/login"), `href="/como-usar"`) {
+		t.Error("login page doesn't link the guide")
+	}
+
+	env.mustLogin(t, client, anaUser)
+	if g := body(client, "/como-usar"); !strings.Contains(g, `href="/config" `) && !strings.Contains(g, `class="topbar"`) {
+		t.Error("signed-in guide lacks the app navigation")
+	}
+	if !strings.Contains(body(client, "/"), "Bem-vindo") {
+		t.Error("empty account has no welcome card")
+	}
+	anaData(t, env)
+	if strings.Contains(body(client, "/"), "Bem-vindo") {
+		t.Error("welcome card still shown with data")
+	}
+	// income sources are added without a group
+	cfg := body(client, "/config")
+	if !strings.Contains(cfg, `name="kind" value="income"`) {
+		t.Error("no income-source form")
+	}
+	inc := cfg[strings.Index(cfg, `name="kind" value="income"`):]
+	inc = inc[:strings.Index(inc, "</form>")]
+	if strings.Contains(inc, `name="bucket"`) {
+		t.Error("income-source form asks for a group")
+	}
+}

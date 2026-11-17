@@ -21,7 +21,7 @@ update the same data the UI shows. UI text, validation messages and tool descrip
 A change that adds or changes behavior includes:
 1. a service method in `internal/app`, with tests in `internal/app/*_test.go`;
 2. the UI for it, in `internal/web` (handler, template);
-3. an MCP tool in `internal/mcpserver/tools.go`, with the right annotation (`readOnly`, `write`,
+3. an MCP tool in `internal/mcpserver/tools.go` (register with `addTool`, which keeps output schemas open to new fields), with the right annotation (`readOnly`, `write`,
    `idempotent`, `destructive`) and a pt-BR description. Cover it in `mcp_test.go`, and update the
    server `instructions` if the domain model changes.
 

@@ -38,7 +38,7 @@ func (a *App) memberRole(ctx context.Context, actor Actor) (string, error) {
 
 func (a *App) requireOwner(ctx context.Context, actor Actor, action string) error {
 	if actor.Source != SourceManual {
-		return invalid("isso só pode ser feito pelo app, não pelo Claude")
+		return invalid("isso só pode ser feito pelo app, não pelo assistente")
 	}
 	role, err := a.memberRole(ctx, actor)
 	if err != nil {
@@ -139,7 +139,7 @@ func (a *App) RemoveMember(ctx context.Context, actor Actor, userID int64) error
 // LeaveLedger lets a member (not the owner) leave a shared ledger.
 func (a *App) LeaveLedger(ctx context.Context, actor Actor) error {
 	if actor.Source != SourceManual {
-		return invalid("isso só pode ser feito pelo app, não pelo Claude")
+		return invalid("isso só pode ser feito pelo app, não pelo assistente")
 	}
 	role, err := a.memberRole(ctx, actor)
 	if err != nil {
@@ -159,7 +159,7 @@ func (a *App) LeaveLedger(ctx context.Context, actor Actor) error {
 // deleted only if they are alone in it and it has no data.
 func (a *App) AcceptInvite(ctx context.Context, actor Actor, id int64) error {
 	if actor.Source != SourceManual {
-		return invalid("isso só pode ser feito pelo app, não pelo Claude")
+		return invalid("isso só pode ser feito pelo app, não pelo assistente")
 	}
 	ledger, err := a.db.JoinViaInvite(ctx, actor.User.ID, id, actor.User.Email, a.now())
 	switch {

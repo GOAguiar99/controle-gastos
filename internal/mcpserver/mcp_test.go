@@ -181,3 +181,82 @@ func TestToolsRoundTrip(t *testing.T) {
 		t.Fatalf("after delete: %+v", list)
 	}
 }
+
+// Output schemas must tolerate new fields: clients keep the schema they got
+// when they connected and reject results with properties it doesn't list.
+func TestOutputSchemasAreOpen(t *testing.T) {
+	cs, _ := connect(t)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil || len(res.Tools) == 0 {
+		t.Fatalf("list tools: %v", err)
+	}
+	for _, tool := range res.Tools {
+		if tool.OutputSchema == nil {
+			t.Errorf("%s has no output schema", tool.Name)
+			continue
+		}
+		b, _ := json.Marshal(tool.OutputSchema)
+		if strings.Contains(string(b), `"additionalProperties":false`) || strings.Contains(string(b), `"additionalProperties":{"not":{}}`) {
+			t.Errorf("%s output schema forbids extra fields", tool.Name)
+		}
+		if tool.InputSchema == nil {
+			t.Errorf("%s has no input schema", tool.Name)
+		}
+	}
+}
+
+func TestPrompts(t *testing.T) {
+	cs, _ := connect(t)
+	ctx := context.Background()
+	res, err := cs.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, p := range res.Prompts {
+		names[p.Name] = true
+	}
+	if !names["importar_extrato"] || !names["revisar_mes"] {
+		t.Fatalf("prompts: %v", names)
+	}
+	imp, err := cs.GetPrompt(ctx, &mcp.GetPromptParams{Name: "importar_extrato"})
+	if err != nil || len(imp.Messages) != 1 {
+		t.Fatalf("get importar_extrato: %v", err)
+	}
+	text := imp.Messages[0].Content.(*mcp.TextContent).Text
+	for _, want := range []string{"list_transactions", "add_transactions", "Nunca lance os itens e também o pagamento da fatura", "Não grave nada antes do meu ok"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("importar_extrato misses %q", want)
+		}
+	}
+	rev, err := cs.GetPrompt(ctx, &mcp.GetPromptParams{Name: "revisar_mes", Arguments: map[string]string{"mes": "2026-10"}})
+	if err != nil || !strings.Contains(rev.Messages[0].Content.(*mcp.TextContent).Text, "Mês a revisar: 2026-10") {
+		t.Fatalf("revisar_mes: %v", err)
+	}
+}
+
+// Income sources have no group (cartão/fixos/outros split only expenses).
+func TestIncomeHasNoBucket(t *testing.T) {
+	cs, _ := connect(t)
+	var cats struct {
+		Categories []struct {
+			Kind   string `json:"kind"`
+			Bucket string `json:"bucket"`
+		} `json:"categories"`
+	}
+	call(t, cs, "list_categories", map[string]any{}, &cats, false)
+	for _, c := range cats.Categories {
+		if c.Kind == "income" && c.Bucket != "" {
+			t.Errorf("income category with bucket %q", c.Bucket)
+		}
+		if c.Kind == "expense" && c.Bucket == "" {
+			t.Error("expense category without bucket")
+		}
+	}
+	call(t, cs, "add_category", map[string]any{"name": "Aluguel", "kind": "income", "bucket": "cartao"}, nil, false)
+	var cat struct {
+		ID int64 `json:"id"`
+	}
+	call(t, cs, "add_category", map[string]any{"name": "Aluguel", "kind": "income"}, &cat, false)
+	call(t, cs, "set_category_bucket", map[string]any{"id": cat.ID, "bucket": "fixo"}, nil, true)
+}

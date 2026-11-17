@@ -94,6 +94,9 @@ func (s *Service) AddCategory(name string, kind finance.Kind, bucket finance.Buc
 	if name == "" || (kind != finance.Income && kind != finance.Expense) {
 		return 0, invalid("nome e tipo são obrigatórios")
 	}
+	if kind == finance.Income {
+		bucket = finance.Other // groups (cartão/fixos/outros) only split expenses
+	}
 	if _, err := ParseBucket(string(bucket)); err != nil {
 		return 0, err
 	}
@@ -107,8 +110,12 @@ func (s *Service) SetCategoryBucket(id int64, bucket finance.Bucket) error {
 	if _, err := ParseBucket(string(bucket)); err != nil {
 		return err
 	}
-	if _, err := s.st.Category(id); err != nil {
+	c, err := s.st.Category(id)
+	if err != nil {
 		return notFound(err, "categoria")
+	}
+	if c.Kind == finance.Income {
+		return invalid("fontes de receita não têm grupo; grupos (cartão, fixos, outros) são só para gastos")
 	}
 	return s.st.SetCategoryBucket(id, bucket)
 }

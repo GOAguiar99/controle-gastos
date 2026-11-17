@@ -27,7 +27,14 @@ Convenções:
 - Datas AAAA-MM-DD, meses AAAA-MM. "Hoje" e o mês atual vêm de get_overview.
 - Categorias por nome (sem diferenciar maiúsculas/acentos). Use list_categories; só crie categoria nova (create_category=true) se o usuário pedir ou nenhuma existente servir.
 - Antes de lançar em lote (ex.: fatura colada), consulte list_transactions no período para não duplicar.
-- Antes de excluir, confirme com o usuário qual item (mostre data, valor e descrição).`
+- Antes de excluir, confirme com o usuário qual item (mostre data, valor e descrição).
+
+Método e importação de extratos (o uso mais comum):
+- A ideia do app é concentrar o dia a dia no cartão (crédito ou débito): o grosso dos gastos vira o extrato/fatura do cartão, e o resto são contas fixas e recorrências.
+- Quando o usuário mandar um extrato ou fatura (CSV, PDF, OFX, print ou texto colado), siga o fluxo do prompt importar_extrato: leia tudo, consulte list_categories e list_transactions(include_projected=true) no período, separe novos, já lançados e duvidosos, mostre a proposta e só grave com o ok do usuário, com add_transactions numa chamada só.
+- Siga o padrão que a carteira já usa: se os meses anteriores têm um lançamento "Fatura cartão" por mês, lance a fatura como um total nessa categoria em vez de item a item; se os itens são lançados um a um, faça igual. Nunca lance os itens da fatura e também o pagamento da fatura (o mesmo gasto contaria duas vezes).
+- Duplicado = mesma data (±3 dias, compras podem compensar depois) e mesmo valor, com descrição compatível. Linhas que batem com uma recorrência prevista viram confirm_occurrence, não lançamento novo.
+- Ignore transferências entre contas da própria pessoa, estornos que se anulam e o próprio pagamento da fatura quando os itens já estão lançados. Na dúvida, pergunte.`
 
 // New builds the MCP server with every tool registered. svcFor returns the
 // Service of the ledger the request is for.
@@ -36,6 +43,7 @@ func New(svcFor func(context.Context) *app.Service) *mcp.Server {
 		&mcp.ServerOptions{Instructions: instructions})
 	t := &tools{svcFor: svcFor}
 	t.register(s)
+	addPrompts(s)
 	return s
 }
 

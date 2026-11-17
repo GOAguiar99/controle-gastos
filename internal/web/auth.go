@@ -311,7 +311,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 	cop := http.NewCrossOriginProtection()
 	guarded := cop.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		public := path == "/login" || path == "/healthz" || path == "/privacidade" || path == "/termos" ||
+		public := path == "/login" || path == "/healthz" || path == "/privacidade" || path == "/termos" || path == "/como-usar" ||
 			strings.HasPrefix(path, "/static/") || strings.HasPrefix(path, "/auth/")
 		if strings.HasPrefix(path, "/auth/") && !s.authLimit.allow(clientIP(r)) {
 			Audit("rate_limited", "route", "auth", "ip", clientIP(r))

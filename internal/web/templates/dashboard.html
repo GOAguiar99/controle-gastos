@@ -12,6 +12,16 @@
   </form>
 </div>
 
+{{if .Welcome}}
+<section class="card welcome">
+  <div>
+    <h2>Bem-vindo! Comece por aqui</h2>
+    <p>Veja o método em 2 minutos: concentre os gastos no cartão, cadastre as contas fixas e deixe seu assistente de IA lançar o extrato por você.</p>
+  </div>
+  <a class="btn primary" href="/como-usar">Como usar</a>
+</section>
+{{end}}
+
 <section class="kpis">
   <article class="kpi">
     <span class="kpi-label">Receitas do mês</span>
