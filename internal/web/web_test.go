@@ -121,7 +121,7 @@ func TestPagesRequireLoginAndRender(t *testing.T) {
 	}
 
 	for _, p := range []string{"/", "/?mes=2027-02", "/receitas?mes=2026-11", "/gastos?mes=2026-11", "/recorrentes",
-		"/recorrentes?tipo=income&editar=1", "/recorrentes?editar=3", "/dividas", "/dividas?editar=2", "/config",
+		"/recorrentes?tipo=income&editar=1", "/recorrentes?editar=3", "/dividas", "/dividas?editar=2", "/perfil", "/perfil/preferencias", "/perfil/agentes", "/perfil/compartilhar",
 		"/lancamentos/1/editar", "/export/lancamentos.csv"} {
 		res, err := client.Get(ts.URL + p)
 		if err != nil || res.StatusCode != http.StatusOK {
@@ -213,7 +213,7 @@ func TestMCPEndpoint(t *testing.T) {
 		t.Fatalf("create link: %d", res.StatusCode)
 	}
 	link := string(m[1])
-	if res, _ := client.Get(ts.URL + "/config"); true {
+	if res, _ := client.Get(ts.URL + "/perfil/agentes"); true {
 		b, _ := io.ReadAll(res.Body)
 		if strings.Contains(string(b), link) || !strings.Contains(string(b), "celular") {
 			t.Fatal("config must list the link by name but never show its secret again")
@@ -259,7 +259,7 @@ func TestMCPEndpoint(t *testing.T) {
 	}
 
 	// revoking kills the link
-	ids := regexp.MustCompile(`/config/mcp/(\d+)/revogar`).FindAllSubmatch(mustGet(t, client, ts.URL+"/config"), -1)
+	ids := regexp.MustCompile(`/config/mcp/(\d+)/revogar`).FindAllSubmatch(mustGet(t, client, ts.URL+"/perfil/agentes"), -1)
 	if len(ids) != 1 {
 		t.Fatalf("links listed: %d", len(ids))
 	}

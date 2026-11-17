@@ -55,3 +55,17 @@
 if (window.matchMedia && window.matchMedia('(max-width: 860px)').matches) {
   document.querySelectorAll('details[data-collapse-mobile]').forEach(function (d) { d.open = false; });
 }
+
+// Menus built on <details data-menu>: close on a click outside or on Esc.
+document.addEventListener('click', function (e) {
+  document.querySelectorAll('details[data-menu][open]').forEach(function (d) {
+    if (!d.contains(e.target)) d.open = false;
+  });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('details[data-menu][open]').forEach(function (d) {
+    d.open = false;
+    d.querySelector('summary').focus();
+  });
+});

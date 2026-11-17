@@ -354,7 +354,7 @@ func TestGuideAndWelcome(t *testing.T) {
 	}
 
 	env.mustLogin(t, client, anaUser)
-	if g := body(client, "/como-usar"); !strings.Contains(g, `href="/config" `) && !strings.Contains(g, `class="topbar"`) {
+	if g := body(client, "/como-usar"); !strings.Contains(g, `class="profile-menu"`) {
 		t.Error("signed-in guide lacks the app navigation")
 	}
 	if !strings.Contains(body(client, "/"), "Bem-vindo") {
@@ -365,7 +365,7 @@ func TestGuideAndWelcome(t *testing.T) {
 		t.Error("welcome card still shown with data")
 	}
 	// income sources are added without a group
-	cfg := body(client, "/config")
+	cfg := body(client, "/perfil/preferencias")
 	if !strings.Contains(cfg, `name="kind" value="income"`) {
 		t.Error("no income-source form")
 	}
@@ -373,5 +373,61 @@ func TestGuideAndWelcome(t *testing.T) {
 	inc = inc[:strings.Index(inc, "</form>")]
 	if strings.Contains(inc, `name="bucket"`) {
 		t.Error("income-source form asks for a group")
+	}
+}
+
+// Config lives in the profile menu (top-right) as four tabs; Admin too.
+func TestProfileMenuAndTabs(t *testing.T) {
+	ts, ana, env := newTestServer(t)
+	env.mustLogin(t, ana, anaUser)
+	get := func(c *http.Client, p string) (int, string) {
+		t.Helper()
+		res, err := c.Get(ts.URL + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	// old URL moves permanently to the profile
+	res, _ := ana.Get(ts.URL + "/config")
+	if res.StatusCode != http.StatusMovedPermanently || res.Header.Get("Location") != "/perfil" {
+		t.Errorf("/config: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	// each tab shows its own section, and only it
+	tabs := map[string]struct{ has, hasnt string }{
+		"/perfil":              {`action="/config/excluir-conta"`, `action="/config/limites"`},
+		"/perfil/preferencias": {`action="/config/limites"`, `action="/config/mcp"`},
+		"/perfil/agentes":      {`action="/config/mcp"`, `action="/config/compartilhar"`},
+		"/perfil/compartilhar": {`action="/config/compartilhar"`, `action="/config/excluir-conta"`},
+	}
+	for p, w := range tabs {
+		code, b := get(ana, p)
+		if code != http.StatusOK || !strings.Contains(b, w.has) || strings.Contains(b, w.hasnt) {
+			t.Errorf("%s: %d has=%v hasnt=%v", p, code, strings.Contains(b, w.has), !strings.Contains(b, w.hasnt))
+		}
+	}
+	// top nav: no Config/Admin; the profile menu is there, Admin only for admins
+	_, home := get(ana, "/")
+	nav := home[strings.Index(home, "<nav>"):strings.Index(home, "</nav>")]
+	if strings.Contains(nav, `href="/config"`) || strings.Contains(nav, `href="/admin"`) {
+		t.Error("top nav still has Config or Admin")
+	}
+	if !strings.Contains(home, `class="profile-menu"`) || !strings.Contains(home, `href="/perfil/agentes"`) || strings.Contains(home, `href="/admin"`) {
+		t.Error("profile menu missing, or shows Admin to a non-admin")
+	}
+	if _, err := env.app.SetRole(context.Background(), "ana@x.com", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, home := get(ana, "/"); !strings.Contains(home, `href="/admin"`) {
+		t.Error("admin doesn't see Admin in the profile menu")
+	}
+	// form posts come back to their tab
+	for path, want := range map[string]string{"/config/limites": "/perfil/preferencias", "/config/compartilhar": "/perfil/compartilhar"} {
+		v := url.Values{"card_limit": {"5.000,00"}, "email": {"zed@x.com"}}
+		res, _ := ana.PostForm(ts.URL+path, v)
+		if loc := res.Header.Get("Location"); !strings.HasPrefix(loc, want+"?msg=") {
+			t.Errorf("POST %s -> %s, want %s", path, loc, want)
+		}
 	}
 }

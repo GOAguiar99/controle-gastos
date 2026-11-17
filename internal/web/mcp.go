@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"controle-gastos/internal/app"
@@ -50,7 +49,7 @@ func (s *Server) createMCP(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	data, err := s.configData(r)
+	data, err := s.profileData(r, tabAgents)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -58,7 +57,7 @@ func (s *Server) createMCP(w http.ResponseWriter, r *http.Request) {
 	data["NewMCPURL"] = s.mcpURL(r, token)
 	data["Flash"] = "Link criado. Copie agora: ele não será mostrado de novo."
 	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, r, "config", data)
+	s.render(w, r, "profile", data)
 }
 
 func (s *Server) revokeMCP(w http.ResponseWriter, r *http.Request) {
@@ -71,5 +70,5 @@ func (s *Server) revokeMCP(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/config?msg="+url.QueryEscape("Link revogado: ele parou de funcionar")+"#claude", http.StatusSeeOther)
+	profileDone(w, r, tabAgents, "Link revogado: ele parou de funcionar")
 }

@@ -705,47 +705,78 @@ func (s *Server) deleteDebt(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dividas", http.StatusSeeOther)
 }
 
-// ---------- config ----------
+// ---------- profile (Config) ----------
 
-func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
-	data, err := s.configData(r)
-	if err != nil {
-		s.fail(w, err)
-		return
+// Profile tabs: Conta, Preferências, Agentes de IA, Compartilhar.
+const (
+	tabAccount = "conta"
+	tabPrefs   = "preferencias"
+	tabAgents  = "agentes"
+	tabShare   = "compartilhar"
+)
+
+// profileURL is where each tab lives.
+func profileURL(tab string) string {
+	if tab == tabAccount {
+		return "/perfil"
 	}
-	s.render(w, r, "config", data)
+	return "/perfil/" + tab
 }
 
-func (s *Server) configData(r *http.Request) (page, error) {
-	st := svcOf(r).Store()
-	cats, err := st.Categories("")
-	if err != nil {
-		return nil, err
-	}
-	var inc, exp []db.Category
-	for _, c := range cats {
-		if c.Kind == finance.Income {
-			inc = append(inc, c)
-		} else {
-			exp = append(exp, c)
+// profileDone redirects back to a profile tab with a message.
+func profileDone(w http.ResponseWriter, r *http.Request, tab, msg string) {
+	http.Redirect(w, r, profileURL(tab)+"?msg="+url.QueryEscape(msg), http.StatusSeeOther)
+}
+
+func (s *Server) profilePage(tab string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if tab == tabAgents && s.mcp == nil {
+			http.NotFound(w, r)
+			return
 		}
+		data, err := s.profileData(r, tab)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		s.render(w, r, "profile", data)
 	}
-	snap, _ := st.LatestSnapshot()
-	data := page{
-		"Title": "Configurações", "Limits": st.Limits(), "IncomeCats": inc, "ExpenseCats": exp, "Snap": snap,
-		"MCPEnabled": s.mcp != nil,
-	}
-	sh, err := s.app.Sharing(r.Context(), actorOf(r))
-	if err != nil {
-		return nil, err
-	}
-	data["Sharing"] = sh
-	if s.mcp != nil {
+}
+
+// profileData loads only what the tab shows.
+func (s *Server) profileData(r *http.Request, tab string) (page, error) {
+	st := svcOf(r).Store()
+	data := page{"Title": "Perfil", "Tab": tab, "MCPEnabled": s.mcp != nil}
+	switch tab {
+	case tabAccount:
+		snap, _ := st.LatestSnapshot()
+		data["Snap"] = snap
+	case tabPrefs:
+		cats, err := st.Categories("")
+		if err != nil {
+			return nil, err
+		}
+		var inc, exp []db.Category
+		for _, c := range cats {
+			if c.Kind == finance.Income {
+				inc = append(inc, c)
+			} else {
+				exp = append(exp, c)
+			}
+		}
+		data["Limits"], data["IncomeCats"], data["ExpenseCats"] = st.Limits(), inc, exp
+	case tabAgents:
 		tokens, err := s.app.MCPTokens(r.Context(), actorOf(r))
 		if err != nil {
 			return nil, err
 		}
 		data["MCPTokens"] = tokens
+	case tabShare:
+		sh, err := s.app.Sharing(r.Context(), actorOf(r))
+		if err != nil {
+			return nil, err
+		}
+		data["Sharing"] = sh
 	}
 	return data, nil
 }
@@ -764,7 +795,7 @@ func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/config?msg="+url.QueryEscape("Limites salvos"), http.StatusSeeOther)
+	profileDone(w, r, tabPrefs, "Limites salvos")
 }
 
 func parseBucket(v string) finance.Bucket {
@@ -781,7 +812,7 @@ func (s *Server) addCategory(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/config?msg="+url.QueryEscape("Categoria adicionada"), http.StatusSeeOther)
+	profileDone(w, r, tabPrefs, "Categoria adicionada")
 }
 
 func (s *Server) updateCategory(w http.ResponseWriter, r *http.Request) {
@@ -794,7 +825,7 @@ func (s *Server) updateCategory(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/config?msg="+url.QueryEscape("Categoria atualizada"), http.StatusSeeOther)
+	profileDone(w, r, tabPrefs, "Categoria atualizada")
 }
 
 func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
@@ -880,12 +911,12 @@ func (s *Server) sharingDone(w http.ResponseWriter, r *http.Request, err error, 
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, to+"?msg="+url.QueryEscape(msg)+"#compartilhar", http.StatusSeeOther)
+	http.Redirect(w, r, to+"?msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 func (s *Server) inviteMember(w http.ResponseWriter, r *http.Request) {
 	err := s.app.InviteToLedger(r.Context(), actorOf(r), r.FormValue("email"))
-	s.sharingDone(w, r, err, "Convite criado. Peça para a pessoa entrar no app com esse e-mail em até 7 dias.", "/config")
+	s.sharingDone(w, r, err, "Convite criado. Peça para a pessoa entrar no app com esse e-mail em até 7 dias.", profileURL(tabShare))
 }
 
 func (s *Server) cancelInvite(w http.ResponseWriter, r *http.Request) {
@@ -894,7 +925,7 @@ func (s *Server) cancelInvite(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.sharingDone(w, r, s.app.CancelInvite(r.Context(), actorOf(r), id), "Convite cancelado.", "/config")
+	s.sharingDone(w, r, s.app.CancelInvite(r.Context(), actorOf(r), id), "Convite cancelado.", profileURL(tabShare))
 }
 
 func (s *Server) removeMember(w http.ResponseWriter, r *http.Request) {
@@ -903,7 +934,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.sharingDone(w, r, s.app.RemoveMember(r.Context(), actorOf(r), id), "Pessoa removida da carteira.", "/config")
+	s.sharingDone(w, r, s.app.RemoveMember(r.Context(), actorOf(r), id), "Pessoa removida da carteira.", profileURL(tabShare))
 }
 
 func (s *Server) leaveLedger(w http.ResponseWriter, r *http.Request) {
@@ -930,5 +961,5 @@ func (s *Server) declineInvite(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.sharingDone(w, r, s.app.DeclineInvite(r.Context(), actorOf(r), id), "Convite recusado.", "/config")
+	s.sharingDone(w, r, s.app.DeclineInvite(r.Context(), actorOf(r), id), "Convite recusado.", profileURL(tabShare))
 }

@@ -20,12 +20,29 @@
       <a href="/gastos" {{if and (eq .Nav "list") (not .IsIncome)}}class="on"{{end}}>Gastos</a>
       <a href="/recorrentes" {{if eq .Nav "recurrences"}}class="on"{{end}}>Recorrentes{{with .PendingRecs}} <span class="badge" title="{{.}} sugestão(ões) para revisar">{{.}}</span>{{end}}</a>
       <a href="/dividas" {{if eq .Nav "debts"}}class="on"{{end}}>Dívidas</a>
-      <a href="/config" {{if eq .Nav "config"}}class="on"{{end}}>Config</a>
       <a href="/como-usar" {{if eq .Nav "guide"}}class="on"{{end}}>Como usar</a>
-      {{if .IsAdmin}}<a href="/admin" {{if eq .Nav "admin"}}class="on"{{end}}>Admin{{with .PendingUsers}} <span class="badge" title="{{.}} cadastro(s) aguardando aprovação">{{.}}</span>{{end}}</a>{{end}}
     </nav>
     <button type="button" class="theme-toggle" data-theme-toggle data-short>◐</button>
-    {{with .User}}<span class="who" title="{{.Email}}">{{if .PictureURL}}<img src="{{.PictureURL}}" alt="" referrerpolicy="no-referrer">{{end}}<span class="who-name">{{.Name}}</span></span>{{end}}
+    {{with .User}}
+    <details class="profile-menu" data-menu>
+      <summary class="who {{if or (eq $.Nav "profile") (eq $.Nav "admin")}}on{{end}}" aria-label="Abrir menu do perfil" title="Perfil e configurações">
+        {{if .PictureURL}}<img src="{{.PictureURL}}" alt="" referrerpolicy="no-referrer">{{else}}<span class="avatar-fallback" aria-hidden="true">{{initial .}}</span>{{end}}
+        <span class="who-name">{{or .Name .Email}}</span>
+        {{with $.PendingUsers}}<span class="badge" title="{{.}} cadastro(s) aguardando aprovação">{{.}}</span>{{end}}
+        <span class="chev" aria-hidden="true">▾</span>
+      </summary>
+      <div class="menu-panel" role="menu">
+        <div class="menu-head"><strong>{{or .Name .Email}}</strong><span>{{.Email}}</span></div>
+        <a role="menuitem" href="/perfil">Conta</a>
+        <a role="menuitem" href="/perfil/preferencias">Preferências <small>limites e categorias</small></a>
+        <a role="menuitem" href="/perfil/agentes">Agentes de IA <small>conectar assistente</small></a>
+        <a role="menuitem" href="/perfil/compartilhar">Compartilhar carteira</a>
+        {{if $.IsAdmin}}<a role="menuitem" class="menu-row" href="/admin">Admin{{with $.PendingUsers}} <span class="badge">{{.}}</span>{{end}}</a>{{end}}
+        <hr>
+        <form method="post" action="/logout"><button role="menuitem" class="menu-logout">Sair</button></form>
+      </div>
+    </details>
+    {{end}}
   </div>
 </header>
 {{end}}

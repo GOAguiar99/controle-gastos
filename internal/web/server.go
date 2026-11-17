@@ -84,7 +84,7 @@ func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server
 		}
 		s.google = g
 	}
-	pages := []string{"dashboard", "list", "recurrences", "debts", "config", "edit_tx", "login", "privacy", "terms", "pending", "admin", "guide"}
+	pages := []string{"dashboard", "list", "recurrences", "debts", "profile", "edit_tx", "login", "privacy", "terms", "pending", "admin", "guide"}
 	for _, p := range pages {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html")
 		if err != nil {
@@ -139,7 +139,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /dividas/{id}", s.saveDebt)
 	mux.HandleFunc("POST /dividas/{id}/excluir", s.deleteDebt)
 
-	mux.HandleFunc("GET /config", s.configPage)
+	mux.HandleFunc("GET /perfil", s.profilePage(tabAccount))
+	mux.HandleFunc("GET /perfil/preferencias", s.profilePage(tabPrefs))
+	mux.HandleFunc("GET /perfil/agentes", s.profilePage(tabAgents))
+	mux.HandleFunc("GET /perfil/compartilhar", s.profilePage(tabShare))
+	// the old Config page lives in the profile now
+	mux.Handle("GET /config", http.RedirectHandler("/perfil", http.StatusMovedPermanently))
 	mux.HandleFunc("POST /config/limites", s.saveLimits)
 	mux.HandleFunc("POST /config/categorias", s.addCategory)
 	mux.HandleFunc("POST /config/categorias/{id}", s.updateCategory)
@@ -310,6 +315,13 @@ var funcs = template.FuncMap{
 			m[kv[i].(string)] = kv[i+1]
 		}
 		return m
+	},
+	"isLocal": func(u db.User) bool { return strings.HasPrefix(u.GoogleSub, db.LocalSubPrefix) },
+	"initial": func(u db.User) string {
+		for _, r := range strings.TrimSpace(u.Name + u.Email) {
+			return strings.ToUpper(string(r))
+		}
+		return "?"
 	},
 	"asset": func(name string) string { return "/static/" + name + "?v=" + assetVersion },
 	// rate prints a % rate with a comma and no trailing zeros: 0,9631393

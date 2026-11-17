@@ -354,15 +354,8 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
   .kpi.cash { grid-column: 1 / -1; }
 }
 @media (max-width: 560px) {
-  /* one row for brand + theme + avatar, the nav scrolls sideways below it */
-  .topbar-inner { flex-wrap: wrap; gap: 0 8px; min-height: 0; padding-top: 8px; }
-  .brand { flex: 1; }
-  .topbar nav { order: 3; flex-basis: 100%; padding-bottom: 6px; margin: 0 -16px; padding-left: 12px; padding-right: 24px;
-    -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); mask-image: linear-gradient(to right, #000 88%, transparent); }
-  .topbar nav a { padding: 7px 10px; }
-  .who { margin-left: 0; }
   .who-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
-  .who img + .who-name { display: none; }
+  .who img + .who-name, .who .avatar-fallback + .who-name { display: none; }
   /* summary cards two per row, compact */
   .kpis, .kpis.three { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .kpis.three .kpi:last-child { grid-column: 1 / -1; }
@@ -489,3 +482,51 @@ details.new-entry:not([open]) > summary h2::before { content: "+ "; }
   .welcome { flex-direction: column; align-items: stretch; }
 }
 .welcome .btn { white-space: nowrap; flex-shrink: 0; }
+
+/* profile menu (top-right): avatar + name + ▾ opens a menu */
+.profile-menu { position: relative; margin-left: auto; }
+.profile-menu > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px 5px 5px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .22); color: #fff;
+  user-select: none; }
+.profile-menu > summary::-webkit-details-marker { display: none; }
+.profile-menu > summary:hover, .profile-menu[open] > summary, .profile-menu > summary.on { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .4); }
+.profile-menu > summary:focus-visible { outline: 2px solid #8cbbea; outline-offset: 2px; }
+.profile-menu .chev { font-size: .75rem; opacity: .85; transition: transform .15s; }
+.profile-menu[open] .chev { transform: rotate(180deg); }
+.profile-menu img, .avatar-fallback { width: 26px; height: 26px; border-radius: 50%; }
+.avatar-fallback { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: #fff; font-weight: 700; font-size: .8rem; }
+.menu-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 240px; background: var(--pop-bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, .22); padding: 6px; display: flex; flex-direction: column; }
+.menu-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--line); margin-bottom: 4px; display: flex; flex-direction: column; min-width: 0; }
+.menu-head span { color: var(--muted); font-size: .8rem; overflow: hidden; text-overflow: ellipsis; }
+.menu-panel a, .menu-panel .menu-logout { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 9px 10px; border-radius: 8px;
+  color: var(--text); text-decoration: none; font: inherit; font-size: .92rem; background: none; border: 0; width: 100%; text-align: left; cursor: pointer; }
+.menu-panel a small { color: var(--muted); font-size: .75rem; }
+.menu-panel a:hover, .menu-panel a:focus-visible, .menu-panel .menu-logout:hover, .menu-panel .menu-logout:focus-visible { background: var(--soft); outline: none; }
+.menu-panel hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.menu-panel form { margin: 0; }
+.menu-logout { color: var(--expense) !important; }
+.profile-tabs { flex-wrap: wrap; }
+.account-id { display: flex; align-items: center; gap: 12px; }
+.account-id img, .account-id .avatar-fallback { width: 48px; height: 48px; font-size: 1.2rem; }
+.account-id div { display: flex; flex-direction: column; min-width: 0; }
+.mcp-help-card ol { padding-left: 1.2em; }
+.mcp-help-card code { font-size: .78rem; word-break: break-all; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 560px) {
+  .profile-menu > summary { padding: 3px 6px 3px 3px; }
+  .menu-panel { position: fixed; left: 8px; right: 8px; top: 52px; min-width: 0; }
+}
+
+/* tablets and phones: brand + theme + profile on one row, the nav scrolls below */
+@media (max-width: 860px) {
+  .topbar-inner { flex-wrap: wrap; gap: 0 8px; min-height: 0; padding-top: 8px; }
+  .brand { flex: 1; }
+  .topbar nav { order: 3; flex-basis: 100%; padding-bottom: 6px; margin: 0 -16px; padding-left: 12px; padding-right: 24px;
+    -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); mask-image: linear-gradient(to right, #000 88%, transparent); }
+  .topbar nav a { padding: 7px 10px; }
+  .profile-menu { margin-left: 0; }
+}
+/* menu items: label on top, hint below */
+.menu-panel a { flex-direction: column; align-items: flex-start; gap: 1px; }
+.menu-panel a .badge { margin-left: 0; }
+.menu-panel a.menu-row { flex-direction: row; align-items: center; justify-content: space-between; }

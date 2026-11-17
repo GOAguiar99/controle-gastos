@@ -68,13 +68,15 @@ only as SHA-256 hashes (`sessions`, `mcp_tokens`). Identity tables have no RLS a
 through `db.DB` methods, never a ledger `Store`. Locally, `APP_INSECURE_NO_AUTH=1` adds a dev login
 (loopback only); web tests use a fake OIDC provider (`internal/web/fakeidp_test.go`).
 
-To try the MCP locally, create a link in `/config` ("Conectar ao Claude"), then run
+To try the MCP locally, create a link in Perfil → Agentes de IA (`/perfil/agentes`), then run
 `claude mcp add --transport http cg-local http://localhost:8080/mcp/<token>`.
 
 Access control (`users`): `approved_at` NULL = sign-up waiting for approval (`APP_SIGNUP=approval`,
 default; `SignIn` returns `app.ErrPending`, creates no ledger and no session), `suspended_at`, and
 `role` (`user` | `admin`). `App.actor` reloads the user on every request, so these apply at once.
-Admins use `/admin` (approve, reject pending, suspend, reactivate; never financial data). Every admin
+Settings live in the profile menu (avatar, top-right): `/perfil` tabs Conta, Preferências,
+Agentes de IA and Compartilhar (`profileData` loads per tab; `GET /config` redirects there; the POST
+routes keep their `/config/...` paths). Admins use `/admin` (also in that menu) (approve, reject pending, suspend, reactivate; never financial data). Every admin
 method in `internal/app/admin.go` checks the role server-side plus a fresh sign-in
 (`Actor.AuthAt`, `AdminFreshness`); non-admins get 404. The admin role is granted only by the CLI
 (`grant-admin`), never by email or env. Admin actions, account deletion and the JSON export are
@@ -88,7 +90,7 @@ HTTP off localhost. Security events go through
 See `docs/SECURITY.md` for controls, runbooks and the LGPD checklist.
 
 The MCP endpoint is `/mcp/{token}`: each link belongs to one user and ledger and can be revoked from
-Config. That route skips the session and cross-origin middleware; the secret token is its only auth.
+the profile. That route skips the session and cross-origin middleware; the secret token is its only auth.
 
 Pushing to `main` runs CI (gofmt, vet, test, govulncheck, gitleaks, build) and deploys to the VM when the `DEPLOY_*`
 secrets are set.

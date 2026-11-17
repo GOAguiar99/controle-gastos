@@ -36,7 +36,7 @@ func TestShareLedgerHTTP(t *testing.T) {
 	if body, _ := io.ReadAll(res.Body); !strings.Contains(string(body), "segredo da ana") {
 		t.Fatal("carolina doesn't see the shared ledger")
 	}
-	res, _ = carol.Get(ts.URL + "/config")
+	res, _ = carol.Get(ts.URL + "/perfil/compartilhar")
 	if body, _ := io.ReadAll(res.Body); !strings.Contains(string(body), "Sair desta carteira") || strings.Contains(string(body), `action="/config/compartilhar"`) {
 		t.Error("member's config shows owner controls")
 	}

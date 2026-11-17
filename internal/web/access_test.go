@@ -139,7 +139,7 @@ func TestPasswordModeHTTP(t *testing.T) {
 	if res := login(c, pw); res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/" {
 		t.Fatalf("login: %d", res.StatusCode)
 	}
-	if res, _ := c.Get(ts.URL + "/config"); res.StatusCode != http.StatusOK {
+	if res, _ := c.Get(ts.URL + "/perfil"); res.StatusCode != http.StatusOK {
 		t.Errorf("app after password login: %d", res.StatusCode)
 	}
 
