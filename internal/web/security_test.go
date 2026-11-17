@@ -272,3 +272,28 @@ func createLink(t *testing.T, ts *httptest.Server, c *http.Client) string {
 	}
 	return string(m[1])
 }
+
+// The theme script must load from /static (CSP forbids inline scripts) in the
+// <head>, so pages don't flash the wrong theme, and the dark palette must exist.
+func TestThemeAssets(t *testing.T) {
+	ts, client, _ := newTestServer(t)
+	res, err := client.Get(ts.URL + "/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	head, _, _ := strings.Cut(string(body), "</head>")
+	if !regexp.MustCompile(`<script src="/static/theme\.js\?v=[0-9a-f]+"></script>`).MatchString(head) {
+		t.Error("theme.js not loaded synchronously in <head>")
+	}
+	if strings.Contains(head, "<script>") || !strings.Contains(string(body), "data-theme-toggle") {
+		t.Error("inline script or missing theme toggle")
+	}
+	res, _ = client.Get(ts.URL + "/static/app.css")
+	css, _ := io.ReadAll(res.Body)
+	for _, want := range []string{`:root[data-theme="dark"]`, `@media (prefers-color-scheme: dark)`, `:root:not([data-theme="light"])`} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("app.css missing %s", want)
+		}
+	}
+}

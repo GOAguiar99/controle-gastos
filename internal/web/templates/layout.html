@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light">
+<meta name="color-scheme" content="light dark">
+<script src="{{asset "theme.js"}}"></script>
 <title>{{.Title}} · Controle de Gastos</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230B2F4A'/><path d='M8 22l6-7 4 4 7-9' stroke='%23C6EFCE' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="stylesheet" href="{{asset "app.css"}}">
@@ -22,6 +23,7 @@
       <a href="/config" {{if eq .Nav "config"}}class="on"{{end}}>Config</a>
       {{if .IsAdmin}}<a href="/admin" {{if eq .Nav "admin"}}class="on"{{end}}>Admin{{with .PendingUsers}} <span class="badge" title="{{.}} cadastro(s) aguardando aprovação">{{.}}</span>{{end}}</a>{{end}}
     </nav>
+    <button type="button" class="theme-toggle" data-theme-toggle data-short>◐</button>
     {{with .User}}<span class="who" title="{{.Email}}">{{if .PictureURL}}<img src="{{.PictureURL}}" alt="" referrerpolicy="no-referrer">{{end}}{{.Name}}</span>{{end}}
   </div>
 </header>
@@ -30,7 +32,7 @@
   {{with .Flash}}<div class="flash" role="status">{{.}}</div>{{end}}
   {{template "content" .}}
 </main>
-<footer class="wrap legal-links"><a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a></footer>
+<footer class="wrap legal-links"><a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a> · <button type="button" class="theme-toggle" data-theme-toggle>Tema</button></footer>
 <script src="{{asset "app.js"}}" defer></script>
 {{block "scripts" .}}{{end}}
 </body>

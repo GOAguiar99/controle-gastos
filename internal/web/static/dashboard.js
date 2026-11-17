@@ -3,10 +3,15 @@
   var el = document.getElementById('chart-data');
   if (!el) return;
   var d = JSON.parse(el.textContent);
+  // colors come from the theme (app.css); 6-digit hex so an alpha suffix can be appended
+  var css = getComputedStyle(document.documentElement);
+  function v(name, def) { return css.getPropertyValue(name).trim() || def; }
   var C = {
-    income: '#2E7D32', expense: '#C62828', balance: '#1565C0',
-    card: '#8E24AA', fixed: '#1E88E5', other: '#FB8C00', grid: '#E3E8EC', muted: '#66727C'
+    income: v('--income', '#2e7d32'), expense: v('--expense', '#c62828'), balance: v('--balance', '#1565c0'),
+    card: v('--card', '#8e24aa'), fixed: v('--fixed', '#1e88e5'), other: v('--other', '#fb8c00'),
+    grid: v('--chart-grid', '#e3e8ec'), muted: v('--muted', '#66727c')
   };
+  document.addEventListener('cg:themechange', function () { location.reload(); });
   var brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
   var compact = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
   var committed = null;

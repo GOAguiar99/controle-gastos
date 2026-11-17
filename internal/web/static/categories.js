@@ -19,7 +19,11 @@
   // ---- yearly stacked bars ----
   var cv = document.getElementById('chartYears');
   if (cv && window.Chart) {
-    var muted = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#66727C';
+    var css = getComputedStyle(document.documentElement);
+    var muted = css.getPropertyValue('--muted').trim() || '#66727c';
+    var grid = css.getPropertyValue('--chart-grid').trim() || '#e3e8ec';
+    var surface = css.getPropertyValue('--surface').trim() || '#ffffff';
+    document.addEventListener('cg:themechange', function () { location.reload(); });
     Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
     Chart.defaults.color = muted;
     Chart.defaults.maintainAspectRatio = false;
@@ -35,7 +39,7 @@
             label: name, data: d.values[i], stack: 'y', maxBarThickness: 64,
             // future and in-progress years are lighter: part of it is still a forecast
             backgroundColor: d.yearState.map(function (s) { return s === 'realizado' ? color(i) : color(i) + '99'; }),
-            borderColor: '#ffffff', borderWidth: { top: 2 }, borderSkipped: 'bottom',
+            borderColor: surface, borderWidth: { top: 2 }, borderSkipped: 'bottom',
             borderRadius: i === last ? { topLeft: 4, topRight: 4 } : 0
           };
         })
@@ -44,7 +48,7 @@
         interaction: { mode: 'index', intersect: false },
         scales: {
           x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0 } },
-          y: { stacked: true, grid: { color: '#E3E8EC' }, border: { display: false }, ticks: { callback: function (v) { return compact.format(v); } } }
+          y: { stacked: true, grid: { color: grid }, border: { display: false }, ticks: { callback: function (v) { return compact.format(v); } } }
         },
         plugins: {
           legend: { position: 'bottom' },
