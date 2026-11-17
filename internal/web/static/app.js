@@ -50,3 +50,8 @@
     });
   });
 })();
+
+// On narrow screens, forms marked data-collapse-mobile start collapsed.
+if (window.matchMedia && window.matchMedia('(max-width: 860px)').matches) {
+  document.querySelectorAll('details[data-collapse-mobile]').forEach(function (d) { d.open = false; });
+}

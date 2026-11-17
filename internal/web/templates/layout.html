@@ -24,7 +24,7 @@
       {{if .IsAdmin}}<a href="/admin" {{if eq .Nav "admin"}}class="on"{{end}}>Admin{{with .PendingUsers}} <span class="badge" title="{{.}} cadastro(s) aguardando aprovação">{{.}}</span>{{end}}</a>{{end}}
     </nav>
     <button type="button" class="theme-toggle" data-theme-toggle data-short>◐</button>
-    {{with .User}}<span class="who" title="{{.Email}}">{{if .PictureURL}}<img src="{{.PictureURL}}" alt="" referrerpolicy="no-referrer">{{end}}{{.Name}}</span>{{end}}
+    {{with .User}}<span class="who" title="{{.Email}}">{{if .PictureURL}}<img src="{{.PictureURL}}" alt="" referrerpolicy="no-referrer">{{end}}<span class="who-name">{{.Name}}</span></span>{{end}}
   </div>
 </header>
 {{end}}

@@ -297,3 +297,35 @@ func TestThemeAssets(t *testing.T) {
 		}
 	}
 }
+
+// Gastos/Receitas open on the entries; the charts are on the "Análise" tab,
+// which the month navigation keeps.
+func TestListTabs(t *testing.T) {
+	ts, client, env := newTestServer(t)
+	env.mustLogin(t, client, anaUser)
+	anaData(t, env)
+	get := func(p string) string {
+		t.Helper()
+		res, err := client.Get(ts.URL + p)
+		if err != nil || res.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s: %v %v", p, res.StatusCode, err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return string(b)
+	}
+	list := get("/gastos?mes=2026-11")
+	if !strings.Contains(list, "segredo da ana") || !strings.Contains(list, `action="/lancamentos"`) {
+		t.Error("entries tab lacks the entries or the add form")
+	}
+	if strings.Contains(list, "chart.umd.min.js") || strings.Contains(list, "chartYears") {
+		t.Error("entries tab still loads the charts")
+	}
+	an := get("/gastos?mes=2026-11&ver=analise")
+	if !strings.Contains(an, "chartYears") || !strings.Contains(an, "chart.umd.min.js") || strings.Contains(an, "segredo da ana") {
+		t.Error("analysis tab should have the charts and not the entry list")
+	}
+	if !strings.Contains(an, "mes=2026-12&ver=analise") && !strings.Contains(an, "mes=2026-12&amp;ver=analise") {
+		t.Error("month navigation drops the analysis tab")
+	}
+	get("/receitas?mes=2026-11&ver=analise")
+}

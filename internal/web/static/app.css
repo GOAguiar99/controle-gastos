@@ -354,15 +354,30 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
   .kpi.cash { grid-column: 1 / -1; }
 }
 @media (max-width: 560px) {
-  .topbar-inner { flex-direction: column; align-items: stretch; gap: 0; padding-top: 8px; }
-  .topbar nav { padding-bottom: 6px; }
-  .kpis, .kpis.three { grid-template-columns: minmax(0, 1fr); }
-  .kpi-value { font-size: 1.3rem; }
+  /* one row for brand + theme + avatar, the nav scrolls sideways below it */
+  .topbar-inner { flex-wrap: wrap; gap: 0 8px; min-height: 0; padding-top: 8px; }
+  .brand { flex: 1; }
+  .topbar nav { order: 3; flex-basis: 100%; padding-bottom: 6px; margin: 0 -16px; padding-left: 12px; padding-right: 24px;
+    -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); mask-image: linear-gradient(to right, #000 88%, transparent); }
+  .topbar nav a { padding: 7px 10px; }
+  .who { margin-left: 0; }
+  .who-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+  .who img + .who-name { display: none; }
+  /* summary cards two per row, compact */
+  .kpis, .kpis.three { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .kpis.three .kpi:last-child { grid-column: 1 / -1; }
+  .kpi { padding: 10px 12px; }
+  .kpi-label { font-size: .7rem; }
+  .kpi-value { font-size: 1.12rem; }
+  .kpi-sub { font-size: .72rem; }
   .page-head { align-items: stretch; }
   .month-nav input { flex: 1; min-width: 0; }
   .form .row, .recurrence-fields .row { grid-template-columns: minmax(0, 1fr); }
-  .entry { grid-template-columns: 44px minmax(0, 1fr) auto; }
-  .e-actions { grid-column: 2 / -1; justify-content: flex-start; }
+  /* one line per entry: tap the description to edit, ✕ stays inline;
+     projected entries keep Confirmar/Pular on a second line */
+  .entry { grid-template-columns: 44px minmax(0, 1fr) auto auto; gap: 8px; }
+  .e-actions .edit-btn { display: none; }
+  .entry.projected .e-actions, .skipped-row .e-actions { grid-column: 2 / -1; justify-content: flex-start; }
   .pop-body { left: 0; right: auto; }
   .chart { height: 230px; }
   .chart.tall { height: 240px; }
@@ -430,3 +445,20 @@ form:has(select[data-loan-system] option[value=none]:checked) .loan-fields { dis
 .topbar .theme-toggle { color: #c9d6e2; font-size: 1rem; }
 .topbar .theme-toggle:hover { color: #fff; background: rgba(255, 255, 255, .08); }
 .legal-links .theme-toggle { color: var(--muted); font-size: .85rem; padding: 0 4px; text-decoration: underline; }
+
+/* Gastos/Receitas: entries first, charts on the "Análise" tab */
+.view-tabs { margin: 0 0 16px; }
+.month-analysis { margin-bottom: 16px; }
+details.new-entry > summary { list-style: none; cursor: pointer; }
+details.new-entry > summary::-webkit-details-marker { display: none; }
+details.new-entry:not([open]) > summary { margin-bottom: 0; }
+details.new-entry:not([open]) > summary h2::before { content: "+ "; }
+@media (max-width: 860px) {
+  /* on phones the add form comes first, collapsed to one line */
+  .entries-layout > .stack { order: -1; }
+}
+.month-analysis > .card { margin-bottom: 0; }
+.month-analysis:not(.two-col) > .card + .card { margin-top: 16px; }
+
+.e-link { color: inherit; text-decoration: none; }
+.e-link:hover { text-decoration: underline; }

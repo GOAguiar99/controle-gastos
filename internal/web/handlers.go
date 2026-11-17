@@ -211,10 +211,14 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 		if kind == finance.Income {
 			title = "Receitas"
 		}
-		chart, err := svcOf(r).CategoryReport(kind, mes)
-		if err != nil {
-			s.fail(w, err)
-			return
+		// the list opens on the entries; the charts live on the "Análise" tab
+		analysis := r.URL.Query().Get("ver") == "analise"
+		var chart app.CategoryChart
+		if analysis {
+			if chart, err = svcOf(r).CategoryReport(kind, mes); err != nil {
+				s.fail(w, err)
+				return
+			}
 		}
 
 		byCat := byCategory(cur)
@@ -230,7 +234,7 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 			"Categories": cats, "Debts": debts, "DefaultDate": defDate,
 			"NewRec": finance.Recurrence{Interval: 1, EndMode: finance.EndNever},
 			"Back":   kindPath(kind) + "?mes=" + mes.String(),
-			"Chart":  chart,
+			"Chart":  chart, "Analysis": analysis,
 		})
 	}
 }

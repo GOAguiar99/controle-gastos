@@ -5,11 +5,17 @@
     <p class="muted">{{.Month.LongLabel}}</p>
   </div>
   <form class="month-nav" method="get" action="{{.Path}}">
-    <a class="btn ghost" href="{{.Path}}?mes={{.Prev}}" aria-label="Mês anterior">‹</a>
+    {{if .Analysis}}<input type="hidden" name="ver" value="analise">{{end}}
+    <a class="btn ghost" href="{{.Path}}?mes={{.Prev}}{{if .Analysis}}&ver=analise{{end}}" aria-label="Mês anterior">‹</a>
     <input type="month" name="mes" value="{{.Month}}" data-autosubmit>
-    <a class="btn ghost" href="{{.Path}}?mes={{.Next}}" aria-label="Próximo mês">›</a>
+    <a class="btn ghost" href="{{.Path}}?mes={{.Next}}{{if .Analysis}}&ver=analise{{end}}" aria-label="Próximo mês">›</a>
   </form>
 </div>
+
+<nav class="tabs view-tabs" aria-label="Visão">
+  <a href="{{.Path}}?mes={{.Month}}" {{if not .Analysis}}class="on" aria-current="page"{{end}}>Lançamentos</a>
+  <a href="{{.Path}}?mes={{.Month}}&ver=analise" {{if .Analysis}}class="on" aria-current="page"{{end}}>Análise</a>
+</nav>
 
 <section class="kpis three">
   <article class="kpi">
@@ -29,6 +35,34 @@
   </article>
 </section>
 
+{{if .Analysis}}
+<section class="{{if not .IsIncome}}two-col {{end}}month-analysis">
+{{if not .IsIncome}}
+<section class="card split-card">
+  <div class="card-head"><h2>Estrutura dos gastos</h2><a class="link" href="/config">grupos das categorias</a></div>
+  <div class="split-bar" role="img" aria-label="Divisão dos gastos entre cartão, fixos e outros">
+    {{range .Split}}{{if .Total}}<span class="b-{{.Key}}" style="width: {{pctWidth .Pct}}%" title="{{.Label}}: {{brl .Total}}"></span>{{end}}{{end}}
+  </div>
+  <div class="split-legend">
+    {{range .Split}}
+    <div><span class="dot b-{{.Key}}"></span><span>{{.Label}}</span><strong>{{brl .Total}}</strong><small class="muted">{{pctDec .Pct}}</small></div>
+    {{end}}
+  </div>
+</section>
+{{end}}
+  <article class="card">
+      <div class="card-head"><h2>Por {{if .IsIncome}}fonte{{else}}categoria{{end}}</h2></div>
+      {{if .ByCat}}
+      <ul class="bars">
+        {{range .ByCat}}
+        <li><span class="bar-label">{{.Name}}</span>
+          <span class="bar"><span class="{{if $.IsIncome}}b-income{{else}}b-{{.Bucket}}{{end}}" style="width: {{barPct .Total $.MaxCat}}%"></span></span>
+          <span class="num">{{brl .Total}}</span></li>
+        {{end}}
+      </ul>
+      {{else}}<p class="empty">Sem dados.</p>{{end}}
+    </article>
+</section>
 {{if .Chart.Years}}
 <section class="card cat-charts" data-cat-charts>
   <div class="card-head">
@@ -49,22 +83,8 @@
   <ul class="comp-legend" data-comp-legend></ul>
 </section>
 {{end}}
-
-{{if not .IsIncome}}
-<section class="card split-card">
-  <div class="card-head"><h2>Estrutura dos gastos</h2><a class="link" href="/config">grupos das categorias</a></div>
-  <div class="split-bar" role="img" aria-label="Divisão dos gastos entre cartão, fixos e outros">
-    {{range .Split}}{{if .Total}}<span class="b-{{.Key}}" style="width: {{pctWidth .Pct}}%" title="{{.Label}}: {{brl .Total}}"></span>{{end}}{{end}}
-  </div>
-  <div class="split-legend">
-    {{range .Split}}
-    <div><span class="dot b-{{.Key}}"></span><span>{{.Label}}</span><strong>{{brl .Total}}</strong><small class="muted">{{pctDec .Pct}}</small></div>
-    {{end}}
-  </div>
-</section>
-{{end}}
-
-<section class="two-col wide-left">
+{{else}}
+<section class="two-col wide-left entries-layout">
   <article class="card">
     <div class="card-head"><h2>Lançamentos</h2></div>
     {{if .Entries}}
@@ -73,7 +93,8 @@
       <li class="entry {{if .Projected}}projected{{end}}">
         <div class="e-date"><strong>{{dm .Date}}</strong><small>{{weekday .Date}}</small></div>
         <div class="e-main">
-          <span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
+          {{if .Projected}}<span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
+          {{else}}<a class="e-desc e-link" href="/lancamentos/{{.ID}}/editar" title="Editar">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</a>{{end}}
           <span class="e-meta">{{.Category}}{{if .RecurrenceID}} · <span class="tag">{{if .Projected}}previsto{{else}}recorrente{{end}}</span>{{end}}{{if .DebtID}} · <span class="tag">dívida</span>{{end}}{{if and $.Shared .CreatedBy}} · por {{.CreatedBy}}{{end}}</span>
         </div>
         <div class="e-amount {{if $.IsIncome}}pos{{else}}negc{{end}}">{{brl .Amount}}</div>
@@ -95,7 +116,7 @@
               <button class="btn ghost small" title="Não acontece neste mês">Pular</button>
             </form>
           {{else}}
-            <a class="btn ghost small" href="/lancamentos/{{.ID}}/editar">Editar</a>
+            <a class="btn ghost small edit-btn" href="/lancamentos/{{.ID}}/editar">Editar</a>
             <form method="post" action="/lancamentos/{{.ID}}/excluir" data-confirm="Excluir este lançamento?">
               <input type="hidden" name="back" value="{{$.Back}}">
               <button class="btn ghost small danger" aria-label="Excluir">✕</button>
@@ -131,8 +152,8 @@
   </article>
 
   <div class="stack">
-    <article class="card">
-      <div class="card-head"><h2>Novo {{if .IsIncome}}recebimento{{else}}gasto{{end}}</h2></div>
+    <details class="card new-entry" open data-collapse-mobile>
+      <summary class="card-head"><h2>Novo {{if .IsIncome}}recebimento{{else}}gasto{{end}}</h2></summary>
       <form method="post" action="/lancamentos" class="form">
         <input type="hidden" name="kind" value="{{.Kind}}">
         <div class="row">
@@ -157,26 +178,15 @@
         </div>
         <button class="btn primary">Salvar</button>
       </form>
-    </article>
+    </details>
 
-    <article class="card">
-      <div class="card-head"><h2>Por {{if .IsIncome}}fonte{{else}}categoria{{end}}</h2></div>
-      {{if .ByCat}}
-      <ul class="bars">
-        {{range .ByCat}}
-        <li><span class="bar-label">{{.Name}}</span>
-          <span class="bar"><span class="{{if $.IsIncome}}b-income{{else}}b-{{.Bucket}}{{end}}" style="width: {{barPct .Total $.MaxCat}}%"></span></span>
-          <span class="num">{{brl .Total}}</span></li>
-        {{end}}
-      </ul>
-      {{else}}<p class="empty">Sem dados.</p>{{end}}
-    </article>
   </div>
 </section>
 {{end}}
+{{end}}
 
 {{define "scripts"}}
-{{if .Chart.Years}}
+{{if and .Analysis .Chart.Years}}
 <script src="{{asset "chart.umd.min.js"}}" defer></script>
 <script type="application/json" id="cat-data">{{json .Chart}}</script>
 <script src="{{asset "categories.js"}}" defer></script>
