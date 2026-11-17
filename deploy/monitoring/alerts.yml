@@ -1,0 +1,121 @@
+# Regras de alerta do Controle de Gastos (formato Prometheus/Mimir), sobre as métricas que o
+# Grafana Alloy envia ao Grafana Cloud. Carregar (do seu computador, não da VM):
+#   mimirtool rules load deploy/monitoring/alerts.yml \
+#     --address=https://prometheus-prod-XX-prod-REGIAO.grafana.net --id=<GRAFANA_PROM_USER> --key=<token rules:write>
+# Depois, no Grafana: Alerting → Alert rules → "Import to Grafana-managed rules" (fonte: o Prometheus
+# do stack), para que usem o contact point de e-mail. Ver docs/SECURITY.md §4.3.
+# Uptime externo (Synthetic Monitoring) e falhas de backup (Healthchecks.io) alertam por conta própria.
+namespace: controle-gastos
+groups:
+  - name: app
+    interval: 1m
+    rules:
+      - alert: AppForaDoAr
+        expr: up{job="controle-gastos"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "O Alloy não consegue ler as métricas do app há 5 min (processo parado ou travado)"
+
+      - alert: LatenciaP95Alta
+        # p95 de todas as rotas acima de 500 ms por 10 min, só com tráfego mínimo (amostra pequena engana)
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(cg_http_request_duration_seconds_bucket{route!="rejected"}[5m]))) > 0.5
+          and sum(rate(cg_http_request_duration_seconds_count[5m])) > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 das requisições acima de 500 ms ({{ $value | humanizeDuration }})"
+
+      - alert: TaxaDeErros5xx
+        expr: |
+          sum(rate(cg_http_request_duration_seconds_count{code=~"5.."}[5m]))
+            / sum(rate(cg_http_request_duration_seconds_count[5m])) > 0.02
+          and sum(rate(cg_http_request_duration_seconds_count[5m])) > 0.05
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Mais de 2% das requisições com erro 5xx ({{ $value | humanizePercentage }})"
+
+      - alert: PoolDoBancoSaturado
+        expr: cg_db_pool_acquired_conns / cg_db_pool_max_conns >= 0.9
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Pool do Postgres com 90%+ das conexões em uso há 5 min"
+
+      - alert: EsperaPorConexao
+        # tempo médio esperando conexão por requisição ao pool
+        expr: |
+          rate(cg_db_pool_acquire_wait_seconds_total[5m]) / clamp_min(rate(cg_db_pool_acquires_total[5m]), 0.001) > 0.1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Espera média por conexão do banco acima de 100 ms"
+
+      - alert: ErrosInternosNoMCP
+        expr: sum(increase(cg_mcp_tool_calls_total{outcome="error"}[15m])) > 5
+        labels: {severity: warning}
+        annotations:
+          summary: "Mais de 5 erros internos em ferramentas MCP em 15 min"
+
+  - name: seguranca
+    interval: 1m
+    rules:
+      - alert: PicoDeFalhasDeLogin
+        expr: sum(increase(cg_audit_events_total{event="login_failure"}[15m])) > 20
+        labels: {severity: warning}
+        annotations:
+          summary: "Mais de 20 falhas de login em 15 min"
+
+      - alert: PicoDeRateLimit
+        expr: sum(increase(cg_audit_events_total{event="rate_limited"}[15m])) > 50
+        labels: {severity: warning}
+        annotations:
+          summary: "Mais de 50 requisições barradas por rate limit em 15 min"
+
+      - alert: PicoDeAcessoNegado
+        expr: sum(increase(cg_audit_events_total{event="authz_denied"}[15m])) > 20
+        labels: {severity: warning}
+        annotations:
+          summary: "Mais de 20 acessos negados (authz_denied) em 15 min: possível tentativa de IDOR"
+
+  - name: vm
+    interval: 1m
+    rules:
+      - alert: VMSemMetricas
+        # nem a VM nem o Alloy mandam nada: VM fora, Alloy parado ou credencial expirada
+        expr: absent_over_time(node_load1{job="node"}[15m])
+        labels: {severity: critical}
+        annotations:
+          summary: "Nenhuma métrica da VM há 15 min"
+
+      - alert: DiscoQuaseCheio
+        expr: |
+          node_filesystem_avail_bytes{job="node",mountpoint="/"} / node_filesystem_size_bytes{job="node",mountpoint="/"} < 0.2
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Disco / com menos de 20% livre"
+
+      - alert: PoucaMemoria
+        expr: node_memory_MemAvailable_bytes{job="node"} < 100 * 1024 * 1024
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Menos de 100 MB de memória disponível há 10 min"
+
+      - alert: SwapIntenso
+        # página entrando e saindo do swap o tempo todo = VM pequena demais para a carga
+        expr: rate(node_vmstat_pswpin{job="node"}[5m]) + rate(node_vmstat_pswpout{job="node"}[5m]) > 100
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Uso intenso de swap há 15 min (considere uma VM maior)"
+
+      - alert: CPUAlta
+        expr: 1 - avg(rate(node_cpu_seconds_total{job="node",mode="idle"}[5m])) > 0.9
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "CPU acima de 90% há 15 min"

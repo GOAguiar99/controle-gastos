@@ -1,6 +1,14 @@
 [Unit]
-Description=Backup diário do banco do Controle de Gastos
+Description=Backup diário do banco do Controle de Gastos (local + restic fora da VM)
+After=postgresql.service network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
+# opcional: sem ele, o backup fica só na VM e ninguém é avisado de falhas
+EnvironmentFile=-/etc/controle-gastos-backup.env
+Environment=RESTIC_CACHE_DIR=/var/cache/restic
 ExecStart=/usr/local/lib/controle-gastos/backup.sh
+TimeoutStartSec=1h
+Nice=10
+IOSchedulingClass=idle

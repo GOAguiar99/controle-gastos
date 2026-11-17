@@ -28,12 +28,13 @@ Contato para privacidade e para exercer seus direitos (encarregado/canal do titu
   <li><b>Pessoas que você coloca na sua carteira</b>: quem é dono de uma carteira pode convidar outras pessoas pelo e-mail. Todos na carteira veem e alteram os mesmos dados, e veem o nome e o e-mail uns dos outros. O dono pode remover pessoas e cada um pode sair quando quiser. Se o dono excluir a conta, a carteira continua com as outras pessoas.</li>
   <li><b>Google</b>, para o login (você autoriza na tela do Google).</li>
   <li><b>Provedor de nuvem</b> (Oracle Cloud, região São Paulo), que hospeda o servidor e o banco de dados como operador.</li>
+  <li><b>Grafana Labs</b> (Grafana Cloud), como operador, para monitorar a disponibilidade, o desempenho e a segurança do serviço: recebe métricas técnicas (tempo de resposta, erros, uso do servidor) e os registros de segurança, que trazem apenas identificadores numéricos e o tipo do evento, sem endereço IP, e-mail, senha ou dados financeiros. Ficam guardados por até 14 dias.</li>
   <li><b>O assistente de IA que você conectar</b> (por exemplo, o Claude, da Anthropic), somente se <i>você</i> criar um link em “Conectar um assistente”: ele passa a ler e alterar seus dados em seu nome, e o tratamento por ele segue a política do provedor que você escolheu. Isso pode envolver transferência internacional (art. 33), feita a seu pedido. Você pode revogar o link a qualquer momento em Configurações.</li>
 </ul>
 
 <h2>5. Por quanto tempo guardamos</h2>
 <ul>
-  <li>Dados da conta e financeiros: enquanto a conta existir. Ao excluir a conta, eles são apagados na hora do banco de dados e das cópias de segurança em até 14 dias.</li>
+  <li>Dados da conta e financeiros: enquanto a conta existir. Ao excluir a conta, eles são apagados na hora do banco de dados e das cópias de segurança em até 35 dias.</li>
   <li>Sessões: expiram em até 30 dias (ou 7 dias sem uso).</li>
   <li>Registros de segurança: até 6 meses, salvo necessidade de guarda maior por lei ou investigação de incidente.</li>
 </ul>
@@ -48,7 +49,7 @@ Contato para privacidade e para exercer seus direitos (encarregado/canal do titu
 <p>Para outros pedidos, escreva para o contato acima; respondemos em até 15 dias. Você também pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD).</p>
 
 <h2>7. Segurança</h2>
-<p>Conexões só por HTTPS; isolamento dos dados de cada carteira no próprio banco de dados (Row-Level Security); sessões e links guardados apenas como hash; disco e cópias de segurança criptografados pelo provedor; registros de segurança sem senhas, tokens ou descrições financeiras. Em caso de incidente de segurança que possa causar risco ou dano relevante, avisaremos você e a ANPD nos prazos da regulamentação.</p>
+<p>Conexões só por HTTPS; isolamento dos dados de cada carteira no próprio banco de dados (Row-Level Security); sessões e links guardados apenas como hash; disco criptografado pelo provedor; cópias de segurança criptografadas por nós antes de saírem do servidor e guardadas em outro serviço de armazenamento no Brasil; registros de segurança sem senhas, tokens ou descrições financeiras. Em caso de incidente de segurança que possa causar risco ou dano relevante, avisaremos você e a ANPD nos prazos da regulamentação.</p>
 
 <h2>8. Cookies</h2>
 <p>Usamos apenas cookies essenciais: o da sessão e um cookie temporário (10 minutos) durante o login com o Google.</p>

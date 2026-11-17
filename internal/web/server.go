@@ -16,11 +16,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"controle-gastos/internal/app"
 	"controle-gastos/internal/db"
 	"controle-gastos/internal/finance"
+	"controle-gastos/internal/metrics"
 )
 
 //go:embed templates/*.html
@@ -38,6 +40,10 @@ type Server struct {
 	google *googleAuth // nil when only DevLogin is enabled
 	tpl    map[string]*template.Template
 	mcp    http.Handler // MCP endpoint served at /mcp/{token}; nil = disabled
+
+	healthMu  sync.Mutex // guards the cached /healthz result
+	healthAt  time.Time
+	healthErr error
 
 	authLimit *limiter // per client IP on /auth/*
 	mcpLimit  *limiter // per MCP link
@@ -99,7 +105,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	static, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheStatic(http.FileServerFS(static))))
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("GET /healthz", s.healthz)
 
 	mux.HandleFunc("GET /login", s.loginPage)
 	if s.google != nil {
@@ -168,7 +174,34 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("/mcp/{token}", s.mcpGate(s.mcp))
 	}
 
-	return s.middleware(mux)
+	return metrics.Instrument(s.middleware(metrics.Route(mux)))
+}
+
+// healthCacheTTL bounds how often a flood of /healthz (a public URL) can
+// reach the database.
+const healthCacheTTL = 2 * time.Second
+
+// healthz answers 200 "ok" when the database responds within 2 s and 503
+// otherwise; uptime monitors and the deploy check call it.
+func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
+	s.healthMu.Lock()
+	if time.Since(s.healthAt) > healthCacheTTL {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		s.healthErr = s.app.Ping(ctx)
+		cancel()
+		s.healthAt = time.Now()
+		if s.healthErr != nil {
+			logErr(fmt.Errorf("healthz: %w", s.healthErr))
+		}
+	}
+	err := s.healthErr
+	s.healthMu.Unlock()
+	w.Header().Set("Cache-Control", "no-store")
+	if err != nil {
+		http.Error(w, "banco de dados indisponível", http.StatusServiceUnavailable)
+		return
+	}
+	w.Write([]byte("ok"))
 }
 
 func cacheStatic(h http.Handler) http.Handler {

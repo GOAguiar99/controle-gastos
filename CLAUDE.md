@@ -92,5 +92,10 @@ See `docs/SECURITY.md` for controls, runbooks and the LGPD checklist.
 The MCP endpoint is `/mcp/{token}`: each link belongs to one user and ledger and can be revoked from
 the profile. That route skips the session and cross-origin middleware; the secret token is its only auth.
 
+Metrics (`internal/metrics`) are served only on `METRICS_ADDR` (loopback, refused otherwise) and
+scraped by Grafana Alloy (`deploy/monitoring/`). Label only with bounded values: the route pattern
+(`metrics.Route` wraps the mux), status code, tool or event name; never a URL, id, email or token.
+New MCP tools are timed automatically by `addTool`.
+
 Pushing to `main` runs CI (gofmt, vet, test, govulncheck, gitleaks, build) and deploys to the VM when the `DEPLOY_*`
 secrets are set.
