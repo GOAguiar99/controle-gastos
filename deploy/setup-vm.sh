@@ -67,6 +67,9 @@ if [ ! -f /etc/controle-gastos-backup.env ]; then
   install -m 600 controle-gastos-backup.env.example /etc/controle-gastos-backup.env
   echo ">> Edite /etc/controle-gastos-backup.env: RCLONE_CONFIG_OCI_NAMESPACE, HC_BACKUP_URL e HC_RESTORE_URL"
 fi
+# installs created before this setting existed: the bucket already exists, never let rclone create it
+grep -q '^RCLONE_CONFIG_OCI_NO_CHECK_BUCKET=' /etc/controle-gastos-backup.env \
+  || echo 'RCLONE_CONFIG_OCI_NO_CHECK_BUCKET=true' >> /etc/controle-gastos-backup.env
 if [ ! -f /etc/controle-gastos-restic.pass ]; then
   (umask 077 && head -c 32 /dev/urandom | base64 > /etc/controle-gastos-restic.pass)
   echo ">> Senha do restic gerada em /etc/controle-gastos-restic.pass. COPIE-A AGORA para o seu gerenciador"
