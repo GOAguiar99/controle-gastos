@@ -140,11 +140,15 @@ Consultas locais, se o Grafana estiver fora: `curl -s 127.0.0.1:9091/metrics`,
 - Criptografia: o restic cifra tudo (AES-256 + MAC) com a senha em `/etc/controle-gastos-restic.pass`
   antes de sair da VM; o Object Storage cifra de novo em repouso. **A senha precisa estar também fora da
   VM** (gerenciador de senhas): sem ela, os backups remotos são ilegíveis.
-- Acesso ao bucket: rclone com *instance principal*. Um Dynamic Group com a regra
-  `ALL {instance.compartment.id = '<OCID do compartimento>'}` e a Policy
-  `Allow dynamic-group <grupo> to manage objects in compartment <compartimento> where target.bucket.name = 'controle-gastos-backups'`
-  (mais `read buckets`). Nenhuma chave de nuvem fica na VM; uma VM nova no mesmo compartimento já
-  consegue ler os backups.
+- Acesso ao bucket: rclone com *instance principal*. Dynamic Group `controle-gastos-vm` (domínio
+  Default) com a regra `instance.id = '<OCID da VM>'` (só esta VM; a VM fica no compartimento raiz,
+  onde uma regra por compartimento valeria para qualquer instância futura) e a Policy
+  `controle-gastos-backup` no compartimento raiz:
+  `Allow dynamic-group 'Default'/'controle-gastos-vm' to read buckets in tenancy where target.bucket.name = 'controle-gastos-backups'`
+  e `Allow dynamic-group 'Default'/'controle-gastos-vm' to manage objects in tenancy where target.bucket.name = 'controle-gastos-backups'`.
+  Nenhuma chave de nuvem fica na VM. **Numa VM nova (DR), troque o OCID na regra do Dynamic Group antes
+  de restaurar**, senão ela não consegue ler os backups. O Always Free inclui 10 GiB de Object Storage
+  Standard (sobra muito: cada dump tem poucos MB).
 - Teste de restauração: automático todo mês (`controle-gastos-restore-check.timer`) e manual com
   `sudo sh /usr/local/lib/controle-gastos/restore-check.sh`. Ele roda `restic check` numa amostra de
   10% dos dados, restaura o backup remoto mais novo num banco temporário, confere tabelas, contagens e
@@ -156,6 +160,7 @@ sudo sh deploy/setup-vm.sh <dominio>              # Caddy, Postgres, serviço, t
 sudo cp /root/controle-gastos.env /etc/controle-gastos.env   # env guardado fora do repositório
 # senha do restic: a do gerenciador de senhas (a gerada pelo setup numa VM nova NÃO serve)
 sudo sh -c 'umask 077; cat > /etc/controle-gastos-restic.pass'      # cole a senha, Enter, Ctrl-D
+# no console da Oracle: Dynamic Group controle-gastos-vm → regra com o OCID da VM nova
 sudo nano /etc/controle-gastos-backup.env         # namespace e URLs do Healthchecks
 sudo sh -c 'set -a; . /etc/controle-gastos-backup.env; restic snapshots; \
   restic restore latest --tag controle-gastos --target /root/restore'
