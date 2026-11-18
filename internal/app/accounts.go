@@ -63,6 +63,9 @@ func NewApp(d *db.DB, loc *time.Location) *App {
 	return &App{db: d, loc: loc, now: time.Now}
 }
 
+// Ping checks that the database answers (health check).
+func (a *App) Ping(ctx context.Context) error { return a.db.Ping(ctx) }
+
 // SetClock overrides the current time (tests).
 func (a *App) SetClock(now func() time.Time) { a.now = now }
 

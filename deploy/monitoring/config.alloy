@@ -1,0 +1,120 @@
+// /etc/alloy/config.alloy — Grafana Alloy na VM do Controle de Gastos (instalado pelo setup-vm.sh).
+// Coleta a cada 60 s (o free tier do Grafana Cloud conta 1 amostra/min por série) e envia para o
+// Grafana Cloud. Credenciais em /etc/alloy/grafana-cloud.env (ver deploy/alloy.env.example).
+
+// ---------- métricas ----------
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_PROM_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_PROM_USER")
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+  }
+}
+
+// App: latência por rota, erros, ferramentas MCP, pool do Postgres, runtime Go (METRICS_ADDR)
+prometheus.scrape "app" {
+  targets         = [{"__address__" = "127.0.0.1:9091", "job" = "controle-gastos", "instance" = constants.hostname}]
+  scrape_interval = "60s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// VM: CPU, memória/swap, disco, rede, pressão (só os coletores necessários, para poucas séries)
+prometheus.exporter.unix "node" {
+  set_collectors = ["cpu", "loadavg", "meminfo", "filesystem", "diskstats", "netdev", "pressure", "vmstat", "uname", "time"]
+
+  filesystem {
+    fs_types_exclude = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|nsfs|overlay|proc|pstore|ramfs|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tmpfs|tracefs)$"
+  }
+}
+
+discovery.relabel "node" {
+  targets = prometheus.exporter.unix.node.targets
+
+  rule {
+    target_label = "job"
+    replacement  = "node"
+  }
+
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+}
+
+prometheus.scrape "node" {
+  targets         = discovery.relabel.node.output
+  scrape_interval = "60s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// PostgreSQL: conexões, transações, tamanho, locks. Papel "alloy" (pg_monitor), socket local,
+// autenticação peer: sem senha.
+prometheus.exporter.postgres "db" {
+  data_source_names = ["postgresql://alloy@/postgres?host=/var/run/postgresql&sslmode=disable"]
+}
+
+discovery.relabel "db" {
+  targets = prometheus.exporter.postgres.db.targets
+
+  rule {
+    target_label = "job"
+    replacement  = "postgres"
+  }
+
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+}
+
+prometheus.scrape "db" {
+  targets         = discovery.relabel.db.output
+  scrape_interval = "60s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// ---------- logs: só eventos de auditoria, sem IP ----------
+
+loki.source.journal "app" {
+  matches    = "_SYSTEMD_UNIT=controle-gastos.service"
+  labels     = {job = "controle-gastos"}
+  forward_to = [loki.process.audit.receiver]
+}
+
+loki.process "audit" {
+  // descarta tudo que não é evento de auditoria (erros podem citar dados de requisições)
+  stage.match {
+    selector = `{job="controle-gastos"} !~ "\"audit\":true"`
+    action   = "drop"
+  }
+
+  // o IP do cliente não sai da VM: "ip":"203.0.113.9" vira "ip":""
+  stage.replace {
+    expression = `"ip":"([^"]*)"`
+    replace    = ""
+  }
+
+  // nome do evento como label (conjunto fixo, definido no código)
+  stage.json {
+    expressions = {event = "msg"}
+  }
+
+  stage.labels {
+    values = {event = ""}
+  }
+
+  forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+loki.write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_LOKI_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_LOKI_USER")
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+  }
+}

@@ -37,6 +37,7 @@ import (
 	"controle-gastos/internal/finance"
 	"controle-gastos/internal/importer"
 	"controle-gastos/internal/mcpserver"
+	"controle-gastos/internal/metrics"
 	"controle-gastos/internal/web"
 )
 
@@ -148,6 +149,25 @@ func serve() error {
 	if err != nil {
 		return err
 	}
+	metrics.RegisterPool(d.PoolStat)
+	app.OnAudit = metrics.CountAudit
+	var ms *http.Server
+	if maddr := os.Getenv("METRICS_ADDR"); maddr != "" {
+		if err := metrics.CheckAddr(maddr); err != nil {
+			return err
+		}
+		ms = &http.Server{Addr: maddr, Handler: metrics.Handler(), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second}
+		ln, err := net.Listen("tcp", maddr)
+		if err != nil {
+			return fmt.Errorf("METRICS_ADDR: %w", err)
+		}
+		go func() {
+			if err := ms.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("métricas: %v", err)
+			}
+		}()
+		log.Printf("métricas em http://%s/metrics", maddr)
+	}
 	hs := &http.Server{
 		Addr:              addr,
 		Handler:           srv.Handler(),
@@ -163,6 +183,9 @@ func serve() error {
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		hs.Shutdown(shutdown)
+		if ms != nil {
+			ms.Shutdown(shutdown)
+		}
 	}()
 	log.Printf("ouvindo em %s", hs.Addr)
 	if err := hs.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

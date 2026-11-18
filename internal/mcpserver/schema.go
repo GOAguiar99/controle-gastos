@@ -1,8 +1,14 @@
 package mcpserver
 
 import (
+	"context"
+	"time"
+
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"controle-gastos/internal/app"
+	"controle-gastos/internal/metrics"
 )
 
 // addTool registers a tool like mcp.AddTool, but with an output schema that
@@ -20,7 +26,25 @@ func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, O
 		openSchema(sc)
 		t.OutputSchema = sc
 	}
-	mcp.AddTool(s, t, h)
+	name := t.Name
+	mcp.AddTool(s, t, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		start := time.Now()
+		res, out, err := h(ctx, req, in)
+		metrics.ObserveTool(name, toolOutcome(res, err), time.Since(start))
+		return res, out, err
+	})
+}
+
+// toolOutcome classifies a call for metrics: "invalid" is a validation error
+// the model can correct; "error" is anything else (internal failures).
+func toolOutcome(res *mcp.CallToolResult, err error) string {
+	switch {
+	case err == nil && (res == nil || !res.IsError):
+		return "ok"
+	case app.IsValidation(err):
+		return "invalid"
+	}
+	return "error"
 }
 
 // openSchema lifts additionalProperties: false everywhere in sc.

@@ -84,6 +84,7 @@ Variáveis de ambiente:
 | `DATABASE_URL` | — | conexão PostgreSQL (papel comum, sem superuser/BYPASSRLS) |
 | `ADDR` | `:8080` | endereço HTTP |
 | `APP_TZ` | `America/Sao_Paulo` | fuso usado para "hoje" |
+| `METRICS_ADDR` | — | endereço das métricas Prometheus (`/metrics`), só loopback, ex.: `127.0.0.1:9091`; vazio = desligado |
 | `APP_INSECURE_NO_AUTH` | — | `1` liga o login de desenvolvimento (recusado fora de localhost) |
 
 ## Instalação simples (sem Google)
@@ -148,9 +149,21 @@ A cada push na `main`, o workflow [`ci.yml`](.github/workflows/ci.yml) roda `gof
 compila o binário estático linux/amd64, copia para a VM e reinicia o serviço (com health check).
 Sem os secrets, o deploy é pulado e só o CI roda.
 
-Backups: `controle-gastos-backup.timer` faz `pg_dump -Fc` diário em `/var/backups/controle-gastos`
-(14 cópias) e `controle-gastos-restore-check.timer` testa a restauração todo mês. Procedimentos de
-segurança, recuperação, incidentes e LGPD: [docs/SECURITY.md](docs/SECURITY.md).
+Backups: `controle-gastos-backup.timer` faz `pg_dump -Fc` diário (3 cópias locais em
+`/var/backups/controle-gastos`) e envia ao OCI Object Storage com restic, criptografado (7 diárias +
+4 semanais); `controle-gastos-restore-check.timer` testa a restauração do backup remoto todo mês. Os
+dois avisam o Healthchecks.io. Configuração em `/etc/controle-gastos-backup.env`
+([exemplo](deploy/controle-gastos-backup.env.example)).
+
+Monitoramento: o app expõe métricas em `127.0.0.1:9091` e o Grafana Alloy
+([config](deploy/monitoring/config.alloy)) as envia, com as da VM, do Postgres e os eventos de
+auditoria sem IP, ao Grafana Cloud (free tier); alertas em
+[`deploy/monitoring/alerts.yml`](deploy/monitoring/alerts.yml). Credenciais em
+`/etc/alloy/grafana-cloud.env` ([exemplo](deploy/alloy.env.example)). O `setup-vm.sh` instala tudo
+(e 1 GB de swap) e pode ser rodado de novo numa VM existente.
+
+Procedimentos de segurança, recuperação, incidentes, monitoramento e LGPD:
+[docs/SECURITY.md](docs/SECURITY.md).
 
 ## Estrutura
 
@@ -163,7 +176,8 @@ internal/app/       a API do app: regras de negócio e validação (usada pela w
 internal/web/       handlers HTTP finos, login com Google (OIDC + PKCE), templates e estáticos embutidos
 internal/mcpserver/ ferramentas MCP (finas, sobre internal/app) + teste em memória
 internal/importer/  leitura da planilha .xlsx (stdlib) e conferência
-deploy/             systemd, Caddy, backup, setup da VM; selfhost/ (Docker, modo senha)
+deploy/             systemd, Caddy, backup (restic), setup da VM; monitoring/ (Alloy, alertas); selfhost/ (Docker, modo senha)
+internal/metrics/   métricas Prometheus (rotas, ferramentas MCP, pool do banco), listener só local
 ```
 
 ## Roadmap

@@ -78,6 +78,12 @@ func Open(ctx context.Context, url string) (*DB, error) {
 
 func (d *DB) Close() { d.pool.Close() }
 
+// Ping checks that the database answers (health check).
+func (d *DB) Ping(ctx context.Context) error { return d.pool.Ping(ctx) }
+
+// PoolStat is a snapshot of the connection pool, for metrics.
+func (d *DB) PoolStat() *pgxpool.Stat { return d.pool.Stat() }
+
 // checkRole refuses superusers and BYPASSRLS roles: RLS would not apply to them.
 func (d *DB) checkRole(ctx context.Context) error {
 	var bypass bool
