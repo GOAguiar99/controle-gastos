@@ -100,7 +100,19 @@
     <div class="card-head"><h2>Lançamentos</h2></div>
     {{if .Entries}}
     <ul class="entries">
-      {{range .Entries}}
+      {{range .Rows}}
+      {{if .Fatura}}{{with .Fatura}}
+      <li class="entry fatura-row">
+        <div class="e-date"><strong>{{dm .Due}}</strong><small>vence</small></div>
+        <div class="e-main">
+          {{if $.CardsOn}}<a class="e-desc e-link" href="/cartoes/{{.CardID}}/fatura?mes={{.Statement}}" title="Ver a fatura por categoria">Fatura {{.Card}} · {{.Statement.Label}}</a>
+          {{else}}<span class="e-desc">Fatura {{.Card}} · {{.Statement.Label}}</span>{{end}}
+          <span class="e-meta">{{.Count}} lançamento(s) no cartão{{if .Projected}} · <span class="tag">inclui previstos</span>{{end}}</span>
+        </div>
+        <div class="e-amount negc">{{brl .Total}}</div>
+        <div class="e-actions">{{if $.CardsOn}}<a class="btn ghost small" href="/cartoes/{{.CardID}}/fatura?mes={{.Statement}}">Ver fatura</a>{{end}}</div>
+      </li>
+      {{end}}{{else}}{{with .Entry}}
       <li class="entry {{if .Projected}}projected{{end}}">
         <div class="e-date"><strong>{{dm .Date}}</strong><small>{{weekday .Date}}</small></div>
         <div class="e-main">
@@ -138,6 +150,7 @@
           {{end}}
         </div>
       </li>
+      {{end}}{{end}}
       {{end}}
     </ul>
     {{else}}<p class="empty">Nada lançado em {{.Month.Label}}.</p>{{end}}

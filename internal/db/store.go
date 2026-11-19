@@ -195,9 +195,10 @@ func scanTx(sc interface{ Scan(...any) error }) (finance.Entry, error) {
 	return e, err
 }
 
-// Transactions returns real transactions with from <= date <= to.
+// Transactions returns real transactions with from <= date <= to, plus card
+// purchases whose fatura is due in that range (they count when it is due).
 func (s *Store) Transactions(from, to time.Time) ([]finance.Entry, error) {
-	rows, err := s.query(txSelect+` WHERE t.date BETWEEN $1 AND $2 ORDER BY t.date, t.id`,
+	rows, err := s.query(txSelect+` WHERE t.date BETWEEN $1 AND $2 OR t.cash_date BETWEEN $1 AND $2 ORDER BY t.date, t.id`,
 		from, to)
 	if err != nil {
 		return nil, err
@@ -502,7 +503,8 @@ func (s *Store) Entries(from, to finance.Month) (active, skipped []finance.Entry
 	if err != nil {
 		return nil, nil, err
 	}
-	proj, skipped := finance.Project(recs, done, sk, from, to)
+	// card occurrences count when their fatura is due, up to two months later
+	proj, skipped := finance.Project(recs, done, sk, from.Add(-2), to)
 	if err := s.applyLoanInstallments(recs, proj); err != nil {
 		return nil, nil, err
 	}
@@ -512,6 +514,7 @@ func (s *Store) Entries(from, to finance.Month) (active, skipped []finance.Entry
 	}
 	billProjected(cards, proj)
 	billProjected(cards, skipped)
+	proj, skipped = inWindow(proj, from, to), inWindow(skipped, from, to)
 	active = append(txs, proj...)
 	rests, err := s.statementRests(cards, from, to, proj)
 	if err != nil {
@@ -807,4 +810,15 @@ func (s *Store) Reset() error {
 		}
 		return nil
 	})
+}
+
+// inWindow keeps the entries that count in [from, to] (see Entry.Month).
+func inWindow(es []finance.Entry, from, to finance.Month) []finance.Entry {
+	out := es[:0]
+	for _, e := range es {
+		if m := e.Month(); m >= from && m <= to {
+			out = append(out, e)
+		}
+	}
+	return out
 }

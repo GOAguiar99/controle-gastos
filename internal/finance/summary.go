@@ -32,7 +32,7 @@ func Summarize(entries []Entry, from, to Month, lim Limits) []MonthSummary {
 		out[i].Month = from.Add(i)
 	}
 	for _, e := range entries {
-		m := MonthOf(e.Date)
+		m := e.Month()
 		if m < from || m > to {
 			continue
 		}

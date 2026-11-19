@@ -19,6 +19,35 @@ type cardView struct {
 	Editing    bool
 }
 
+// cardHistory is a card's fatura totals month by month, for the chart.
+type cardHistory struct {
+	ID     int64     `json:"id"`
+	Labels []string  `json:"labels"`
+	Values []float64 `json:"values"` // reais
+	Future []bool    `json:"future"` // fatura not closed yet (only parcels and recurrences so far)
+}
+
+// historyOf lays a card's faturas out on consecutive months: the last 12 up
+// to the open one, plus future ones that already have parcels (up to 6).
+func historyOf(c finance.CreditCard, open finance.Month, sts []finance.Statement) cardHistory {
+	totals := map[finance.Month]int64{}
+	last := open
+	for _, st := range sts {
+		totals[st.Month] = st.Total()
+		if st.Month > last && st.Total() > 0 {
+			last = st.Month
+		}
+	}
+	last = min(last, open.Add(6))
+	h := cardHistory{ID: c.ID}
+	for m := open.Add(-11); m <= last; m++ {
+		h.Labels = append(h.Labels, m.Label())
+		h.Values = append(h.Values, float64(totals[m])/100)
+		h.Future = append(h.Future, m >= open)
+	}
+	return h
+}
+
 // cardsOff sends card pages to the preference that turns the module on.
 func (s *Server) cardsOff(w http.ResponseWriter, r *http.Request) bool {
 	if svcOf(r).CardsEnabled() {
@@ -40,6 +69,7 @@ func (s *Server) cardsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	editID := formID(r, "editar")
 	views := make([]cardView, 0, len(cards))
+	histories := make([]cardHistory, 0, len(cards))
 	var openTotal int64
 	for _, c := range cards {
 		v := cardView{Card: c, Editing: c.ID == editID}
@@ -47,16 +77,17 @@ func (s *Server) cardsPage(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, err)
 			return
 		}
-		if v.Statements, err = svc.CardStatements(c.ID, 6); err != nil {
+		if v.Statements, err = svc.CardStatements(c.ID, 12); err != nil {
 			s.fail(w, err)
 			return
 		}
+		histories = append(histories, historyOf(c, v.Open.Month, v.Statements))
 		if c.Active {
 			openTotal += v.Open.Total()
 		}
 		views = append(views, v)
 	}
-	s.render(w, r, "cards", page{"Title": "Cartões", "Cards": views, "OpenTotal": openTotal})
+	s.render(w, r, "cards", page{"Title": "Cartões", "Cards": views, "OpenTotal": openTotal, "History": histories})
 }
 
 func cardFromForm(r *http.Request) app.CardIn {

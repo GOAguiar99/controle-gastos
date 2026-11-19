@@ -75,7 +75,7 @@ func TestCardTools(t *testing.T) {
 			CashDate                            string `json:"cash_date"`
 		} `json:"transactions"`
 	}
-	call(t, cs, "list_transactions", map[string]any{"from": "2026-11", "kind": "expense", "text": "casa"}, &list, false)
+	call(t, cs, "list_transactions", map[string]any{"from": "2026-12", "kind": "expense", "text": "casa"}, &list, false) // counts when the fatura is due
 	found := false
 	for _, tx := range list.Transactions {
 		if tx.Installment == "1/3" {

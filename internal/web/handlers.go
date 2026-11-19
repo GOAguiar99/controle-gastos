@@ -110,7 +110,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	monthEntries := filter(o.Entries, func(e finance.Entry) bool { return finance.MonthOf(e.Date) == sel })
+	monthEntries := filter(o.Entries, func(e finance.Entry) bool { return e.Month() == sel })
 	expCats := byCategory(filter(monthEntries, func(e finance.Entry) bool { return e.Kind == finance.Expense }))
 	var projectedCount int
 	for _, e := range monthEntries {
@@ -194,9 +194,9 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 			return
 		}
 		ofKind := func(e finance.Entry) bool { return e.Kind == kind }
-		cur := filter(entries, func(e finance.Entry) bool { return ofKind(e) && finance.MonthOf(e.Date) == mes })
-		prev := filter(entries, func(e finance.Entry) bool { return ofKind(e) && finance.MonthOf(e.Date) == mes.Add(-1) })
-		skipped = filter(skipped, func(e finance.Entry) bool { return ofKind(e) && finance.MonthOf(e.Date) == mes })
+		cur := filter(entries, func(e finance.Entry) bool { return ofKind(e) && e.Month() == mes })
+		prev := filter(entries, func(e finance.Entry) bool { return ofKind(e) && e.Month() == mes.Add(-1) })
+		skipped = filter(skipped, func(e finance.Entry) bool { return ofKind(e) && e.Month() == mes })
 
 		var total, prevTotal, projected int64
 		buckets := map[finance.Bucket]int64{}
@@ -263,7 +263,7 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 			"Month": mes, "Prev": mes.Add(-1), "Next": mes.Add(1), "Today": today,
 			"Entries": cur, "Skipped": skipped, "Total": total, "PrevTotal": prevTotal, "Diff": total - prevTotal,
 			"Projected": projected, "Real": total - projected, "ByCat": byCat, "MaxCat": maxCat, "Split": split,
-			"ByPayment":  byPayment(cur, total),
+			"ByPayment": byPayment(cur, total), "Rows": listRows(cur),
 			"Categories": cats, "Debts": debts, "DefaultDate": defDate, "Cards": activeCards(r),
 			"NewRec": finance.Recurrence{Interval: 1, EndMode: finance.EndNever},
 			"Back":   kindPath(kind) + "?mes=" + mes.String(),
@@ -1016,4 +1016,57 @@ func (s *Server) saveCardsModule(w http.ResponseWriter, r *http.Request) {
 		msg = "Módulo de cartões ativado: cadastre seus cartões em Cartões"
 	}
 	profileDone(w, r, tabPrefs, msg)
+}
+
+// faturaRow stands for every card purchase of one fatura in the expense list.
+type faturaRow struct {
+	CardID    int64
+	Card      string
+	Statement finance.Month
+	Due       time.Time
+	Total     int64
+	Count     int
+	Projected bool // includes card recurrences not confirmed yet
+}
+
+// listRow is one line of the entries list: an entry, or a whole fatura.
+type listRow struct {
+	Entry  *finance.Entry
+	Fatura *faturaRow
+}
+
+// listRows folds card purchases into one row per fatura (the detail lives on
+// the fatura page) and keeps everything else as it is, ordered by date.
+func listRows(es []finance.Entry) []listRow {
+	type key struct {
+		card int64
+		m    finance.Month
+	}
+	faturas := map[key]*faturaRow{}
+	var rows []listRow
+	for i := range es {
+		e := &es[i]
+		if e.CardID == 0 {
+			rows = append(rows, listRow{Entry: e})
+			continue
+		}
+		k := key{e.CardID, e.Statement}
+		f, ok := faturas[k]
+		if !ok {
+			f = &faturaRow{CardID: e.CardID, Card: e.Card, Statement: e.Statement, Due: e.CashDay()}
+			faturas[k] = f
+			rows = append(rows, listRow{Fatura: f})
+		}
+		f.Total += e.Amount
+		f.Count++
+		f.Projected = f.Projected || e.Projected
+	}
+	day := func(r listRow) time.Time {
+		if r.Fatura != nil {
+			return r.Fatura.Due
+		}
+		return r.Entry.Date
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return day(rows[i]).Before(day(rows[j])) })
+	return rows
 }

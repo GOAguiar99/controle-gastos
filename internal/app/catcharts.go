@@ -105,7 +105,8 @@ func buildCatChart(entries []finance.Entry, first, sel finance.Month, today time
 
 	today = finance.DateOnly(today)
 	for _, e := range entries {
-		y := e.Date.Year() - firstYear
+		day := e.ReportDay()
+		y := day.Year() - firstYear
 		if y < 0 || y >= nYears {
 			continue
 		}
@@ -116,13 +117,13 @@ func buildCatChart(entries []finance.Entry, first, sel finance.Month, today time
 		} else {
 			c.YearReal[y] += v
 		}
-		if finance.MonthOf(e.Date) == sel {
+		if e.Month() == sel {
 			add(&month, i, v)
 		}
-		if e.Date.Year() == sel.Year() {
+		if day.Year() == sel.Year() {
 			add(&year, i, v)
 		}
-		if !e.Projected && !e.Date.After(today) {
+		if !e.Projected && !day.After(today) {
 			add(&hist, i, v)
 		}
 	}

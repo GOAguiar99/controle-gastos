@@ -334,7 +334,8 @@ func (s *Service) ListTx(f TxFilter) ([]finance.Entry, error) {
 	out := []finance.Entry{}
 	for _, e := range all {
 		switch {
-		case e.Projected && !f.IncludeProjected,
+		case e.Month() < f.From || e.Month() > f.To, // card purchases count when their fatura is due
+			e.Projected && !f.IncludeProjected,
 			f.Kind != "" && e.Kind != f.Kind,
 			cat != "" && fold(e.Category) != cat,
 			text != "" && !strings.Contains(fold(e.Description+" "+e.Category), text):
