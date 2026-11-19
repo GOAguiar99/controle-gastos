@@ -37,6 +37,30 @@ type ImportRow struct {
 	Note       string
 	CategoryID int64  // suggested from the last expense with the same description (0 = none)
 	Category   string // its name
+	// SuggestedFrom is the past purchase the category came from; with no
+	// history, NeedsResearch asks the assistant to look the name up.
+	SuggestedFrom string
+	NeedsResearch bool
+	// ExistingID and ExistingAmount: the parcel already in the app this line
+	// duplicates (its amount may differ by the cents the bank put on parcel 1).
+	ExistingID     int64
+	ExistingAmount int64
+}
+
+// pickParcel chooses the existing parcel a statement line repeats: same value
+// first, else same description (the value differs by a few cents).
+func pickParcel(cands []finance.Entry, l StatementLine, used map[int64]bool) (finance.Entry, bool) {
+	for _, e := range cands {
+		if !used[e.ID] && e.Amount == l.Amount {
+			return e, true
+		}
+	}
+	for _, e := range cands {
+		if !used[e.ID] && descKey(e.Description) == descKey(l.Description) {
+			return e, true
+		}
+	}
+	return finance.Entry{}, false
 }
 
 // ImportPreview is what importing a statement would do.
@@ -106,11 +130,16 @@ func (s *Service) PreviewStatement(cardID int64, m finance.Month, lines []Statem
 		r := ImportRow{StatementLine: l, Status: ImportNew}
 		switch {
 		case l.InstallmentN > 0:
-			if e, ok, err := s.st.InstallmentParcel(cardID, l.InstallmentN, l.Installments, l.Amount, m); err != nil {
+			cands, err := s.st.InstallmentParcels(cardID, l.InstallmentN, l.Installments, m)
+			if err != nil {
 				return p, err
-			} else if ok && !used[e.ID] {
+			}
+			if e, ok := pickParcel(cands, l, used); ok {
 				used[e.ID] = true
-				r.Status, r.Note = ImportDuplicate, "parcela já lançada"
+				r.Status, r.Note, r.ExistingID, r.ExistingAmount = ImportDuplicate, "parcela já lançada", e.ID, e.Amount
+				if e.Amount != l.Amount {
+					r.Note = "parcela já lançada com " + finance.BRL(e.Amount) + "; o banco cobrou " + finance.BRL(l.Amount) + ": corrija o valor do lançamento existente"
+				}
 			}
 		}
 		if r.Status == ImportNew {
@@ -126,7 +155,9 @@ func (s *Service) PreviewStatement(cardID int64, m finance.Month, lines []Statem
 			}
 		}
 		if cat, ok := guess(l.Description); ok {
-			r.CategoryID, r.Category = cat.ID, cat.Name
+			r.CategoryID, r.Category, r.SuggestedFrom = cat.ID, cat.Name, cat.From
+		} else {
+			r.NeedsResearch = true
 		}
 		if r.Status == ImportNew {
 			p.New += l.Amount
@@ -140,6 +171,7 @@ func (s *Service) PreviewStatement(cardID int64, m finance.Month, lines []Statem
 type catGuess struct {
 	ID   int64
 	Name string
+	From string // description of the past purchase it came from
 }
 
 // categoryGuesser suggests a category for a description: the one used by the
@@ -156,9 +188,10 @@ func (s *Service) categoryGuesser() (func(string) (catGuess, bool), error) {
 			continue
 		}
 		k := descKey(e.Description)
-		full[k] = catGuess{e.CategoryID, e.Category}
+		g := catGuess{e.CategoryID, e.Category, e.Description}
+		full[k] = g
 		if w := firstWord(k); w != "" {
-			first[w] = catGuess{e.CategoryID, e.Category}
+			first[w] = g
 		}
 	}
 	return func(desc string) (catGuess, bool) {
@@ -173,8 +206,19 @@ func (s *Service) categoryGuesser() (func(string) (catGuess, bool), error) {
 
 var reNoise = regexp.MustCompile(`[^a-z ]+`)
 
+// processorPrefixes are the payment intermediaries banks put before the
+// merchant's name ("Vmt*Shelf", "Ifd*Pizzaria", "Dl*Uberrides").
+var processorPrefixes = map[string]bool{"ifd": true, "vmt": true, "dl": true, "mp": true, "ebn": true, "jim": true,
+	"com": true, "paygo": true, "asa": true, "efi": true, "pag": true, "pagseguro": true, "sumup": true, "stone": true, "ec": true}
+
+// descKey normalizes a statement description for matching: accents, case,
+// digits and punctuation out, intermediary prefixes dropped.
 func descKey(s string) string {
-	return strings.Join(strings.Fields(reNoise.ReplaceAllString(fold(s), " ")), " ")
+	f := strings.Fields(reNoise.ReplaceAllString(fold(s), " "))
+	for len(f) > 1 && processorPrefixes[f[0]] {
+		f = f[1:]
+	}
+	return strings.Join(f, " ")
 }
 
 func firstWord(k string) string {

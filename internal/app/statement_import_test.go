@@ -115,3 +115,66 @@ func TestCardsModuleOff(t *testing.T) {
 		t.Fatalf("back on: %+v %v", v.Statement, err)
 	}
 }
+
+// Importing an older fatura after a newer one: its "1/10" line must not
+// create again the parcels the newer import already created, and the next
+// fatura's parcel is recognized even when the bank's value differs by cents.
+func TestImportOlderFaturaKeepsParcels(t *testing.T) {
+	s := newSvc(t)
+	card := nubank(t, s)
+	sep, oct := finance.NewMonth(2026, 9), finance.NewMonth(2026, 10)
+	shop := CategoryRef{Name: "Compras", Create: true}
+	// November fatura first: "Annah Dress 3/10" creates parcels 4..10
+	ids, err := s.ImportStatement(card, nov, []ImportItem{{Date: d("2026-10-02"), Description: "Annah Dress", Amount: 15189, Category: shop, InstallmentN: 3, Installments: 10}}, "")
+	if err != nil || len(ids) != 8 {
+		t.Fatalf("november: %d %v", len(ids), err)
+	}
+	// then the September fatura with "1/10": only parcel 2 is new
+	ids, err = s.ImportStatement(card, sep, []ImportItem{{Date: d("2026-08-18"), Description: "Annah Dress", Amount: 15195, Category: shop, InstallmentN: 1, Installments: 10}}, "")
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("september: %d ids %v", len(ids), err)
+	}
+	first, _ := s.Tx(ids[0])
+	second, _ := s.Tx(ids[1])
+	if second.InstallmentN != 2 || second.Statement != oct || second.InstallmentGroup == 0 {
+		t.Fatalf("parcel 2: %+v", second)
+	}
+	all, _ := s.Store().ParcelsOf(card, 10)
+	if len(all) != 10 {
+		t.Fatalf("want parcels 1..10 once each, got %d", len(all))
+	}
+	for _, e := range all {
+		if e.InstallmentGroup != first.InstallmentGroup {
+			t.Fatalf("parcels in different groups: %+v", all)
+		}
+	}
+	// October fatura: the bank charged 151,89 for 2/10, created with 151,95
+	p, err := s.PreviewStatement(card, oct, []StatementLine{{Date: d("2026-09-02"), Description: "Annah Dress", Amount: 15189, InstallmentN: 2, Installments: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := p.Rows[0]; r.Status != ImportDuplicate || r.ExistingID != second.ID || r.ExistingAmount != 15195 {
+		t.Fatalf("parcel with other cents: %+v", r)
+	}
+}
+
+func TestSuggestionsIgnoreIntermediaries(t *testing.T) {
+	s := newSvc(t)
+	card := nubank(t, s)
+	if _, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-09-10"), Amount: 800, Category: CategoryRef{Name: "Alimentação", Create: true}, Description: "Shelf", CardID: card}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.PreviewStatement(card, nov, []StatementLine{
+		{Date: d("2026-10-20"), Description: "Vmt*Shelf", Amount: 1200},
+		{Date: d("2026-10-21"), Description: "50921356roberto", Amount: 6680},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := p.Rows[0]; r.Category != "Alimentação" || r.SuggestedFrom != "Shelf" || r.NeedsResearch {
+		t.Errorf("Vmt*Shelf: %+v", r)
+	}
+	if r := p.Rows[1]; r.Category != "" || !r.NeedsResearch {
+		t.Errorf("unknown name: %+v", r)
+	}
+}

@@ -188,6 +188,42 @@ func parcels(in TxIn, row db.TxInput, key int) []db.TxInput {
 	return out
 }
 
+// skipExistingParcels drops the later parcels of an installment purchase that
+// are already on the card (same description and count), as when an older
+// fatura is imported after a newer one created them, and joins their group.
+func (s *Service) skipExistingParcels(in TxIn, ps []db.TxInput) ([]db.TxInput, error) {
+	if len(ps) < 2 || ps[0].CardID == 0 {
+		return ps, nil
+	}
+	have, err := s.st.ParcelsOf(ps[0].CardID, ps[0].InstallmentOf)
+	if err != nil {
+		return nil, err
+	}
+	key := descKey(in.Description)
+	existing := map[int]bool{}
+	var group int64
+	for _, e := range have {
+		if descKey(e.Description) == key {
+			existing[e.InstallmentN] = true
+			if group == 0 {
+				group = e.InstallmentGroup
+			}
+		}
+	}
+	out := ps[:1]
+	for _, p := range ps[1:] {
+		if !existing[p.InstallmentN] {
+			out = append(out, p)
+		}
+	}
+	if group != 0 {
+		for i := range out {
+			out[i].InstallmentGroup, out[i].GroupKey = group, 0
+		}
+	}
+	return out, nil
+}
+
 // addMonths moves d n months ahead, clamping the day to the month's length.
 func addMonths(d time.Time, n int) time.Time { return finance.MonthOf(d).Add(n).Day(d.Day()) }
 
@@ -231,7 +267,11 @@ func (s *Service) AddTxs(ins []TxIn) ([]int64, error) {
 		if err != nil {
 			return nil, itemErr(len(ins), i, err)
 		}
-		for _, p := range parcels(in, row, i+1) {
+		ps, err := s.skipExistingParcels(in, parcels(in, row, i+1))
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range ps {
 			if p.CardID != 0 && p.CashDate.IsZero() {
 				c, err := s.st.Card(p.CardID)
 				if err != nil {

@@ -1,10 +1,7 @@
 package db
 
 import (
-	"errors"
 	"sort"
-
-	"github.com/jackc/pgx/v5"
 
 	"controle-gastos/internal/finance"
 )
@@ -224,15 +221,33 @@ func (s *Store) StatementItems(cardID int64, m finance.Month) ([]finance.Entry, 
 	return out, rows.Err()
 }
 
-// InstallmentParcel finds parcel n of an installment purchase already on the
-// card: same card, parcel number, count and amount (ok=false if none).
-func (s *Store) InstallmentParcel(cardID int64, n, of int, amount int64, statement finance.Month) (finance.Entry, bool, error) {
-	e, err := scanTx(s.queryRow(txSelect+` WHERE t.card_id = $1 AND t.installment_n = $2 AND t.installment_of = $3
-		AND t.amount_cents = $4 AND t.statement_month = $5 ORDER BY t.id LIMIT 1`, cardID, n, of, amount, statement.String()))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return e, false, nil
+// InstallmentParcels lists the parcels n of `of` already on the card's
+// statement (the caller picks the one that matches by value or description).
+func (s *Store) InstallmentParcels(cardID int64, n, of int, statement finance.Month) ([]finance.Entry, error) {
+	return s.entries(txSelect+` WHERE t.card_id = $1 AND t.installment_n = $2 AND t.installment_of = $3
+		AND t.statement_month = $4 ORDER BY t.id`, cardID, n, of, statement.String())
+}
+
+// ParcelsOf lists every parcel of `of`-parcel purchases on the card.
+func (s *Store) ParcelsOf(cardID int64, of int) ([]finance.Entry, error) {
+	return s.entries(txSelect+` WHERE t.card_id = $1 AND t.installment_of = $2 ORDER BY t.id`, cardID, of)
+}
+
+func (s *Store) entries(q string, args ...any) ([]finance.Entry, error) {
+	rows, err := s.query(q, args...)
+	if err != nil {
+		return nil, err
 	}
-	return e, err == nil, err
+	defer rows.Close()
+	var out []finance.Entry
+	for rows.Next() {
+		e, err := scanTx(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // billProjected puts projected card recurrences on their statement.

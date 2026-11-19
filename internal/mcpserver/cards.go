@@ -220,11 +220,15 @@ type checkStatementIn struct {
 }
 
 type checkLineOut struct {
-	Line              int      `json:"line" jsonschema:"posição em lines, a partir de 1"`
-	Status            string   `json:"status" jsonschema:"novo ou duplicado (já está no app: não importar)"`
-	Note              string   `json:"note,omitempty"`
-	SuggestedCategory string   `json:"suggested_category,omitempty" jsonschema:"categoria usada antes para essa descrição; confira antes de usar"`
-	Amount            moneyOut `json:"amount"`
+	Line              int       `json:"line" jsonschema:"posição em lines, a partir de 1"`
+	Status            string    `json:"status" jsonschema:"novo ou duplicado (já está no app: não importar)"`
+	Note              string    `json:"note,omitempty"`
+	SuggestedCategory string    `json:"suggested_category,omitempty" jsonschema:"categoria usada antes para essa descrição; confira antes de usar"`
+	SuggestedFrom     string    `json:"suggested_from,omitempty" jsonschema:"a compra anterior de onde veio a sugestão"`
+	NeedsResearch     bool      `json:"needs_research,omitempty" jsonschema:"sem histórico: se o nome não for óbvio (razão social, nome de pessoa, CNPJ), pesquise na web antes de categorizar"`
+	ExistingID        int64     `json:"existing_id,omitempty" jsonschema:"lançamento que esta linha repete (duplicado)"`
+	ExistingAmount    *moneyOut `json:"existing_amount,omitempty" jsonschema:"valor do lançamento existente, se diferente do cobrado: corrija com update_transaction"`
+	Amount            moneyOut  `json:"amount"`
 }
 
 type checkStatementOut struct {
@@ -266,7 +270,13 @@ func (t *tools) checkStatement(ctx context.Context, _ *mcp.CallToolRequest, in c
 	d := detailOf(v)
 	out.Statement, out.Warning = d.Statement, d.Warning
 	for i, r := range p.Rows {
-		out.Lines = append(out.Lines, checkLineOut{Line: i + 1, Status: r.Status, Note: r.Note, SuggestedCategory: r.Category, Amount: money(r.Amount)})
+		o := checkLineOut{Line: i + 1, Status: r.Status, Note: r.Note, SuggestedCategory: r.Category, SuggestedFrom: r.SuggestedFrom,
+			NeedsResearch: r.NeedsResearch && r.Status == app.ImportNew, ExistingID: r.ExistingID, Amount: money(r.Amount)}
+		if r.ExistingID != 0 && r.ExistingAmount != r.Amount {
+			m := money(r.ExistingAmount)
+			o.ExistingAmount = &m
+		}
+		out.Lines = append(out.Lines, o)
 	}
 	out.New, out.NewCount = money(p.New), p.NewCount
 	return nil, out, nil
