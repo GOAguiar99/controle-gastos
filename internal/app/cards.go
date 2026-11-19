@@ -146,6 +146,25 @@ func (s *Service) DeleteCard(id int64) (finance.CreditCard, error) {
 	return c, s.st.DeleteCard(id)
 }
 
+// genericCardWords appear in many card names and bill descriptions alike.
+var genericCardWords = map[string]bool{"cartao": true, "credito": true, "fatura": true, "card": true, "visa": true, "master": true, "mastercard": true, "elo": true}
+
+// sameFatura reports whether a card-less credit expense looks like this card's
+// fatura entered as one total: it names the card ("fatura Nubank") or has the
+// same value as the fatura's items. Totals of other cards don't.
+func sameFatura(e finance.Entry, c finance.CreditCard, items int64) bool {
+	if e.Amount == items {
+		return true
+	}
+	desc := fold(e.Description)
+	for _, w := range strings.Fields(fold(c.Name)) {
+		if len(w) >= 3 && !genericCardWords[w] && strings.Contains(desc, w) {
+			return true
+		}
+	}
+	return false
+}
+
 // cardOf is the card a credit transaction goes on (ok=false: none).
 func (s *Service) cardOf(id int64, pay finance.PaymentMethod) (finance.CreditCard, bool) {
 	if id == 0 || pay != finance.Credit || !s.CardsEnabled() {
@@ -244,17 +263,21 @@ func (s *Service) Statement(cardID int64, m finance.Month) (StatementView, error
 	if v.Items, err = s.st.StatementItems(cardID, m); err != nil {
 		return v, err
 	}
-	// projected card recurrences billed on this statement
-	es, _, err := s.st.Entries(m.Add(-1), m)
+	// projected card recurrences billed on this statement, and card-less
+	// credit expenses that may be this fatura entered as one total
+	dueMonth := finance.MonthOf(v.Due)
+	es, _, err := s.st.Entries(m.Add(-1), max(m, dueMonth))
 	if err != nil {
 		return v, err
 	}
+	var loose []finance.Entry
 	for _, e := range es {
 		if e.Projected && e.CardID == cardID && e.Statement == m {
 			v.Items = append(v.Items, e)
 		}
-		if e.ID != 0 && e.Kind == finance.Expense && e.Payment == finance.Credit && e.CardID == 0 && finance.MonthOf(e.Date) == m {
-			v.Loose = append(v.Loose, e)
+		if e.ID != 0 && e.Kind == finance.Expense && e.Payment == finance.Credit && e.CardID == 0 &&
+			(finance.MonthOf(e.Date) == m || finance.MonthOf(e.Date) == dueMonth) {
+			loose = append(loose, e)
 		}
 	}
 	finance.SortEntries(v.Items)
@@ -269,6 +292,15 @@ func (s *Service) Statement(cardID int64, m finance.Month) (StatementView, error
 	// a whole-fatura total next to detailed items counts the same spending twice
 	if len(totals) > 0 && len(totals) < v.Count {
 		v.Loose = append(v.Loose, totals...)
+	}
+	items := int64(-1) // nothing to compare the value with before importing
+	if v.Count > 0 {
+		items = v.Statement.Items
+	}
+	for _, e := range loose {
+		if sameFatura(e, c, items) {
+			v.Loose = append(v.Loose, e)
+		}
 	}
 	sts, err := s.st.Statements(map[int64]finance.CreditCard{c.ID: c}, m, m)
 	if err != nil {
