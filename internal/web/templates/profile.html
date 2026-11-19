@@ -51,6 +51,25 @@
     <p class="hint">O limite do cartão vale para a soma dos gastos pagos no crédito no mês; o dashboard avisa quando passa dele.</p>
   </article>
 
+  <article class="card" id="memorias">
+    <div class="card-head"><h2>Memória de categorias</h2><span class="muted">{{len .Rules}}</span></div>
+    <p class="hint">Quando você troca a categoria de uma compra na fatura, o app (e o assistente) passa a usar essa categoria para as próximas compras do mesmo estabelecimento.</p>
+    {{if .Rules}}
+    <table class="grid compact">
+      <thead><tr><th>Estabelecimento</th><th>Categoria</th><th></th></tr></thead>
+      <tbody>
+      {{range .Rules}}
+      <tr><td>{{.Example}}</td><td>{{.Category}}</td><td>
+        <form method="post" action="/config/memorias/apagar" class="inline-form tight">
+          <input type="hidden" name="merchant" value="{{.MerchantKey}}">
+          <button class="btn ghost small danger" aria-label="Esquecer {{.Example}}">✕</button>
+        </form></td></tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">Nenhuma memória ainda. Corrija a categoria de uma compra na página da fatura.</p>{{end}}
+  </article>
+
   <article class="card" id="cartoes">
     <div class="card-head"><h2>Cartões de crédito</h2></div>
     <form method="post" action="/config/cartoes" class="form">

@@ -151,6 +151,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /cartoes/{id}/fatura", s.statementPage)
 	mux.HandleFunc("POST /cartoes/{id}/fatura", s.setStatementTotal)
 	mux.HandleFunc("POST /lancamentos/{id}/parcelas/excluir", s.deleteInstallments)
+	mux.HandleFunc("POST /lancamentos/{id}/categoria", s.recategorize)
 
 	mux.HandleFunc("GET /perfil", s.profilePage(tabAccount))
 	mux.HandleFunc("GET /perfil/preferencias", s.profilePage(tabPrefs))
@@ -160,6 +161,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /config", http.RedirectHandler("/perfil", http.StatusMovedPermanently))
 	mux.HandleFunc("POST /config/limites", s.saveLimits)
 	mux.HandleFunc("POST /config/cartoes", s.saveCardsModule)
+	mux.HandleFunc("POST /config/memorias/apagar", s.forgetCategory)
 	mux.HandleFunc("POST /config/categorias", s.addCategory)
 	mux.HandleFunc("GET /export/lancamentos.csv", s.exportCSV)
 	mux.HandleFunc("GET /export/dados.json", s.exportJSON)

@@ -133,3 +133,27 @@ func TestCheckStatementAndModule(t *testing.T) {
 	call(t, cs, "set_cards_module", map[string]any{"enabled": true}, nil, false)
 	call(t, cs, "get_statement", map[string]any{"card": "Nubank"}, nil, false)
 }
+
+func TestCategoryMemoryTools(t *testing.T) {
+	cs, _ := connect(t)
+	call(t, cs, "save_card", map[string]any{"name": "Nubank", "closing_day": 3, "due_day": 10}, nil, false)
+	var imp struct {
+		IDs []int64 `json:"ids"`
+	}
+	call(t, cs, "import_statement", map[string]any{"card": "Nubank", "month": "2026-11", "items": []map[string]any{
+		{"date": "2026-10-10", "description": "Vmt*Shelf", "amount": 10, "category": "Outros", "create_category": true},
+	}}, &imp, false)
+	var rc struct {
+		Remembered bool `json:"remembered"`
+	}
+	call(t, cs, "recategorize", map[string]any{"id": imp.IDs[0], "category": "Alimentação", "create_category": true}, &rc, false)
+	var rules struct {
+		Rules []struct{ Merchant, Category string } `json:"rules"`
+	}
+	call(t, cs, "list_category_rules", map[string]any{}, &rules, false)
+	if !rc.Remembered || len(rules.Rules) != 1 || rules.Rules[0].Category != "Alimentação" {
+		t.Fatalf("rules: %+v %+v", rc, rules)
+	}
+	call(t, cs, "forget_category", map[string]any{"merchant": "Vmt*Shelf"}, nil, false)
+	call(t, cs, "forget_category", map[string]any{"merchant": "Vmt*Shelf"}, nil, true)
+}
