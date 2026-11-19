@@ -204,3 +204,84 @@ func (t *tools) importStatement(ctx context.Context, _ *mcp.CallToolRequest, in 
 	}
 	return nil, addTxOut{IDs: ids, Message: msg}, nil
 }
+
+type checkLineIn struct {
+	Date         string  `json:"date" jsonschema:"data da compra AAAA-MM-DD"`
+	Description  string  `json:"description" jsonschema:"descrição sem o sufixo de parcela"`
+	Amount       float64 `json:"amount" jsonschema:"valor em reais (positivo); em parcelas, o valor de uma parcela"`
+	InstallmentN int     `json:"installment_n,omitempty" jsonschema:"parcela desta fatura (o 3 de 3/10)"`
+	Installments int     `json:"installments,omitempty" jsonschema:"total de parcelas (o 10 de 3/10)"`
+}
+
+type checkStatementIn struct {
+	Card  string        `json:"card" jsonschema:"nome do cartão"`
+	Month string        `json:"month" jsonschema:"mês em que a fatura fecha, AAAA-MM"`
+	Lines []checkLineIn `json:"lines" jsonschema:"compras lidas da fatura (sem pagamentos, estornos e créditos)"`
+}
+
+type checkLineOut struct {
+	Line              int      `json:"line" jsonschema:"posição em lines, a partir de 1"`
+	Status            string   `json:"status" jsonschema:"novo ou duplicado (já está no app: não importar)"`
+	Note              string   `json:"note,omitempty"`
+	SuggestedCategory string   `json:"suggested_category,omitempty" jsonschema:"categoria usada antes para essa descrição; confira antes de usar"`
+	Amount            moneyOut `json:"amount"`
+}
+
+type checkStatementOut struct {
+	Statement statementOut   `json:"statement" jsonschema:"a fatura como está hoje, antes de importar"`
+	Lines     []checkLineOut `json:"lines"`
+	New       moneyOut       `json:"new_total" jsonschema:"soma das linhas novas"`
+	NewCount  int            `json:"new_count"`
+	Warning   string         `json:"warning,omitempty"`
+}
+
+func (t *tools) checkStatement(ctx context.Context, _ *mcp.CallToolRequest, in checkStatementIn) (*mcp.CallToolResult, checkStatementOut, error) {
+	out := checkStatementOut{Lines: []checkLineOut{}}
+	svc := t.svcFor(ctx)
+	c, err := svc.CardByName(in.Card)
+	if err != nil {
+		return nil, out, toolErr(err)
+	}
+	m, err := month(in.Month)
+	if err != nil || m == 0 {
+		return nil, out, &app.ValidationError{Msg: "mês da fatura inválido (use AAAA-MM)"}
+	}
+	lines := make([]app.StatementLine, len(in.Lines))
+	for i, l := range in.Lines {
+		d, err := date(l.Date)
+		if err != nil || d.IsZero() {
+			return nil, out, &app.ValidationError{Msg: "linha " + itoa(i+1) + ": data inválida (use AAAA-MM-DD)"}
+		}
+		lines[i] = app.StatementLine{Date: d, Description: l.Description, Amount: finance.FromReais(l.Amount),
+			InstallmentN: l.InstallmentN, Installments: l.Installments}
+	}
+	p, err := svc.PreviewStatement(c.ID, m, lines)
+	if err != nil {
+		return nil, out, toolErr(err)
+	}
+	v, err := svc.Statement(c.ID, m)
+	if err != nil {
+		return nil, out, toolErr(err)
+	}
+	d := detailOf(v)
+	out.Statement, out.Warning = d.Statement, d.Warning
+	for i, r := range p.Rows {
+		out.Lines = append(out.Lines, checkLineOut{Line: i + 1, Status: r.Status, Note: r.Note, SuggestedCategory: r.Category, Amount: money(r.Amount)})
+	}
+	out.New, out.NewCount = money(p.New), p.NewCount
+	return nil, out, nil
+}
+
+type cardsModuleIn struct {
+	Enabled bool `json:"enabled" jsonschema:"true liga, false desliga"`
+}
+
+func (t *tools) setCardsModule(ctx context.Context, _ *mcp.CallToolRequest, in cardsModuleIn) (*mcp.CallToolResult, msgOut, error) {
+	if err := t.svcFor(ctx).SetCardsEnabled(in.Enabled); err != nil {
+		return nil, msgOut{}, toolErr(err)
+	}
+	if in.Enabled {
+		return nil, msgOut{Message: "módulo de cartões ligado"}, nil
+	}
+	return nil, msgOut{Message: "módulo de cartões desligado"}, nil
+}

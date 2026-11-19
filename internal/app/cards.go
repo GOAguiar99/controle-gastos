@@ -16,15 +16,55 @@ type CardIn struct {
 	Active     bool
 }
 
-func (s *Service) Cards() ([]finance.CreditCard, error) { return s.st.Cards() }
+// cardsSetting turns the cards module on ("1", the default) or off ("0").
+const cardsSetting = "cards_enabled"
+
+// CardsEnabled reports whether the cards module is on. Off, credit purchases
+// leave the cash on the purchase date (no fatura), card screens and tools are
+// hidden, and what was already billed on cards stays as it is.
+func (s *Service) CardsEnabled() bool { return s.st.Setting(cardsSetting) != "0" }
+
+// SetCardsEnabled turns the cards module on or off.
+func (s *Service) SetCardsEnabled(on bool) error {
+	v := "0"
+	if on {
+		v = "1"
+	}
+	return s.st.SetSetting(cardsSetting, v)
+}
+
+// errCardsOff is returned by card operations while the module is off.
+func errCardsOff() error {
+	return invalid("o módulo de cartões está desativado; ative em Perfil → Preferências (ou com set_cards_module)")
+}
+
+func (s *Service) requireCards() error {
+	if !s.CardsEnabled() {
+		return errCardsOff()
+	}
+	return nil
+}
+
+func (s *Service) Cards() ([]finance.CreditCard, error) {
+	if !s.CardsEnabled() {
+		return nil, nil
+	}
+	return s.st.Cards()
+}
 
 func (s *Service) Card(id int64) (finance.CreditCard, error) {
+	if err := s.requireCards(); err != nil {
+		return finance.CreditCard{}, err
+	}
 	c, err := s.st.Card(id)
 	return c, notFound(err, "cartão")
 }
 
 // CardByName finds a card by name, accent/case-insensitive.
 func (s *Service) CardByName(name string) (finance.CreditCard, error) {
+	if err := s.requireCards(); err != nil {
+		return finance.CreditCard{}, err
+	}
 	cards, err := s.st.Cards()
 	if err != nil {
 		return finance.CreditCard{}, err
@@ -45,6 +85,9 @@ func (s *Service) CardByName(name string) (finance.CreditCard, error) {
 // SaveCard validates and saves a card. Changing the closing or due day moves
 // the cash date of the purchases already billed; their statements are kept.
 func (s *Service) SaveCard(in CardIn) (int64, error) {
+	if err := s.requireCards(); err != nil {
+		return 0, err
+	}
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" {
 		return 0, invalid("dê um nome ao cartão")
@@ -104,7 +147,7 @@ func (s *Service) DeleteCard(id int64) (finance.CreditCard, error) {
 
 // cardOf is the card a credit transaction goes on (ok=false: none).
 func (s *Service) cardOf(id int64, pay finance.PaymentMethod) (finance.CreditCard, bool) {
-	if id == 0 || pay != finance.Credit {
+	if id == 0 || pay != finance.Credit || !s.CardsEnabled() {
 		return finance.CreditCard{}, false
 	}
 	c, err := s.st.Card(id)

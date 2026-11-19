@@ -128,6 +128,12 @@ func isBillTotal(category string) bool { return fold(category) == fold(finance.R
 // only active card when none is given (ok=false: no card, cash moves on the
 // purchase date as before cards existed).
 func (s *Service) chargeCard(id int64) (finance.CreditCard, bool, error) {
+	if !s.CardsEnabled() {
+		if id != 0 {
+			return finance.CreditCard{}, false, errCardsOff()
+		}
+		return finance.CreditCard{}, false, nil
+	}
 	if id != 0 {
 		c, err := s.st.Card(id)
 		if err != nil {
@@ -257,7 +263,11 @@ func (s *Service) UpdateTx(id int64, in TxIn) (finance.Entry, error) {
 		in.Payment = old.Payment
 	}
 	in.Installments = 0 // parcels are edited one by one
-	if in.Payment == finance.Credit && in.CardID == 0 {
+	// with the cards module off, a purchase already on a fatura keeps it
+	keepBilling := !s.CardsEnabled() && old.CardID != 0 && in.Payment == finance.Credit && (in.CardID == 0 || in.CardID == old.CardID)
+	if keepBilling {
+		in.CardID = 0
+	} else if in.Payment == finance.Credit && in.CardID == 0 {
 		in.CardID = old.CardID
 	}
 	// same card and date: keep the statement it was billed (or imported) on
@@ -267,6 +277,9 @@ func (s *Service) UpdateTx(id int64, in TxIn) (finance.Entry, error) {
 	row, err := s.txInput(in)
 	if err != nil {
 		return old, err
+	}
+	if keepBilling {
+		row.CardID, row.Statement, row.CashDate = old.CardID, old.Statement, old.CashDate
 	}
 	if err := s.st.UpdateTx(id, row); err != nil {
 		return old, err

@@ -150,8 +150,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /cartoes/{id}/excluir", s.deleteCard)
 	mux.HandleFunc("GET /cartoes/{id}/fatura", s.statementPage)
 	mux.HandleFunc("POST /cartoes/{id}/fatura", s.setStatementTotal)
-	mux.HandleFunc("POST /cartoes/{id}/importar", s.previewImport)
-	mux.HandleFunc("POST /cartoes/{id}/importar/confirmar", s.confirmImport)
 	mux.HandleFunc("POST /lancamentos/{id}/parcelas/excluir", s.deleteInstallments)
 
 	mux.HandleFunc("GET /perfil", s.profilePage(tabAccount))
@@ -161,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 	// the old Config page lives in the profile now
 	mux.Handle("GET /config", http.RedirectHandler("/perfil", http.StatusMovedPermanently))
 	mux.HandleFunc("POST /config/limites", s.saveLimits)
+	mux.HandleFunc("POST /config/cartoes", s.saveCardsModule)
 	mux.HandleFunc("POST /config/categorias", s.addCategory)
 	mux.HandleFunc("GET /export/lancamentos.csv", s.exportCSV)
 	mux.HandleFunc("GET /export/dados.json", s.exportJSON)
@@ -232,6 +231,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 		a := actorOf(r)
 		data["User"] = a.User
 		data["PendingRecs"] = svc.Store().PendingRecurrences()
+		data["CardsOn"] = svc.CardsEnabled()
 		data["Shared"] = s.app.IsShared(r.Context(), a)
 		if app.IsAdmin(a) {
 			data["IsAdmin"] = true

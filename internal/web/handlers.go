@@ -1004,3 +1004,16 @@ func localBack(to, fallback string) string {
 	}
 	return to
 }
+
+func (s *Server) saveCardsModule(w http.ResponseWriter, r *http.Request) {
+	on := r.FormValue("enabled") == "on"
+	if err := svcOf(r).SetCardsEnabled(on); err != nil {
+		s.fail(w, err)
+		return
+	}
+	msg := "Módulo de cartões desativado"
+	if on {
+		msg = "Módulo de cartões ativado: cadastre seus cartões em Cartões"
+	}
+	profileDone(w, r, tabPrefs, msg)
+}
