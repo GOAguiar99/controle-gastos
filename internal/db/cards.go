@@ -256,13 +256,17 @@ func (s *Store) statementRests(cards map[int64]finance.CreditCard, from, to fina
 	if len(cards) == 0 {
 		return nil, nil
 	}
-	sts, err := s.Statements(cards, from, to)
+	// a statement closing the month before can be due inside the window
+	sts, err := s.Statements(cards, from.Add(-1), to)
 	if err != nil {
 		return nil, err
 	}
 	var out []finance.Entry
 	for _, st := range sts {
 		if !st.HasTotal {
+			continue
+		}
+		if m := finance.MonthOf(st.Card.Due(st.Month)); m < from || m > to {
 			continue
 		}
 		for _, e := range proj {

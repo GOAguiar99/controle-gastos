@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -182,6 +183,51 @@ type StatementView struct {
 	// Loose are credit expenses with no card dated in the statement's month
 	// (e.g. old "Fatura cartão" totals): entering items too would count twice.
 	Loose []finance.Entry
+	// ByCategory splits the fatura total by category, largest first; the
+	// undetailed part of a declared total is its own line.
+	ByCategory []CategoryShare
+	Top        []finance.Entry // largest purchases
+}
+
+// CategoryShare is one category's part of a fatura.
+type CategoryShare struct {
+	Name  string
+	Total int64
+	Count int
+	Share float64 // of the fatura total, 0..1
+}
+
+// statementTop is how many of the largest purchases a fatura view lists.
+const statementTop = 8
+
+// splitByCategory fills ByCategory and Top from the items.
+func (v *StatementView) splitByCategory() {
+	idx := map[string]int{}
+	for _, e := range v.Items {
+		i, ok := idx[e.Category]
+		if !ok {
+			i = len(v.ByCategory)
+			idx[e.Category] = i
+			v.ByCategory = append(v.ByCategory, CategoryShare{Name: e.Category})
+		}
+		v.ByCategory[i].Total += e.Amount
+		v.ByCategory[i].Count++
+	}
+	if rest := v.Rest(); rest > 0 {
+		v.ByCategory = append(v.ByCategory, CategoryShare{Name: "Não detalhado", Total: rest})
+	}
+	total := v.Total()
+	for i := range v.ByCategory {
+		if total > 0 {
+			v.ByCategory[i].Share = float64(v.ByCategory[i].Total) / float64(total)
+		}
+	}
+	sort.SliceStable(v.ByCategory, func(i, j int) bool { return v.ByCategory[i].Total > v.ByCategory[j].Total })
+	v.Top = append([]finance.Entry(nil), v.Items...)
+	sort.SliceStable(v.Top, func(i, j int) bool { return v.Top[i].Amount > v.Top[j].Amount })
+	if len(v.Top) > statementTop {
+		v.Top = v.Top[:statementTop]
+	}
 }
 
 // Statement returns fatura m of a card.
@@ -231,6 +277,7 @@ func (s *Service) Statement(cardID int64, m finance.Month) (StatementView, error
 	for _, st := range sts {
 		v.Declared, v.HasTotal = st.Declared, st.HasTotal
 	}
+	v.splitByCategory()
 	return v, nil
 }
 
@@ -255,16 +302,8 @@ func (s *Service) CardStatements(cardID int64, n int) ([]finance.Statement, erro
 			sts = append(sts, finance.Statement{Card: c, Month: m})
 		}
 	}
-	sortStatements(sts)
+	sort.Slice(sts, func(i, j int) bool { return sts[i].Month > sts[j].Month })
 	return sts, nil
-}
-
-func sortStatements(sts []finance.Statement) {
-	for i := 1; i < len(sts); i++ {
-		for j := i; j > 0 && sts[j].Month > sts[j-1].Month; j-- {
-			sts[j], sts[j-1] = sts[j-1], sts[j]
-		}
-	}
 }
 
 // DeleteInstallmentsFrom deletes parcel n of an installment purchase and

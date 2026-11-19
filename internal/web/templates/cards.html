@@ -37,6 +37,10 @@
         <div><span>Lançado item a item</span><strong>{{brl .Open.Statement.Items}}</strong><small>{{.Open.Count}} compra(s)</small></div>
         <div><span>Valor informado</span><strong>{{if .Open.HasTotal}}{{brl .Open.Declared}}{{else}}—{{end}}</strong></div>
       </div>
+      <div class="chart" role="img" aria-label="Total das faturas do {{.Card.Name}} mês a mês"><canvas id="card-hist-{{.Card.ID}}"></canvas></div>
+      <p class="hint">Barras claras: faturas ainda abertas ou futuras, com o que já está lançado (parcelas e recorrências).</p>
+      <details>
+      <summary class="link">Tabela das faturas</summary>
       <table class="grid compact">
         <thead><tr><th>Fatura</th><th>Vence</th><th class="num">Itens</th><th class="num">Valor informado</th><th class="num">Total</th></tr></thead>
         <tbody>
@@ -50,8 +54,9 @@
         {{end}}
         </tbody>
       </table>
+      </details>
       <div class="card-actions">
-        <a class="btn" href="/cartoes/{{.Card.ID}}/fatura?mes={{.Open.Month}}">Abrir fatura / importar</a>
+        <a class="btn" href="/cartoes/{{.Card.ID}}/fatura?mes={{.Open.Month}}">Abrir fatura</a>
         <details class="pop">
           <summary class="btn ghost">Editar</summary>
           <form method="post" action="/cartoes/{{.Card.ID}}" class="pop-body form">
@@ -90,4 +95,9 @@
     </article>
   </div>
 </section>
+{{if .Cards}}
+<script src="{{asset "chart.umd.min.js"}}" defer></script>
+<script type="application/json" id="card-history">{{json .History}}</script>
+<script src="{{asset "cards.js"}}" defer></script>
+{{end}}
 {{end}}

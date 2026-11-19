@@ -200,6 +200,19 @@ func (e Entry) CashDay() time.Time {
 	return e.Date
 }
 
+// ReportDay is the day an entry counts on in monthly reports: a card
+// purchase counts when its fatura is due, like the whole fatura always did;
+// anything else on its own date.
+func (e Entry) ReportDay() time.Time {
+	if e.CardID != 0 {
+		return e.CashDay()
+	}
+	return e.Date
+}
+
+// Month is the month an entry counts in (see ReportDay).
+func (e Entry) Month() Month { return MonthOf(e.ReportDay()) }
+
 // Group is the expense group in summaries. Each expense lands in exactly one:
 // paid by credit card → Cartão (what the card limit watches), else a fixed
 // expense or a recurrence occurrence → Fixos, else Outros.

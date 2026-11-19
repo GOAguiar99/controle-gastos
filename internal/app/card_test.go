@@ -189,8 +189,12 @@ func TestCardRecurrence(t *testing.T) {
 		Day: 20, Interval: 1, Start: nov, Active: true, CardID: card}); err != nil {
 		t.Fatal(err)
 	}
-	es, _ := s.ListTx(TxFilter{From: nov, To: nov, IncludeProjected: true})
-	if len(es) != 1 || es[0].Payment != finance.Credit || es[0].Statement != dec || !es[0].CashDay().Equal(d("2026-12-10")) {
+	// the November occurrence goes on the December fatura and counts in December
+	if es, _ := s.ListTx(TxFilter{From: nov, To: nov, IncludeProjected: true}); len(es) != 0 {
+		t.Fatalf("november: %+v", es)
+	}
+	es, _ := s.ListTx(TxFilter{From: dec, To: dec, IncludeProjected: true})
+	if len(es) != 1 || es[0].OccMonth != "2026-11" || es[0].Payment != finance.Credit || es[0].Statement != dec || !es[0].CashDay().Equal(d("2026-12-10")) {
 		t.Fatalf("projected: %+v", es)
 	}
 	id, err := s.ConfirmOccurrence(es[0].RecurrenceID, nov, 0, d("2026-11-20"), SourceManual)
@@ -227,5 +231,34 @@ func TestBillTotalAsExpense(t *testing.T) {
 	}
 	if v, _ := s.Statement(card, nov); len(v.Loose) != 1 || v.Loose[0].ID != id {
 		t.Fatalf("with items: %+v", v.Loose)
+	}
+}
+
+// A card purchase counts in the month its fatura is due: October purchases
+// on the fatura due 10/11 are November spending, like the whole fatura was.
+func TestCardPurchasesCountInDueMonth(t *testing.T) {
+	s := newSvc(t)
+	card := nubank(t, s)
+	oct := finance.NewMonth(2026, 10)
+	if _, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-10-20"), Amount: 5000, Category: CategoryRef{Name: "Lazer", Create: true}, CardID: card}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-10-20"), Amount: 700, Category: CategoryRef{Name: "Lazer"}, Payment: finance.Pix}); err != nil {
+		t.Fatal(err)
+	}
+	inOct, _ := s.ListTx(TxFilter{From: oct, To: oct})
+	inNov, _ := s.ListTx(TxFilter{From: nov, To: nov})
+	if len(inOct) != 1 || inOct[0].Amount != 700 || len(inNov) != 1 || inNov[0].Amount != 5000 {
+		t.Fatalf("october %+v, november %+v", inOct, inNov)
+	}
+	o, err := s.Overview(nov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Summary.Card != 5000 || o.Summary.Expense != 5000 {
+		t.Fatalf("november summary: %+v", o.Summary)
+	}
+	if o, _ = s.Overview(oct); o.Summary.Card != 0 || o.Summary.Expense != 700 {
+		t.Fatalf("october summary: %+v", o.Summary)
 	}
 }

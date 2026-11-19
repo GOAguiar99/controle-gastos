@@ -376,16 +376,32 @@ func TestCardsAndStatementImport(t *testing.T) {
 	if res := post("/cartoes/1/importar?mes=2026-11", url.Values{"text": {"28/10 Padaria 12,50"}}); res.StatusCode == http.StatusOK || res.StatusCode == http.StatusSeeOther {
 		t.Errorf("web import still answers: %d", res.StatusCode)
 	}
-	// the November expenses list shows the undetailed part, linked to the fatura
-	if g := string(mustGet(t, client, ts.URL+"/gastos?mes=2026-11")); !strings.Contains(g, "Fatura Nubank (não detalhado)") {
-		t.Error("undetailed part not in the expense list")
+	// the November expenses list shows the whole fatura in one row, linked to it
+	post("/lancamentos", url.Values{"kind": {"expense"}, "date": {"2026-10-20"}, "amount": {"30,00"}, "new_category": {"Lazer"},
+		"payment_method": {"credito"}, "card_id": {"1"}, "description": {"Cinema"}})
+	g := string(mustGet(t, client, ts.URL+"/gastos?mes=2026-11"))
+	if !strings.Contains(g, "Fatura Nubank · nov/2026") || !strings.Contains(g, `href="/cartoes/1/fatura?mes=2026-11"`) ||
+		!strings.Contains(g, "R$ 1.000,00") || strings.Contains(g, "Cinema") {
+		t.Error("expense list should show the fatura as one row")
+	}
+	if strings.Contains(string(mustGet(t, client, ts.URL+"/gastos?mes=2026-10")), "Cinema") {
+		t.Error("an October purchase on the November fatura counts in November")
+	}
+	f = string(mustGet(t, client, ts.URL+"/cartoes/1/fatura?mes=2026-11"))
+	for _, want := range []string{"Por categoria", "Lazer", "Não detalhado", "Maiores compras", "Cinema"} {
+		if !strings.Contains(f, want) {
+			t.Errorf("statement page misses %q", want)
+		}
+	}
+	if c := string(mustGet(t, client, ts.URL+"/cartoes")); !strings.Contains(c, `id="card-hist-1"`) || !strings.Contains(c, `id="card-history"`) {
+		t.Error("cards page without the fatura history chart")
 	}
 
 	// turning the module off hides the menu and the card fields
 	if res := post("/config/cartoes", url.Values{}); res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("turn off: %d", res.StatusCode)
 	}
-	g := string(mustGet(t, client, ts.URL+"/gastos"))
+	g = string(mustGet(t, client, ts.URL+"/gastos"))
 	if strings.Contains(g, `href="/cartoes"`) || strings.Contains(g, `name="card_id"`) {
 		t.Error("cards still offered with the module off")
 	}

@@ -27,9 +27,37 @@
 {{end}}
 
 <section class="two-col wide-left">
+  <div class="stack">
+  {{if $v.ByCategory}}
   <article class="card">
-    <div class="card-head"><h2>Compras desta fatura</h2></div>
+    <div class="card-head"><h2>Por categoria</h2><span class="muted">{{brl $v.Total}}</span></div>
+    <ul class="bars share" aria-label="Total da fatura por categoria">
+      {{range $v.ByCategory}}
+      <li title="{{.Name}}: {{brl .Total}}{{if .Count}} em {{.Count}} compra(s){{end}}">
+        <span class="bar-label">{{.Name}}</span>
+        <span class="bar"><span class="b-cartao" style="width: {{pctWidth .Share}}%"></span></span>
+        <span class="num">{{brl .Total}} <small class="muted">{{pctDec .Share}}</small></span></li>
+      {{end}}
+    </ul>
+  </article>
+  <article class="card">
+    <div class="card-head"><h2>Maiores compras</h2></div>
+    <ul class="entries">
+      {{range $v.Top}}
+      <li class="entry {{if .Projected}}projected{{end}}">
+        <div class="e-date"><strong>{{dm .Date}}</strong></div>
+        <div class="e-main"><span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
+          <span class="e-meta">{{.Category}}{{if .InstallmentOf}} · <span class="tag">{{.InstallmentN}}/{{.InstallmentOf}}</span>{{end}}</span></div>
+        <div class="e-amount negc">{{brl .Amount}}</div>
+      </li>
+      {{end}}
+    </ul>
+  </article>
+  {{end}}
+  <article class="card">
     {{if $v.Items}}
+    <details{{if le (len $v.Items) 12}} open{{end}}>
+    <summary class="card-head"><h2>Todas as compras ({{len $v.Items}})</h2></summary>
     <ul class="entries">
       {{range $v.Items}}
       <li class="entry {{if .Projected}}projected{{end}}">
@@ -43,8 +71,10 @@
       </li>
       {{end}}
     </ul>
-    {{else}}<p class="empty">Nenhuma compra lançada nesta fatura.</p>{{end}}
+    </details>
+    {{else}}<div class="card-head"><h2>Compras desta fatura</h2></div><p class="empty">Nenhuma compra lançada nesta fatura.</p>{{end}}
   </article>
+  </div>
 
   <div class="stack">
     <article class="card">
