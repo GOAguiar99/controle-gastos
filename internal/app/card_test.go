@@ -262,3 +262,50 @@ func TestCardPurchasesCountInDueMonth(t *testing.T) {
 		t.Fatalf("october summary: %+v", o.Summary)
 	}
 }
+
+// The double-count warning only points at totals that look like this card's
+// fatura (they name the card or match its value), not other cards' totals.
+func TestStatementWarnsOnlyAboutThisCard(t *testing.T) {
+	s := newSvc(t)
+	card := nubank(t, s)
+	bill := CategoryRef{Name: finance.RestCategory}
+	// totals of other cards, entered before cards existed (no card on them)
+	if err := s.SetCardsEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	for _, desc := range []string{"Fatura Bradesco", "Fatura Cartão Carol"} {
+		if _, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-11-05"), Amount: 70000, Category: bill, Description: desc, Payment: finance.Credit}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mine, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-11-10"), Amount: 150000, Category: bill, Description: "fatura Nubank Conjunta", Payment: finance.Credit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCardsEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	// before importing (no items yet) the Nubank total is already pointed out
+	v, _ := s.Statement(card, nov)
+	if len(v.Loose) != 1 || v.Loose[0].ID != mine {
+		t.Fatalf("before import: %+v", v.Loose)
+	}
+	// with items, a total with no card name but the same value is caught too
+	if _, err := s.ImportStatement(card, nov, []ImportItem{{Date: d("2026-10-20"), Description: "Mercado", Amount: 70000, Category: CategoryRef{Name: "Alimentação", Create: true}}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	v, _ = s.Statement(card, nov)
+	if len(v.Loose) != 3 {
+		t.Fatalf("with items worth 700,00: %+v", v.Loose)
+	}
+	if _, err := s.DeleteTx(mine); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.ImportStatement(card, nov, []ImportItem{{Date: d("2026-10-21"), Description: "Loja", Amount: 1, Category: CategoryRef{Name: "Alimentação"}}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ = s.Statement(card, nov); len(v.Loose) != 0 {
+		t.Fatalf("other cards' totals flagged: %+v", v.Loose)
+	}
+}
