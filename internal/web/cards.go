@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"controle-gastos/internal/app"
@@ -166,10 +167,13 @@ func (s *Server) statementPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	f := statementFilterOf(r)
+	rows, shown, shownTotal := f.apply(v.Items)
 	s.render(w, r, "statement", page{
 		"Categories": cats,
 		"Title":      "Fatura " + v.Card.Name + " · " + v.Month.Label(), "V": v,
-		"Prev": v.Month.Add(-1), "Next": v.Month.Add(1), "Back": statementPath(id, v.Month),
+		"Prev": v.Month.Add(-1), "Next": v.Month.Add(1), "Back": statementPath(id, v.Month) + f.query(),
+		"Base": statementPath(id, v.Month), "F": f, "Rows": rows, "Shown": shown, "ShownTotal": shownTotal,
 	})
 }
 
@@ -250,4 +254,73 @@ func (s *Server) recategorize(w http.ResponseWriter, r *http.Request) {
 		sep = "&"
 	}
 	http.Redirect(w, r, to+sep+"msg="+url.QueryEscape(msg)+"#compra-"+fmt.Sprint(id), http.StatusSeeOther)
+}
+
+// statementFilter narrows and orders the purchases list of a fatura page
+// (?cat=, ?q=, ?ordem=). It only shapes the view; the page script applies
+// the same filter instantly in the browser.
+type statementFilter struct {
+	Cat, Q, Order string // Order: data (default), valor, categoria
+}
+
+func statementFilterOf(r *http.Request) statementFilter {
+	f := statementFilter{Cat: strings.TrimSpace(r.URL.Query().Get("cat")), Q: strings.TrimSpace(r.URL.Query().Get("q")), Order: r.URL.Query().Get("ordem")}
+	switch f.Order {
+	case "valor", "categoria":
+	default:
+		f.Order = "data"
+	}
+	return f
+}
+
+// query is the filter as URL parameters to append after ?mes=…
+func (f statementFilter) query() string {
+	v := url.Values{}
+	if f.Cat != "" {
+		v.Set("cat", f.Cat)
+	}
+	if f.Q != "" {
+		v.Set("q", f.Q)
+	}
+	if f.Order != "data" {
+		v.Set("ordem", f.Order)
+	}
+	if len(v) == 0 {
+		return ""
+	}
+	return "&" + v.Encode()
+}
+
+// statementRow is a purchase with whether the filter shows it.
+type statementRow struct {
+	finance.Entry
+	Hidden bool
+	Key    string // folded description + category, for the in-page search
+}
+
+func (f statementFilter) apply(items []finance.Entry) (rows []statementRow, shown int, total int64) {
+	q := app.Fold(f.Q)
+	for _, e := range items {
+		key := app.Fold(e.Description + " " + e.Category)
+		hide := (f.Cat != "" && e.Category != f.Cat) || (q != "" && !strings.Contains(key, q))
+		rows = append(rows, statementRow{Entry: e, Hidden: hide, Key: key})
+		if !hide {
+			shown++
+			total += e.Amount
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		switch f.Order {
+		case "valor":
+			return a.Amount > b.Amount
+		case "categoria":
+			if a.Category != b.Category {
+				return a.Category < b.Category
+			}
+			return a.Amount > b.Amount
+		}
+		return a.Date.Before(b.Date)
+	})
+	return rows, shown, total
 }
