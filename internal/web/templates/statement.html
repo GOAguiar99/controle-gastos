@@ -30,13 +30,15 @@
   <div class="stack">
   {{if $v.ByCategory}}
   <article class="card">
-    <div class="card-head"><h2>Por categoria</h2><span class="muted">{{brl $v.Total}}</span></div>
+    <div class="card-head"><h2>Por categoria</h2><span class="muted">clique para ver as compras</span></div>
     <ul class="bars share" aria-label="Total da fatura por categoria">
       {{range $v.ByCategory}}
       <li title="{{.Name}}: {{brl .Total}}{{if .Count}} em {{.Count}} compra(s){{end}}">
-        <span class="bar-label">{{.Name}}</span>
+        {{if .Count}}<a class="bar-filter{{if eq .Name $.F.Cat}} on{{end}}" href="{{$.Base}}&cat={{.Name}}#compras" data-filter-cat="{{.Name}}">{{end}}
+        <span class="bar-label">{{.Name}}{{if .Count}} <small class="muted">({{.Count}})</small>{{end}}</span>
         <span class="bar"><span class="b-cartao" style="width: {{pctWidth .Share}}%"></span></span>
-        <span class="num">{{brl .Total}} <small class="muted">{{pctDec .Share}}</small></span></li>
+        <span class="num">{{brl .Total}} <small class="muted">{{pctDec .Share}}</small></span>
+        {{if .Count}}</a>{{end}}</li>
       {{end}}
     </ul>
   </article>
@@ -47,7 +49,7 @@
       <li class="entry {{if .Projected}}projected{{end}}">
         <div class="e-date"><strong>{{dm .Date}}</strong></div>
         <div class="e-main"><span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
-          <span class="e-meta">{{.Category}}{{if .InstallmentOf}} · <span class="tag">{{.InstallmentN}}/{{.InstallmentOf}}</span>{{end}}</span></div>
+          <span class="e-meta"><a class="link" href="{{$.Base}}&cat={{.Category}}#compras" data-filter-cat="{{.Category}}" title="Ver só {{.Category}}">{{.Category}}</a>{{if .InstallmentOf}} · <span class="tag">{{.InstallmentN}}/{{.InstallmentOf}}</span>{{end}}</span></div>
         <div class="e-amount negc">{{brl .Amount}}</div>
       </li>
       {{end}}
@@ -58,10 +60,27 @@
     {{if $v.Items}}
     <details open id="compras">
     <summary class="card-head"><h2>Todas as compras ({{len $v.Items}})</h2></summary>
+    <form method="get" action="{{$.Base}}" class="purchase-filter" data-purchase-filter>
+      <input type="hidden" name="mes" value="{{$v.Month}}">
+      <input type="search" name="q" value="{{$.F.Q}}" placeholder="Buscar compra ou categoria…" aria-label="Buscar compra" data-filter-q>
+      <select name="cat" aria-label="Categoria" data-filter-select>
+        <option value="">Todas as categorias</option>
+        {{range $v.ByCategory}}{{if .Count}}<option value="{{.Name}}" {{if eq .Name $.F.Cat}}selected{{end}}>{{.Name}} ({{.Count}})</option>{{end}}{{end}}
+      </select>
+      <select name="ordem" aria-label="Ordenar" data-filter-order>
+        <option value="data" {{if eq $.F.Order "data"}}selected{{end}}>Por data</option>
+        <option value="valor" {{if eq $.F.Order "valor"}}selected{{end}}>Maior valor</option>
+        <option value="categoria" {{if eq $.F.Order "categoria"}}selected{{end}}>Por categoria</option>
+      </select>
+      <noscript><button class="btn small">Filtrar</button></noscript>
+      <span class="filter-summary" aria-live="polite"><span data-filter-count>{{$.Shown}}</span> de {{len $v.Items}} · <strong data-filter-total>{{brl $.ShownTotal}}</strong>
+        <a class="link" href="{{$.Base}}#compras" data-filter-clear{{if not (or $.F.Cat $.F.Q)}} hidden{{end}}>limpar</a></span>
+    </form>
     <p class="hint">Troque a categoria de uma compra e o app aprende: as outras compras iguais que estavam na categoria antiga mudam junto, e as próximas desse estabelecimento já chegam na nova. As memórias ficam em <a class="link" href="/perfil/preferencias#memorias">Preferências</a>.</p>
-    <ul class="entries">
-      {{range $v.Items}}
-      <li class="entry {{if .Projected}}projected{{end}}" id="compra-{{.ID}}">
+    <ul class="entries" data-purchases>
+      {{range $.Rows}}
+      <li class="entry {{if .Projected}}projected{{end}}" id="compra-{{.ID}}"{{if .Hidden}} hidden{{end}}
+        data-cat="{{.Category}}" data-key="{{.Key}}" data-amount="{{.Amount}}" data-date="{{iso .Date}}">
         <div class="e-date"><strong>{{dm .Date}}</strong></div>
         <div class="e-main">
           {{if .Projected}}<span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
@@ -80,6 +99,7 @@
       </li>
       {{end}}
     </ul>
+    <p class="empty" data-filter-empty{{if $.Shown}} hidden{{end}}>Nenhuma compra com esse filtro.</p>
     </details>
     {{else}}<div class="card-head"><h2>Compras desta fatura</h2></div><p class="empty">Nenhuma compra lançada nesta fatura.</p>{{end}}
   </article>
@@ -102,4 +122,5 @@
     </article>
   </div>
 </section>
+<script src="{{asset "statement.js"}}" defer></script>
 {{end}}

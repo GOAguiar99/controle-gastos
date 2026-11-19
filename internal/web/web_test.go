@@ -393,6 +393,14 @@ func TestCardsAndStatementImport(t *testing.T) {
 			t.Errorf("statement page misses %q", want)
 		}
 	}
+	// categories filter the purchase list (server side too, for links and no JS)
+	if !strings.Contains(f, `data-filter-cat="Lazer"`) || !strings.Contains(f, `data-purchase-filter`) {
+		t.Error("statement page without category filters")
+	}
+	only := string(mustGet(t, client, ts.URL+"/cartoes/1/fatura?mes=2026-11&cat=Lazer&ordem=valor"))
+	if !strings.Contains(only, `<span data-filter-count>1</span> de`) || !strings.Contains(only, `<option value="valor" selected>`) {
+		t.Error("server-side category filter not applied")
+	}
 	// each purchase has a category picker; changing it remembers the merchant
 	if !strings.Contains(f, `action="/lancamentos/`) || !strings.Contains(f, `/categoria"`) {
 		t.Error("statement page without per-purchase category picker")

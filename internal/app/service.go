@@ -105,6 +105,9 @@ func (s *Service) AddCategory(name string, kind finance.Kind) (int64, error) {
 }
 
 // fold lowercases and strips Portuguese accents so "Saúde" matches "saude".
+// Fold lowercases and strips accents, for accent-insensitive matching.
+func Fold(s string) string { return fold(s) }
+
 func fold(s string) string {
 	r := strings.NewReplacer(
 		"á", "a", "à", "a", "â", "a", "ã", "a", "ä", "a",
