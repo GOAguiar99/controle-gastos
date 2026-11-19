@@ -52,7 +52,7 @@ func (t *tools) register(s *mcp.Server) {
 	addTool(s, &mcp.Tool{Name: "list_cards", Annotations: readOnly,
 		Description: "Cartões de crédito com dia de fechamento e vencimento e a fatura aberta de cada um."}, t.listCards)
 	addTool(s, &mcp.Tool{Name: "check_statement", Annotations: readOnly,
-		Description: "Confere as compras lidas de uma fatura antes de importar: diz quais são novas e quais já estão no app (mesmo cartão e valor com data a ±3 dias, ou a mesma parcela já criada por uma importação anterior) e sugere a categoria usada antes para cada descrição. Não grava nada; depois use import_statement só com as novas."}, t.checkStatement)
+		Description: "Confere as compras lidas de uma fatura antes de importar: diz quais são novas e quais já estão no app (mesmo cartão e valor com data a ±3 dias, ou a mesma parcela já criada por uma importação anterior, mesmo com centavos de diferença: aí vem existing_id e existing_amount para corrigir com update_transaction) e sugere a categoria usada antes para cada descrição. Linhas sem histórico vêm com needs_research: pesquise o nome na web antes de categorizar. Não grava nada; depois use import_statement só com as novas."}, t.checkStatement)
 	addTool(s, &mcp.Tool{Name: "get_statement", Annotations: readOnly,
 		Description: "Uma fatura de cartão (mês em que fecha, AAAA-MM; padrão a aberta): compras lançadas, valor informado (valor cheio), parte não detalhada, total, fechamento e vencimento."}, t.getStatement)
 
@@ -85,7 +85,7 @@ func (t *tools) register(s *mcp.Server) {
 	addTool(s, &mcp.Tool{Name: "set_statement_total", Annotations: idempotent,
 		Description: "Informa o valor total de uma fatura (valor cheio), para quem não quer lançar item a item. As compras lançadas na fatura contam dentro dele: só a diferença entra como \"Fatura cartão (não detalhado)\". total=0 remove."}, t.setStatementTotal)
 	addTool(s, &mcp.Tool{Name: "import_statement", Annotations: write,
-		Description: "Lança as compras de uma fatura de cartão item a item, cada uma na sua categoria, na fatura indicada (tudo ou nada). Itens com parcela (installment_n de installments, ex. 3/10) criam também as parcelas seguintes nas próximas faturas. Antes, rode check_statement com as mesmas linhas e importe só as marcadas como novas."}, t.importStatement)
+		Description: "Lança as compras de uma fatura de cartão item a item, cada uma na sua categoria, na fatura indicada (tudo ou nada). Itens com parcela (installment_n de installments, ex. 3/10) criam também as parcelas seguintes nas próximas faturas, exceto as que já existem (ao importar uma fatura antiga depois de uma nova). Antes, rode check_statement com as mesmas linhas e importe só as marcadas como novas."}, t.importStatement)
 	addTool(s, &mcp.Tool{Name: "set_limits", Annotations: idempotent,
 		Description: "Altera limite do cartão e/ou sobra mínima mensal."}, t.setLimits)
 

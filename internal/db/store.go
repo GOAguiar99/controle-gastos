@@ -163,9 +163,11 @@ type TxInput struct {
 	Statement finance.Month
 	CashDate  time.Time
 	// Parcelado: parcel N of Of. Rows of one InsertTxs call with the same
-	// nonzero GroupKey share a new installment group (the first row's id).
+	// nonzero GroupKey share a new installment group (the first row's id),
+	// unless InstallmentGroup names an existing one to join.
 	InstallmentN, InstallmentOf int
 	GroupKey                    int
+	InstallmentGroup            int64
 }
 
 const txSelect = `SELECT t.id, t.kind, t.date, t.amount_cents, t.category_id, c.name, t.payment_method, t.fixed, t.description,
@@ -287,11 +289,14 @@ func (s *Store) InsertTxs(ins []TxInput) ([]int64, error) {
 				return err
 			}
 			ids = append(ids, id)
-			if in.GroupKey == 0 {
+			if in.GroupKey == 0 && in.InstallmentGroup == 0 {
 				continue
 			}
 			g, ok := groups[in.GroupKey]
-			if !ok {
+			switch {
+			case in.InstallmentGroup != 0:
+				g = in.InstallmentGroup
+			case !ok:
 				g = id
 				groups[in.GroupKey] = id
 			}
