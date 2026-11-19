@@ -23,7 +23,10 @@
       <a href="/dividas" {{if eq .Nav "debts"}}class="on"{{end}}>Dívidas</a>
       <a href="/como-usar" {{if eq .Nav "guide"}}class="on"{{end}}>Como usar</a>
     </nav>
-    <button type="button" class="theme-toggle" data-theme-toggle data-short>◐</button>
+    <details class="theme-menu" data-menu>
+      <summary class="theme-toggle" data-theme-toggle data-short>◐</summary>
+      <div class="menu-panel theme-panel" role="menu" data-theme-menu></div>
+    </details>
     {{with .User}}
     <details class="profile-menu" data-menu>
       <summary class="who {{if or (eq $.Nav "profile") (eq $.Nav "admin")}}on{{end}}" aria-label="Abrir menu do perfil" title="Perfil e configurações">
@@ -51,7 +54,7 @@
   {{with .Flash}}<div class="flash" role="status">{{.}}</div>{{end}}
   {{template "content" .}}
 </main>
-<footer class="wrap legal-links"><a href="/como-usar">Como usar</a> · <a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a> · <button type="button" class="theme-toggle" data-theme-toggle>Tema</button></footer>
+<footer class="wrap legal-links"><a href="/como-usar">Como usar</a> · <a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a> · <details class="theme-menu up" data-menu><summary class="theme-toggle" data-theme-toggle>Tema</summary><div class="menu-panel theme-panel" role="menu" data-theme-menu></div></details></footer>
 <script src="{{asset "app.js"}}" defer></script>
 {{block "scripts" .}}{{end}}
 </body>

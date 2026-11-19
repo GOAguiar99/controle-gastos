@@ -290,7 +290,7 @@ func TestThemeAssets(t *testing.T) {
 	}
 	res, _ = client.Get(ts.URL + "/static/app.css")
 	css, _ := io.ReadAll(res.Body)
-	for _, want := range []string{`:root[data-theme="dark"]`, `@media (prefers-color-scheme: dark)`, `:root:not([data-theme="light"])`} {
+	for _, want := range []string{`:root[data-theme="dark"]`, `@media (prefers-color-scheme: dark)`, `:root:not([data-theme])`} {
 		if !strings.Contains(string(css), want) {
 			t.Errorf("app.css missing %s", want)
 		}
