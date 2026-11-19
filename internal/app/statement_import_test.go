@@ -178,3 +178,22 @@ func TestSuggestionsIgnoreIntermediaries(t *testing.T) {
 		t.Errorf("unknown name: %+v", r)
 	}
 }
+
+// The same value a few days apart on the fatura before is another purchase.
+func TestDuplicateOnlyWithinTheFatura(t *testing.T) {
+	s := newSvc(t)
+	card := nubank(t, s)
+	park := CategoryRef{Name: "Transporte", Create: true}
+	if _, err := s.ImportStatement(card, nov, []ImportItem{{Date: d("2026-10-03"), Description: "Bueno Park", Amount: 2800, Category: park}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	oct := finance.NewMonth(2026, 10)
+	p, err := s.PreviewStatement(card, oct, []StatementLine{{Date: d("2026-10-01"), Description: "Bueno Park", Amount: 2800}})
+	if err != nil || p.Rows[0].Status != ImportNew {
+		t.Fatalf("other fatura: %+v %v", p.Rows, err)
+	}
+	p, _ = s.PreviewStatement(card, nov, []StatementLine{{Date: d("2026-10-04"), Description: "Bueno Park", Amount: 2800}})
+	if p.Rows[0].Status != ImportDuplicate {
+		t.Fatalf("same fatura: %+v", p.Rows)
+	}
+}

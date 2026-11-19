@@ -144,7 +144,9 @@ func (s *Service) PreviewStatement(cardID int64, m finance.Month, lines []Statem
 		}
 		if r.Status == ImportNew {
 			for _, e := range existing {
-				if used[e.ID] || e.Kind != finance.Expense || e.Amount != l.Amount || e.CardID != cardID {
+				// a purchase repeats one on the same fatura only: the same value a
+				// few days apart on the fatura before is another purchase
+				if used[e.ID] || e.Kind != finance.Expense || e.Amount != l.Amount || e.CardID != cardID || e.Statement != m {
 					continue
 				}
 				if days := e.Date.Sub(l.Date).Hours() / 24; days >= -3 && days <= 3 {
