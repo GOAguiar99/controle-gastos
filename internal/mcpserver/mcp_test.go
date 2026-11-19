@@ -235,28 +235,79 @@ func TestPrompts(t *testing.T) {
 	}
 }
 
-// Income sources have no group (cartão/fixos/outros split only expenses).
-func TestIncomeHasNoBucket(t *testing.T) {
+// How an expense was paid lives on the transaction: the same category can be
+// paid by card and by Pix, and the summary group follows the payment.
+func TestPaymentMethodTools(t *testing.T) {
 	cs, _ := connect(t)
-	var cats struct {
-		Categories []struct {
-			Kind   string `json:"kind"`
-			Bucket string `json:"bucket"`
-		} `json:"categories"`
+	var added struct {
+		IDs []int64 `json:"ids"`
 	}
+	call(t, cs, "add_transactions", map[string]any{"items": []map[string]any{
+		{"kind": "expense", "date": "2026-11-03", "amount": 50, "category": "Alimentação", "create_category": true, "payment_method": "credito"},
+		{"kind": "expense", "date": "2026-11-04", "amount": 30, "category": "Alimentação", "payment_method": "pix"},
+		{"kind": "income", "date": "2026-11-05", "amount": 1000, "category": "Salário", "create_category": true},
+	}}, &added, false)
+	if len(added.IDs) != 3 {
+		t.Fatalf("ids: %v", added.IDs)
+	}
+	var list struct {
+		Transactions []struct {
+			ID      int64  `json:"id"`
+			Kind    string `json:"kind"`
+			Payment string `json:"payment_method"`
+			Group   string `json:"group"`
+		} `json:"transactions"`
+	}
+	call(t, cs, "list_transactions", map[string]any{"from": "2026-11"}, &list, false)
+	got := map[int64][2]string{}
+	for _, tx := range list.Transactions {
+		got[tx.ID] = [2]string{tx.Payment, tx.Group}
+	}
+	if got[added.IDs[0]] != [2]string{"credito", "cartao"} || got[added.IDs[1]] != [2]string{"pix", "outros"} || got[added.IDs[2]] != [2]string{"", ""} {
+		t.Fatalf("payment/group: %v", got)
+	}
+
+	var upd struct {
+		Transaction struct {
+			Payment string `json:"payment_method"`
+			Group   string `json:"group"`
+		} `json:"transaction"`
+	}
+	call(t, cs, "update_transaction", map[string]any{"id": added.IDs[1], "payment_method": "credito"}, &upd, false)
+	if upd.Transaction.Payment != "credito" || upd.Transaction.Group != "cartao" {
+		t.Fatalf("update: %+v", upd)
+	}
+	call(t, cs, "update_transaction", map[string]any{"id": added.IDs[1], "amount": 31}, &upd, false)
+	if upd.Transaction.Payment != "credito" {
+		t.Fatalf("update without payment_method changed it: %+v", upd)
+	}
+	call(t, cs, "add_transactions", map[string]any{"items": []map[string]any{
+		{"kind": "expense", "date": "2026-11-03", "amount": 1, "category": "Alimentação", "payment_method": "cartao"},
+	}}, nil, true)
+
+	call(t, cs, "save_recurrence", map[string]any{"kind": "expense", "category": "Streaming", "create_category": true,
+		"amount": 40, "day": 12, "start": "2026-11", "payment_method": "credito"}, nil, false)
+	var recs struct {
+		Recurrences []struct {
+			Category string `json:"category"`
+			Payment  string `json:"payment_method"`
+		} `json:"recurrences"`
+	}
+	call(t, cs, "list_recurrences", map[string]any{"kind": "expense"}, &recs, false)
+	found := false
+	for _, r := range recs.Recurrences {
+		if r.Category == "Streaming" {
+			found = r.Payment == "credito"
+		}
+	}
+	if !found {
+		t.Fatalf("recurrence payment: %+v", recs)
+	}
+
+	// categories carry no group any more
+	var cats map[string]any
 	call(t, cs, "list_categories", map[string]any{}, &cats, false)
-	for _, c := range cats.Categories {
-		if c.Kind == "income" && c.Bucket != "" {
-			t.Errorf("income category with bucket %q", c.Bucket)
-		}
-		if c.Kind == "expense" && c.Bucket == "" {
-			t.Error("expense category without bucket")
-		}
+	if b, _ := json.Marshal(cats); strings.Contains(string(b), "bucket") {
+		t.Fatalf("category still has a group: %v", cats)
 	}
-	call(t, cs, "add_category", map[string]any{"name": "Aluguel", "kind": "income", "bucket": "cartao"}, nil, false)
-	var cat struct {
-		ID int64 `json:"id"`
-	}
-	call(t, cs, "add_category", map[string]any{"name": "Aluguel", "kind": "income"}, &cat, false)
-	call(t, cs, "set_category_bucket", map[string]any{"id": cat.ID, "bucket": "fixo"}, nil, true)
 }

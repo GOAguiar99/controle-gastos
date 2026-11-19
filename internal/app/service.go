@@ -74,50 +74,34 @@ func ParseKind(v string) (finance.Kind, error) {
 	return "", invalid("tipo inválido (use income ou expense)")
 }
 
-// ParseBucket is strict; "" means outros.
-func ParseBucket(v string) (finance.Bucket, error) {
-	switch finance.Bucket(v) {
-	case finance.Card, finance.Fixed, finance.Other:
-		return finance.Bucket(v), nil
-	case "":
-		return finance.Other, nil
+// ParsePaymentMethod is strict; "" stays "" (meaning: use the default).
+func ParsePaymentMethod(v string) (finance.PaymentMethod, error) {
+	if v == "" {
+		return "", nil
 	}
-	return "", invalid("grupo inválido (use cartao, fixo ou outros)")
+	for _, p := range finance.PaymentMethods {
+		if string(p) == v {
+			return p, nil
+		}
+	}
+	return "", invalid("forma de pagamento inválida (use credito, debito, pix, dinheiro, boleto ou outro)")
 }
 
 // ---------- categories ----------
 
 func (s *Service) Categories(kind finance.Kind) ([]db.Category, error) { return s.st.Categories(kind) }
 
-func (s *Service) AddCategory(name string, kind finance.Kind, bucket finance.Bucket) (int64, error) {
+// AddCategory creates a category. Categories say only what was bought; how it
+// was paid (and so the Cartão/Fixos/Outros group) is on each transaction.
+func (s *Service) AddCategory(name string, kind finance.Kind) (int64, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || (kind != finance.Income && kind != finance.Expense) {
 		return 0, invalid("nome e tipo são obrigatórios")
 	}
-	if kind == finance.Income {
-		bucket = finance.Other // groups (cartão/fixos/outros) only split expenses
-	}
-	if _, err := ParseBucket(string(bucket)); err != nil {
-		return 0, err
-	}
 	if c, ok, err := s.findCategory(kind, name); err != nil || ok {
 		return c.ID, err
 	}
-	return s.st.EnsureCategory(name, kind, bucket)
-}
-
-func (s *Service) SetCategoryBucket(id int64, bucket finance.Bucket) error {
-	if _, err := ParseBucket(string(bucket)); err != nil {
-		return err
-	}
-	c, err := s.st.Category(id)
-	if err != nil {
-		return notFound(err, "categoria")
-	}
-	if c.Kind == finance.Income {
-		return invalid("fontes de receita não têm grupo; grupos (cartão, fixos, outros) são só para gastos")
-	}
-	return s.st.SetCategoryBucket(id, bucket)
+	return s.st.EnsureCategory(name, kind)
 }
 
 // fold lowercases and strips Portuguese accents so "Saúde" matches "saude".
@@ -169,7 +153,7 @@ func (s *Service) resolveCategory(kind finance.Kind, ref CategoryRef) (db.Catego
 			}
 			return c, invalid("categoria %q não existe para %s; use uma existente (%s) ou peça para criá-la", name, kind, strings.Join(names, ", "))
 		}
-		id, err := s.st.EnsureCategory(name, kind, finance.Other)
+		id, err := s.st.EnsureCategory(name, kind)
 		if err != nil {
 			return c, err
 		}

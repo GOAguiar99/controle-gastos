@@ -42,7 +42,10 @@ type DB struct{ pool *pgxpool.Pool }
 
 // Open connects to url, refuses roles that would bypass RLS, and applies
 // migrations.
-func Open(ctx context.Context, url string) (*DB, error) {
+func Open(ctx context.Context, url string) (*DB, error) { return open(ctx, url, "") }
+
+// open applies the migrations named before stop ("" = all of them).
+func open(ctx context.Context, url, stop string) (*DB, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("DATABASE_URL inválida: %w", err)
@@ -69,7 +72,7 @@ func Open(ctx context.Context, url string) (*DB, error) {
 		pool.Close()
 		return nil, err
 	}
-	if err := d.migrate(ctx); err != nil {
+	if err := d.migrate(ctx, stop); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -97,7 +100,7 @@ func (d *DB) checkRole(ctx context.Context) error {
 	return nil
 }
 
-func (d *DB) migrate(ctx context.Context) error {
+func (d *DB) migrate(ctx context.Context, stop string) error {
 	conn, err := d.pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -117,6 +120,9 @@ func (d *DB) migrate(ctx context.Context) error {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 	for _, f := range files {
+		if stop != "" && f.Name() >= stop {
+			break
+		}
 		var n int
 		if err := conn.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE version = $1`, f.Name()).Scan(&n); err != nil {
 			return err

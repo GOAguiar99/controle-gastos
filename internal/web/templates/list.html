@@ -39,7 +39,7 @@
 <section class="{{if not .IsIncome}}two-col {{end}}month-analysis">
 {{if not .IsIncome}}
 <section class="card split-card">
-  <div class="card-head"><h2>Estrutura dos gastos</h2><a class="link" href="/perfil/preferencias">grupos das categorias</a></div>
+  <div class="card-head"><h2>Estrutura dos gastos</h2><span class="muted">pela forma de pagamento</span></div>
   <div class="split-bar" role="img" aria-label="Divisão dos gastos entre cartão, fixos e outros">
     {{range .Split}}{{if .Total}}<span class="b-{{.Key}}" style="width: {{pctWidth .Pct}}%" title="{{.Label}}: {{brl .Total}}"></span>{{end}}{{end}}
   </div>
@@ -48,6 +48,17 @@
     <div><span class="dot b-{{.Key}}"></span><span>{{.Label}}</span><strong>{{brl .Total}}</strong><small class="muted">{{pctDec .Pct}}</small></div>
     {{end}}
   </div>
+  <p class="hint">Cartão = pago no crédito; Fixos = recorrências; Outros = o resto.</p>
+  {{if .ByPayment}}
+  <h3>Por forma de pagamento</h3>
+  <ul class="bars">
+    {{range .ByPayment}}
+    <li><span class="bar-label">{{.Method.Label}}</span>
+      <span class="bar"><span class="b-{{if eq (printf "%s" .Method) "credito"}}cartao{{else}}outros{{end}}" style="width: {{pctWidth .Pct}}%"></span></span>
+      <span class="num">{{brl .Total}}</span></li>
+    {{end}}
+  </ul>
+  {{end}}
 </section>
 {{end}}
   <article class="card">
@@ -93,13 +104,16 @@
       <li class="entry {{if .Projected}}projected{{end}}">
         <div class="e-date"><strong>{{dm .Date}}</strong><small>{{weekday .Date}}</small></div>
         <div class="e-main">
-          {{if .Projected}}<span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
+          {{if .StatementRest}}<a class="e-desc e-link" href="/cartoes/{{.CardID}}/fatura?mes={{.Statement}}" title="Abrir a fatura">{{.Description}}</a>
+          {{else if .Projected}}<span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
           {{else}}<a class="e-desc e-link" href="/lancamentos/{{.ID}}/editar" title="Editar">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</a>{{end}}
-          <span class="e-meta">{{.Category}}{{if .RecurrenceID}} · <span class="tag">{{if .Projected}}previsto{{else}}recorrente{{end}}</span>{{end}}{{if .DebtID}} · <span class="tag">dívida</span>{{end}}{{if and $.Shared .CreatedBy}} · por {{.CreatedBy}}{{end}}</span>
+          <span class="e-meta">{{.Category}}{{if .RecurrenceID}} · <span class="tag">{{if .Projected}}previsto{{else}}recorrente{{end}}</span>{{end}}{{if .StatementRest}} · <span class="tag">valor da fatura</span>{{end}}{{if and (not $.IsIncome) (ne (printf "%s" .Payment) "outro") (not .CardID)}} · {{.Payment.Label}}{{end}}{{template "entry-card" .}}{{if .DebtID}} · <span class="tag">dívida</span>{{end}}{{if and $.Shared .CreatedBy}} · por {{.CreatedBy}}{{end}}</span>
         </div>
         <div class="e-amount {{if $.IsIncome}}pos{{else}}negc{{end}}">{{brl .Amount}}</div>
         <div class="e-actions">
-          {{if .Projected}}
+          {{if .StatementRest}}
+            <a class="btn ghost small" href="/cartoes/{{.CardID}}/fatura?mes={{.Statement}}">Ver fatura</a>
+          {{else if .Projected}}
             <details class="pop">
               <summary class="btn small">Confirmar</summary>
               <form method="post" action="/previstos/confirmar" class="pop-body">
@@ -166,7 +180,8 @@
           </select>
         </label>
         <label>ou nova {{if .IsIncome}}fonte{{else}}categoria{{end}}<input name="new_category" placeholder="opcional"></label>
-        <label>Descrição<input name="description" placeholder="{{if .IsIncome}}Salário, bolsa…{{else}}Fatura do cartão, mercado…{{end}}"></label>
+        <label>Descrição<input name="description" placeholder="{{if .IsIncome}}Salário, bolsa…{{else}}Mercado, farmácia…{{end}}"></label>
+        {{if not .IsIncome}}{{template "payment-select" ""}}{{template "card-fields" (dict "Cards" .Cards "Cur" 0 "New" true)}}{{end}}
         {{if not .IsIncome}}{{if .Debts}}
         <label>Abate dívida
           <select name="debt_id"><option value="0">—</option>{{range .Debts}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>

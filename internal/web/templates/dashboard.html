@@ -126,7 +126,7 @@
     <ul class="bars">
       {{$max := (index .ExpCats 0).Total}}
       {{range .ExpCats}}
-      <li><span class="bar-label">{{.Name}} <small class="muted">{{bucketLabel .Bucket}}</small></span>
+      <li><span class="bar-label">{{.Name}}</span>
         <span class="bar"><span class="b-{{.Bucket}}" style="width: {{barPct .Total $max}}%"></span></span>
         <span class="num">{{brl .Total}}</span></li>
       {{end}}

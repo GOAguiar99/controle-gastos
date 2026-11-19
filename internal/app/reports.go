@@ -38,6 +38,8 @@ func (s *Service) Overview(sel finance.Month) (Overview, error) {
 	if o.Snapshot.Set {
 		lo = min(lo, finance.MonthOf(o.Snapshot.Date))
 	}
+	// card purchases leave the cash up to two months later, on the fatura due date
+	lo = lo.Add(-cardLag)
 	if o.Entries, _, err = s.st.Entries(lo, hi); err != nil {
 		return o, err
 	}
@@ -48,6 +50,10 @@ func (s *Service) Overview(sel finance.Month) (Overview, error) {
 	o.FlowRows = finance.MonthlyFlow(o.Entries, o.Snapshot, today, cur.Add(-HistoryMonths), cur.Add(HorizonMonths-1))
 	return o, nil
 }
+
+// cardLag is how many months before a window card purchases can still move
+// its cash (bought after closing, paid after the next closing).
+const cardLag = 2
 
 // CashProjection projects the cash balance for the next n months.
 func (s *Service) CashProjection(n int) (finance.CashFlow, error) {
@@ -64,7 +70,7 @@ func (s *Service) CashProjection(n int) (finance.CashFlow, error) {
 	if snap.Set {
 		lo = min(lo, finance.MonthOf(snap.Date))
 	}
-	es, _, err := s.st.Entries(lo, cur.Add(n-1))
+	es, _, err := s.st.Entries(lo.Add(-cardLag), cur.Add(n-1))
 	if err != nil {
 		return finance.CashFlow{}, err
 	}

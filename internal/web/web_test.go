@@ -305,3 +305,98 @@ func countTx(t *testing.T, link string) int {
 	json.Unmarshal(b, &out)
 	return len(out.Transactions)
 }
+
+// The expense form asks how it was paid; the Análise tab splits the month by it.
+func TestExpensePaymentMethodForm(t *testing.T) {
+	ts, client, env := newTestServer(t)
+	env.mustLogin(t, client, anaUser)
+	page := string(mustGet(t, client, ts.URL+"/gastos?mes=2026-11"))
+	if !strings.Contains(page, `name="payment_method"`) || !strings.Contains(page, `<option value="" selected>Automático`) {
+		t.Fatal("new-expense form has no payment method (with Automático by default)")
+	}
+	if strings.Contains(string(mustGet(t, client, ts.URL+"/receitas?mes=2026-11")), `name="payment_method"`) {
+		t.Error("income form asks for a payment method")
+	}
+	for _, pay := range []string{"credito", "pix"} {
+		res, err := client.PostForm(ts.URL+"/lancamentos", url.Values{"kind": {"expense"}, "date": {"2026-11-10"},
+			"amount": {"50,00"}, "new_category": {"Alimentação"}, "payment_method": {pay}})
+		if err != nil || res.StatusCode != http.StatusSeeOther {
+			t.Fatalf("POST %s: %v %v", pay, res.StatusCode, err)
+		}
+	}
+	res, _ := client.PostForm(ts.URL+"/lancamentos", url.Values{"kind": {"expense"}, "date": {"2026-11-10"},
+		"amount": {"1,00"}, "new_category": {"Alimentação"}, "payment_method": {"cartao"}})
+	if res.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid payment method: %d", res.StatusCode)
+	}
+	an := string(mustGet(t, client, ts.URL+"/gastos?mes=2026-11&ver=analise"))
+	for _, want := range []string{"Por forma de pagamento", "Crédito", "Pix", "Cartão de crédito"} {
+		if !strings.Contains(an, want) {
+			t.Errorf("análise misses %q", want)
+		}
+	}
+}
+
+// Cards: register one, set a fatura total, import a statement and confirm it.
+func TestCardsAndStatementImport(t *testing.T) {
+	ts, client, env := newTestServer(t)
+	env.mustLogin(t, client, anaUser)
+	post := func(path string, v url.Values) *http.Response {
+		t.Helper()
+		res, err := client.PostForm(ts.URL+path, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if res := post("/cartoes", url.Values{"name": {"Nubank"}, "closing_day": {"3"}, "due_day": {"10"}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save card: %d", res.StatusCode)
+	}
+	cards := string(mustGet(t, client, ts.URL+"/cartoes"))
+	if !strings.Contains(cards, "Nubank") || !strings.Contains(cards, "fecha dia 3") {
+		t.Fatal("card not listed")
+	}
+	// the expense form now offers the card and installments
+	if g := string(mustGet(t, client, ts.URL+"/gastos")); !strings.Contains(g, `name="card_id"`) || !strings.Contains(g, `name="installments"`) {
+		t.Fatal("expense form without card fields")
+	}
+	if res := post("/cartoes/1/fatura?mes=2026-11", url.Values{"total": {"1.000,00"}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("total: %d", res.StatusCode)
+	}
+	if f := string(mustGet(t, client, ts.URL+"/cartoes/1/fatura?mes=2026-11")); !strings.Contains(f, "R$ 1.000,00") {
+		t.Fatal("declared total not shown")
+	}
+
+	res := post("/cartoes/1/importar?mes=2026-11", url.Values{"text": {"28/10 Padaria 12,50\n30/10 Magazine Luiza 3/10 99,90\n01/11 Pagamento recebido -500,00"}})
+	b, _ := io.ReadAll(res.Body)
+	page := string(b)
+	if res.StatusCode != http.StatusOK || !strings.Contains(page, "Revisar importação") || !strings.Contains(page, "3/10") ||
+		!strings.Contains(page, `name="use_0" aria-label="Importar linha 1" checked`) || strings.Contains(page, `name="use_2" aria-label="Importar linha 3" checked`) {
+		t.Fatalf("preview: %d", res.StatusCode)
+	}
+	v := url.Values{"rows": {"2"},
+		"use_0": {"on"}, "date_0": {"2026-10-28"}, "desc_0": {"Padaria"}, "amount_0": {"12,50"}, "newcat_0": {"Alimentação"},
+		"use_1": {"on"}, "date_1": {"2026-10-30"}, "desc_1": {"Magazine Luiza"}, "amount_1": {"99,90"}, "newcat_1": {"Casa"}, "n_1": {"3"}, "of_1": {"10"}}
+	// a checked line without a category: the review comes back, nothing saved
+	bad := url.Values{"rows": {"1"}, "use_0": {"on"}, "date_0": {"2026-10-28"}, "desc_0": {"Padaria"}, "amount_0": {"12,50"}, "cat_0": {"0"}}
+	res = post("/cartoes/1/importar/confirmar?mes=2026-11", bad)
+	b, _ = io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(b), "linha 1 (Padaria): escolha uma categoria") ||
+		!strings.Contains(string(b), `value="Padaria"`) {
+		t.Fatalf("missing category: %d", res.StatusCode)
+	}
+	res = post("/cartoes/1/importar/confirmar?mes=2026-11", v)
+	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "7+parcela") {
+		t.Fatalf("confirm: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	f := string(mustGet(t, client, ts.URL+"/cartoes/1/fatura?mes=2026-11"))
+	for _, want := range []string{"Padaria", "Magazine Luiza", "3/10", "R$ 887,60"} { // não detalhado: 1000 - 12,50 - 99,90
+		if !strings.Contains(f, want) {
+			t.Errorf("statement misses %q", want)
+		}
+	}
+	// the November expenses list shows the undetailed part, linked to the fatura
+	if g := string(mustGet(t, client, ts.URL+"/gastos?mes=2026-11")); !strings.Contains(g, "Fatura Nubank (não detalhado)") {
+		t.Error("undetailed part not in the expense list")
+	}
+}

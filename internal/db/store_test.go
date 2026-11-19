@@ -30,7 +30,7 @@ func twoLedgers(t *testing.T) (a, b *db.Store) {
 
 func addTx(t *testing.T, st *db.Store, desc string) int64 {
 	t.Helper()
-	cat, err := st.EnsureCategory("Mercado", finance.Expense, finance.Other)
+	cat, err := st.EnsureCategory("Mercado", finance.Expense)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func mustCats(t *testing.T, st *db.Store) []db.Category {
 // a row can't point at another ledger's category, debt or recurrence.
 func TestNoCrossLedgerReferences(t *testing.T) {
 	a, b := twoLedgers(t)
-	catA, err := a.EnsureCategory("Mercado", finance.Expense, finance.Other)
+	catA, err := a.EnsureCategory("Mercado", finance.Expense)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestNoCrossLedgerReferences(t *testing.T) {
 	if _, err := b.InsertTx(db.TxInput{Kind: finance.Expense, Date: day, Amount: 1, CategoryID: catA}); err == nil {
 		t.Fatal("B used A's category")
 	}
-	catB, _ := b.EnsureCategory("Mercado", finance.Expense, finance.Other)
+	catB, _ := b.EnsureCategory("Mercado", finance.Expense)
 	if _, err := b.InsertTx(db.TxInput{Kind: finance.Expense, Date: day, Amount: 1, CategoryID: catB, DebtID: debtA}); err == nil {
 		t.Fatal("B linked a payment to A's debt")
 	}
@@ -120,14 +120,14 @@ func TestNoLedgerSeesNothing(t *testing.T) {
 	if err != nil || len(txs) != 0 {
 		t.Fatalf("unscoped store sees %d rows (%v)", len(txs), err)
 	}
-	if _, err := d.Ledger(0).EnsureCategory("X", finance.Expense, finance.Other); err == nil {
+	if _, err := d.Ledger(0).EnsureCategory("X", finance.Expense); err == nil {
 		t.Fatal("unscoped store could write")
 	}
 }
 
 func TestInTxRollsBack(t *testing.T) {
 	a, _ := twoLedgers(t)
-	cat, _ := a.EnsureCategory("Mercado", finance.Expense, finance.Other)
+	cat, _ := a.EnsureCategory("Mercado", finance.Expense)
 	_, err := a.InsertTxs([]db.TxInput{
 		{Kind: finance.Expense, Date: day, Amount: 1, CategoryID: cat},
 		{Kind: finance.Expense, Date: day, Amount: 1, CategoryID: -1},

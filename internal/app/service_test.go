@@ -69,7 +69,7 @@ func TestTxRules(t *testing.T) {
 	mustInvalid(t, err, "só gastos")
 
 	// income category id used for an expense is refused
-	incID, _ := s.AddCategory("Empresa", finance.Income, "")
+	incID, _ := s.AddCategory("Empresa", finance.Income)
 	bad = base
 	bad.Category = CategoryRef{ID: incID}
 	_, err = s.AddTx(bad)
@@ -180,9 +180,8 @@ func TestDebtAndConfigRules(t *testing.T) {
 	mustInvalid(t, err, "não encontrada")
 
 	mustInvalid(t, s.SetLimits(finance.Limits{CardLimit: -1}), "inválidos")
-	mustInvalid(t, s.SetCategoryBucket(999, finance.Card), "não encontrada")
-	_, err = ParseBucket("cartão")
-	mustInvalid(t, err, "grupo inválido")
+	_, err = ParsePaymentMethod("cartão")
+	mustInvalid(t, err, "forma de pagamento inválida")
 }
 
 func d(s string) time.Time {
@@ -205,7 +204,7 @@ func TestLoanSuggestsInstallmentRecurrence(t *testing.T) {
 	}
 	r, _ := s.Recurrence(res.SuggestedID)
 	if !r.Pending || r.Active || r.DebtID != res.ID || r.Description != "Carro" || r.Category != LoanCategory ||
-		r.Bucket != finance.Fixed || r.Day != 10 || r.Start != dec || r.EndMode != finance.EndCount || r.Count != 12 {
+		r.Payment != finance.OtherPay || r.Day != 10 || r.Start != dec || r.EndMode != finance.EndCount || r.Count != 12 {
 		t.Fatalf("suggestion: %+v", r)
 	}
 	// a suggestion is not projected and can't be confirmed

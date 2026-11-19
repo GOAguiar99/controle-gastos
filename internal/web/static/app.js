@@ -1,8 +1,22 @@
 // Small progressive enhancements; every page works without JS.
 (function () {
-  // Submit GET/POST forms when a [data-autosubmit] field changes (month pickers, bucket selects).
+  // Submit GET/POST forms when a [data-autosubmit] field changes (month pickers).
   document.querySelectorAll('[data-autosubmit]').forEach(function (el) {
     el.addEventListener('change', function () { if (el.value) el.form.submit(); });
+  });
+
+  // Card and installments only make sense for credit purchases: hide them
+  // (and leave them out of the form) for any other payment method.
+  document.querySelectorAll('[data-card-fields]').forEach(function (box) {
+    var form = box.closest('form'), pay = form && form.elements['payment_method'];
+    if (!pay) return;
+    function sync() {
+      var credit = pay.value === 'credito';
+      box.hidden = !credit;
+      box.querySelectorAll('select, input').forEach(function (el) { el.disabled = !credit; });
+    }
+    pay.addEventListener('change', sync);
+    sync();
   });
 
   // Confirm destructive actions.

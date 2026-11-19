@@ -42,17 +42,21 @@ func (t *tools) register(s *mcp.Server) {
 		Description: "Totais por categoria e por ano (realizado/previsto) desde o primeiro lançamento até o próximo ano, mais a composição do mês, do ano e do histórico até hoje."},
 		t.categoryReport)
 	addTool(s, &mcp.Tool{Name: "list_categories", Annotations: readOnly,
-		Description: "Categorias existentes, com tipo e grupo (cartao, fixo, outros)."}, t.listCategories)
+		Description: "Categorias existentes, com tipo. A categoria diz o que foi comprado; como foi pago fica em cada lançamento (payment_method)."}, t.listCategories)
 	addTool(s, &mcp.Tool{Name: "list_recurrences", Annotations: readOnly,
 		Description: "Recorrências (receitas/gastos que se repetem) com periodicidade, término e próximos meses. pending=true são sugestões (parcelas de financiamento novo) ainda não adicionadas."}, t.listRecurrences)
 	addTool(s, &mcp.Tool{Name: "list_debts", Annotations: readOnly,
 		Description: "Dívidas e financiamentos com saldo atual, pagamentos e, para SAC/Price, parcelas pagas e juros restantes."}, t.listDebts)
 	addTool(s, &mcp.Tool{Name: "get_limits", Annotations: readOnly,
 		Description: "Limites configurados: limite do cartão e sobra mínima mensal."}, t.getLimits)
+	addTool(s, &mcp.Tool{Name: "list_cards", Annotations: readOnly,
+		Description: "Cartões de crédito com dia de fechamento e vencimento e a fatura aberta de cada um."}, t.listCards)
+	addTool(s, &mcp.Tool{Name: "get_statement", Annotations: readOnly,
+		Description: "Uma fatura de cartão (mês em que fecha, AAAA-MM; padrão a aberta): compras lançadas, valor informado (valor cheio), parte não detalhada, total, fechamento e vencimento."}, t.getStatement)
 
 	// writes
 	addTool(s, &mcp.Tool{Name: "add_transactions", Annotations: write,
-		Description: "Cria um ou mais lançamentos reais. Tudo ou nada: se um item for inválido, nada é salvo. Confira duplicados com list_transactions antes."},
+		Description: "Cria um ou mais lançamentos reais. Tudo ou nada: se um item for inválido, nada é salvo. Confira duplicados com list_transactions antes. Em gastos, informe payment_method (credito, debito, pix, dinheiro, boleto, outro); sem ele, vale o da última compra na mesma categoria."},
 		t.addTransactions)
 	addTool(s, &mcp.Tool{Name: "update_transaction", Annotations: idempotent,
 		Description: "Altera um lançamento existente; só os campos informados mudam."}, t.updateTransaction)
@@ -72,8 +76,12 @@ func (t *tools) register(s *mcp.Server) {
 		t.setCash)
 	addTool(s, &mcp.Tool{Name: "add_category", Annotations: idempotent,
 		Description: "Cria uma categoria (se já existir com o mesmo nome, retorna a existente)."}, t.addCategory)
-	addTool(s, &mcp.Tool{Name: "set_category_bucket", Annotations: idempotent,
-		Description: "Muda o grupo de uma categoria de gasto (cartao, fixo, outros)."}, t.setCategoryBucket)
+	addTool(s, &mcp.Tool{Name: "save_card", Annotations: idempotent,
+		Description: "Cria (sem id) ou altera (com id) um cartão de crédito: nome, dia de fechamento e de vencimento. Mudar o vencimento move a data de pagamento das compras já lançadas."}, t.saveCard)
+	addTool(s, &mcp.Tool{Name: "set_statement_total", Annotations: idempotent,
+		Description: "Informa o valor total de uma fatura (valor cheio), para quem não quer lançar item a item. As compras lançadas na fatura contam dentro dele: só a diferença entra como \"Fatura cartão (não detalhado)\". total=0 remove."}, t.setStatementTotal)
+	addTool(s, &mcp.Tool{Name: "import_statement", Annotations: write,
+		Description: "Lança as compras de uma fatura de cartão item a item, cada uma na sua categoria, na fatura indicada (tudo ou nada). Itens com parcela (installment_n de installments, ex. 3/10) criam também as parcelas seguintes nas próximas faturas. Antes, consulte get_statement e list_transactions para não duplicar (parcelas já lançadas aparecem como itens da fatura)."}, t.importStatement)
 	addTool(s, &mcp.Tool{Name: "set_limits", Annotations: idempotent,
 		Description: "Altera limite do cartão e/ou sobra mínima mensal."}, t.setLimits)
 
@@ -88,6 +96,8 @@ func (t *tools) register(s *mcp.Server) {
 		Description: "Exclui um lançamento real (irreversível). Para não contar uma ocorrência prevista use skip_occurrence."}, t.deleteTransaction)
 	addTool(s, &mcp.Tool{Name: "delete_recurrence", Annotations: destructive,
 		Description: "Exclui uma recorrência e suas previsões futuras; lançamentos já confirmados ficam (irreversível)."}, t.deleteRecurrence)
+	addTool(s, &mcp.Tool{Name: "delete_card", Annotations: destructive,
+		Description: "Exclui um cartão sem compras lançadas (com compras, desative-o com save_card active=false)."}, t.deleteCard)
 	addTool(s, &mcp.Tool{Name: "delete_debt", Annotations: destructive,
 		Description: "Exclui uma dívida e as recorrências que a pagam; pagamentos já lançados continuam como gastos, sem vínculo (irreversível)."}, t.deleteDebt)
 }
@@ -101,7 +111,13 @@ type txOut struct {
 	AmountCents  int64  `json:"amount_cents"`
 	AmountBRL    string `json:"amount_brl"`
 	Category     string `json:"category"`
-	Bucket       string `json:"bucket,omitempty" jsonschema:"grupo do gasto; ausente em receitas"`
+	Payment      string `json:"payment_method,omitempty" jsonschema:"forma de pagamento do gasto; ausente em receitas"`
+	Group        string `json:"group,omitempty" jsonschema:"grupo do gasto no resumo, derivado: cartao (pago no crédito), fixo (recorrência) ou outros; ausente em receitas"`
+	Card         string `json:"card,omitempty" jsonschema:"cartão de crédito da compra"`
+	Statement    string `json:"statement,omitempty" jsonschema:"fatura (mês em que fecha, AAAA-MM)"`
+	CashDate     string `json:"cash_date,omitempty" jsonschema:"quando sai do caixa (vencimento da fatura), se diferente da data"`
+	Installment  string `json:"installment,omitempty" jsonschema:"parcela, ex. 3/10"`
+	Undetailed   bool   `json:"undetailed,omitempty" jsonschema:"parte não detalhada de um valor de fatura informado (set_statement_total); não é um lançamento"`
 	Description  string `json:"description"`
 	Projected    bool   `json:"projected,omitempty" jsonschema:"ocorrência prevista de recorrência, ainda não confirmada"`
 	RecurrenceID int64  `json:"recurrence_id,omitempty"`
@@ -110,18 +126,24 @@ type txOut struct {
 	CreatedBy    string `json:"created_by,omitempty" jsonschema:"quem lançou (em carteiras compartilhadas)"`
 }
 
-// bucketOf is the expense group; income has none.
-func bucketOf(k finance.Kind, b finance.Bucket) string {
-	if k == finance.Income {
-		return ""
-	}
-	return string(b)
-}
-
 func txOf(e finance.Entry) txOut {
-	return txOut{ID: e.ID, Kind: string(e.Kind), Date: iso(e.Date), AmountCents: e.Amount, AmountBRL: finance.BRL(e.Amount),
-		Category: e.Category, Bucket: bucketOf(e.Kind, e.Bucket), Description: e.Description, Projected: e.Projected,
+	o := txOut{ID: e.ID, Kind: string(e.Kind), Date: iso(e.Date), AmountCents: e.Amount, AmountBRL: finance.BRL(e.Amount),
+		Category: e.Category, Description: e.Description, Projected: e.Projected,
 		RecurrenceID: e.RecurrenceID, Month: e.OccMonth, DebtID: e.DebtID, CreatedBy: e.CreatedBy}
+	if e.Kind == finance.Expense {
+		o.Payment, o.Group = string(e.Payment), string(e.Group())
+	}
+	if e.CardID != 0 {
+		o.Card, o.Statement = e.Card, e.Statement.String()
+		if !e.CashDate.Equal(e.Date) {
+			o.CashDate = iso(e.CashDate)
+		}
+	}
+	if e.InstallmentOf != 0 {
+		o.Installment = itoa(e.InstallmentN) + "/" + itoa(e.InstallmentOf)
+	}
+	o.Undetailed = e.StatementRest
+	return o
 }
 
 func iso(t time.Time) string {
@@ -387,10 +409,9 @@ type kindIn struct {
 }
 
 type categoryOut struct {
-	ID     int64  `json:"id"`
-	Name   string `json:"name"`
-	Kind   string `json:"kind"`
-	Bucket string `json:"bucket,omitempty" jsonschema:"grupo do gasto (cartao, fixo, outros); ausente em receitas"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
 }
 
 type categoriesOut struct {
@@ -408,7 +429,7 @@ func (t *tools) listCategories(ctx context.Context, _ *mcp.CallToolRequest, in k
 		return nil, out, toolErr(err)
 	}
 	for _, c := range cats {
-		out.Categories = append(out.Categories, categoryOut{ID: c.ID, Name: c.Name, Kind: string(c.Kind), Bucket: bucketOf(c.Kind, c.Bucket)})
+		out.Categories = append(out.Categories, categoryOut{ID: c.ID, Name: c.Name, Kind: string(c.Kind)})
 	}
 	return nil, out, nil
 }
@@ -429,6 +450,8 @@ type recurrenceOut struct {
 	EndLabel    string   `json:"end_label"`
 	Active      bool     `json:"active"`
 	DebtID      int64    `json:"debt_id,omitempty"`
+	Payment     string   `json:"payment_method,omitempty" jsonschema:"forma de pagamento das ocorrências; ausente em receitas"`
+	CardID      int64    `json:"card_id,omitempty" jsonschema:"cartão em que as ocorrências são cobradas"`
 	Pending     bool     `json:"pending,omitempty" jsonschema:"sugestão aguardando o usuário: accept_recurrence ou dismiss_recurrence"`
 	Next        []string `json:"next_months"`
 }
@@ -452,6 +475,9 @@ func (t *tools) listRecurrences(ctx context.Context, _ *mcp.CallToolRequest, in 
 		o := recurrenceOut{ID: r.ID, Kind: string(r.Kind), Description: r.Description, Category: r.Category,
 			Amount: money(r.Amount), Day: r.Day, Interval: r.Interval, Frequency: r.FrequencyLabel(), Start: r.Start.String(),
 			EndMode: r.EndMode, Count: r.Count, EndLabel: r.EndLabel(), Active: r.Active, DebtID: r.DebtID, Pending: r.Pending, Next: []string{}}
+		if r.Kind == finance.Expense {
+			o.Payment, o.CardID = string(r.Payment), r.CardID
+		}
 		if r.EndMode == finance.EndUntil {
 			o.End = r.End.String()
 		}
@@ -537,6 +563,9 @@ type txItem struct {
 	CreateCategory bool    `json:"create_category,omitempty" jsonschema:"criar a categoria se não existir"`
 	Description    string  `json:"description,omitempty"`
 	DebtID         int64   `json:"debt_id,omitempty" jsonschema:"dívida que este gasto abate"`
+	PaymentMethod  string  `json:"payment_method,omitempty" jsonschema:"forma de pagamento do gasto: credito, debito, pix, dinheiro, boleto ou outro (padrão: a da última compra na categoria)"`
+	Card           string  `json:"card,omitempty" jsonschema:"cartão de crédito (nome, de list_cards); implica credito. Sem ele, credito vai no único cartão ativo, se houver um"`
+	Installments   int     `json:"installments,omitempty" jsonschema:"compra parcelada: número de parcelas; amount é o total da compra, dividido entre as faturas"`
 }
 
 type addTxIn struct {
@@ -561,9 +590,20 @@ func (t *tools) addTransactions(ctx context.Context, _ *mcp.CallToolRequest, in 
 		if err != nil || d.IsZero() {
 			return nil, out, &app.ValidationError{Msg: "item " + itoa(i+1) + ": data inválida (use AAAA-MM-DD)"}
 		}
+		pay, err := app.ParsePaymentMethod(it.PaymentMethod)
+		if err != nil {
+			return nil, out, &app.ValidationError{Msg: "item " + itoa(i+1) + ": " + err.Error()}
+		}
 		ins[i] = app.TxIn{Kind: k, Date: d, Amount: finance.FromReais(it.Amount),
 			Category:    app.CategoryRef{Name: it.Category, Create: it.CreateCategory},
-			Description: it.Description, DebtID: it.DebtID, Source: app.SourceMCP}
+			Description: it.Description, DebtID: it.DebtID, Source: app.SourceMCP, Payment: pay, Installments: it.Installments}
+		if it.Card != "" {
+			c, err := t.svcFor(ctx).CardByName(it.Card)
+			if err != nil {
+				return nil, out, &app.ValidationError{Msg: "item " + itoa(i+1) + ": " + err.Error()}
+			}
+			ins[i].CardID = c.ID
+		}
 		total += ins[i].Amount
 	}
 	ids, err := t.svcFor(ctx).AddTxs(ins)
@@ -581,6 +621,8 @@ type updateTxIn struct {
 	CreateCategory bool     `json:"create_category,omitempty"`
 	Description    *string  `json:"description,omitempty"`
 	DebtID         *int64   `json:"debt_id,omitempty" jsonschema:"0 remove o vínculo com dívida"`
+	PaymentMethod  string   `json:"payment_method,omitempty" jsonschema:"forma de pagamento do gasto: credito, debito, pix, dinheiro, boleto ou outro"`
+	Card           string   `json:"card,omitempty" jsonschema:"cartão de crédito (nome); implica credito"`
 }
 
 type txResult struct {
@@ -595,7 +637,19 @@ func (t *tools) updateTransaction(ctx context.Context, _ *mcp.CallToolRequest, i
 		return nil, out, toolErr(err)
 	}
 	tx := app.TxIn{Date: old.Date, Amount: old.Amount, Category: app.CategoryRef{ID: old.CategoryID},
-		Description: old.Description, DebtID: old.DebtID}
+		Description: old.Description, DebtID: old.DebtID, Payment: old.Payment}
+	if in.PaymentMethod != "" {
+		if tx.Payment, err = app.ParsePaymentMethod(in.PaymentMethod); err != nil {
+			return nil, out, err
+		}
+	}
+	if in.Card != "" {
+		c, err := t.svcFor(ctx).CardByName(in.Card)
+		if err != nil {
+			return nil, out, err
+		}
+		tx.CardID, tx.Payment = c.ID, finance.Credit
+	}
 	if in.Date != "" {
 		if tx.Date, err = date(in.Date); err != nil {
 			return nil, out, err
@@ -702,6 +756,8 @@ type recurrenceIn struct {
 	End            string  `json:"end,omitempty" jsonschema:"último mês AAAA-MM (end_mode=until)"`
 	Active         *bool   `json:"active,omitempty" jsonschema:"padrão true"`
 	DebtID         int64   `json:"debt_id,omitempty" jsonschema:"dívida que esta recorrência paga"`
+	PaymentMethod  string  `json:"payment_method,omitempty" jsonschema:"forma de pagamento do gasto: credito, debito, pix, dinheiro, boleto ou outro (padrão outro; ao alterar, mantém)"`
+	Card           string  `json:"card,omitempty" jsonschema:"cartão de crédito (nome); implica credito"`
 }
 
 func (t *tools) saveRecurrence(ctx context.Context, _ *mcp.CallToolRequest, in recurrenceIn) (*mcp.CallToolResult, idOut, error) {
@@ -709,6 +765,16 @@ func (t *tools) saveRecurrence(ctx context.Context, _ *mcp.CallToolRequest, in r
 		Amount: finance.FromReais(in.Amount), Day: in.Day, Interval: in.Interval, EndMode: in.EndMode, Count: in.Count,
 		Active: in.Active == nil || *in.Active, DebtID: in.DebtID}
 	var err error
+	if r.Payment, err = app.ParsePaymentMethod(in.PaymentMethod); err != nil {
+		return nil, idOut{}, err
+	}
+	if in.Card != "" {
+		c, err := t.svcFor(ctx).CardByName(in.Card)
+		if err != nil {
+			return nil, idOut{}, err
+		}
+		r.CardID = c.ID
+	}
 	if r.Kind, err = app.ParseKind(in.Kind); err != nil {
 		return nil, idOut{}, err
 	}
@@ -785,9 +851,8 @@ func (t *tools) setCash(ctx context.Context, _ *mcp.CallToolRequest, in cashIn) 
 }
 
 type categoryIn struct {
-	Name   string `json:"name"`
-	Kind   string `json:"kind" jsonschema:"income ou expense"`
-	Bucket string `json:"bucket,omitempty" jsonschema:"só para gastos: cartao, fixo ou outros (padrão); receitas não têm grupo"`
+	Name string `json:"name"`
+	Kind string `json:"kind" jsonschema:"income ou expense"`
 }
 
 func (t *tools) addCategory(ctx context.Context, _ *mcp.CallToolRequest, in categoryIn) (*mcp.CallToolResult, idOut, error) {
@@ -795,31 +860,11 @@ func (t *tools) addCategory(ctx context.Context, _ *mcp.CallToolRequest, in cate
 	if err != nil {
 		return nil, idOut{}, err
 	}
-	b, err := app.ParseBucket(in.Bucket)
-	if err != nil {
-		return nil, idOut{}, err
-	}
-	id, err := t.svcFor(ctx).AddCategory(in.Name, k, b)
+	id, err := t.svcFor(ctx).AddCategory(in.Name, k)
 	if err != nil {
 		return nil, idOut{}, toolErr(err)
 	}
 	return nil, idOut{ID: id, Message: "categoria pronta"}, nil
-}
-
-type bucketIn struct {
-	ID     int64  `json:"id" jsonschema:"id da categoria"`
-	Bucket string `json:"bucket" jsonschema:"cartao, fixo ou outros"`
-}
-
-func (t *tools) setCategoryBucket(ctx context.Context, _ *mcp.CallToolRequest, in bucketIn) (*mcp.CallToolResult, msgOut, error) {
-	b, err := app.ParseBucket(in.Bucket)
-	if err != nil {
-		return nil, msgOut{}, err
-	}
-	if err := t.svcFor(ctx).SetCategoryBucket(in.ID, b); err != nil {
-		return nil, msgOut{}, toolErr(err)
-	}
-	return nil, msgOut{Message: "grupo atualizado"}, nil
 }
 
 type limitsIn struct {

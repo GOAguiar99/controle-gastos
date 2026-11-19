@@ -1,0 +1,110 @@
+{{define "content"}}
+{{$v := .V}}
+<div class="page-head">
+  <div>
+    <h1>Fatura {{$v.Card.Name}}</h1>
+    <p class="muted">{{$v.Month.LongLabel}} · fecha {{dmy $v.Closing}} · vence {{dmy $v.Due}}{{if $v.Open}} · <span class="tag">aberta</span>{{end}}</p>
+  </div>
+  <div class="month-nav">
+    <a class="btn ghost" href="/cartoes/{{$v.Card.ID}}/fatura?mes={{.Prev}}" aria-label="Fatura anterior">‹</a>
+    <a class="btn ghost" href="/cartoes">Cartões</a>
+    <a class="btn ghost" href="/cartoes/{{$v.Card.ID}}/fatura?mes={{.Next}}" aria-label="Próxima fatura">›</a>
+  </div>
+</div>
+
+<section class="kpis three">
+  <article class="kpi"><span class="kpi-label">Total da fatura</span><strong class="kpi-value negc">{{brl $v.Total}}</strong>
+    <span class="kpi-sub">sai do caixa em {{dmy $v.Due}}</span></article>
+  <article class="kpi"><span class="kpi-label">Lançado item a item</span><strong class="kpi-value">{{brl $v.Statement.Items}}</strong>
+    <span class="kpi-sub">{{$v.Count}} compra(s)</span></article>
+  <article class="kpi"><span class="kpi-label">Não detalhado</span><strong class="kpi-value">{{brl $v.Rest}}</strong>
+    <span class="kpi-sub">{{if $v.HasTotal}}valor informado {{brl $v.Declared}}{{if gt $v.Statement.Items $v.Declared}}: os itens passam dele em {{brl (sub $v.Statement.Items $v.Declared)}}{{end}}{{else}}nenhum valor informado{{end}}</span></article>
+</section>
+
+{{if $v.Loose}}
+<p class="notice">Esta fatura tem um total lançado como gasto ("Fatura cartão", ou um gasto no crédito sem cartão no mês). Junto com os itens detalhados, o mesmo gasto conta duas vezes. Exclua esse total e, se quiser manter o valor cheio, informe-o em "Valor cheio" ao lado:
+  {{range $v.Loose}}<a class="link" href="/lancamentos/{{.ID}}/editar">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}} {{brl .Amount}}</a> {{end}}</p>
+{{end}}
+
+{{with .Preview}}
+<section class="card" id="revisao">
+  {{if $.Error}}<p class="notice" role="alert">{{$.Error}}</p>{{end}}
+  <div class="card-head"><h2>Revisar importação</h2><span class="muted">{{len .Rows}} linha(s) lida(s) · {{.NewCount}} nova(s): {{brl .New}}</span></div>
+  {{if .LooseNote}}<p class="notice">{{.LooseNote}}</p>{{end}}
+  {{if .Unread}}<details><summary>{{len .Unread}} linha(s) não reconhecida(s)</summary><ul>{{range .Unread}}<li><code>{{.}}</code></li>{{end}}</ul></details>{{end}}
+  <form method="post" action="/cartoes/{{$v.Card.ID}}/importar/confirmar?mes={{$v.Month}}" class="form">
+    <input type="hidden" name="rows" value="{{len .Rows}}">
+    <div class="table-scroll">
+    <table class="grid compact import-table">
+      <thead><tr><th>Importar</th><th>Data</th><th>Descrição</th><th class="num">Valor</th><th>Parcela</th><th>Categoria</th><th></th></tr></thead>
+      <tbody>
+      {{range $i, $r := .Rows}}
+      <tr class="{{if ne $r.Status "novo"}}muted{{end}}">
+        <td><input type="checkbox" name="use_{{$i}}" aria-label="Importar linha {{add $i 1}}" {{if eq $r.Status "novo"}}checked{{end}}></td>
+        <td><input type="date" name="date_{{$i}}" value="{{iso $r.Date}}"></td>
+        <td><input name="desc_{{$i}}" value="{{$r.Description}}"></td>
+        <td class="num"><input name="amount_{{$i}}" value="{{money $r.Amount}}" inputmode="decimal" data-money size="9"></td>
+        <td>{{if $r.Installments}}<input type="hidden" name="n_{{$i}}" value="{{$r.InstallmentN}}"><input type="hidden" name="of_{{$i}}" value="{{$r.Installments}}"><span class="tag">{{$r.InstallmentN}}/{{$r.Installments}}</span>{{end}}</td>
+        <td>
+          <select name="cat_{{$i}}" aria-label="Categoria da linha {{add $i 1}}">
+            {{if not $r.CategoryID}}<option value="0">escolha…</option>{{end}}
+            {{range $.Categories}}<option value="{{.ID}}" {{if eq .ID $r.CategoryID}}selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+          <input name="newcat_{{$i}}" placeholder="ou nova" size="10" aria-label="Nova categoria da linha {{add $i 1}}">
+        </td>
+        <td><small>{{if eq $r.Status "duplicado"}}<span class="tag">já lançado</span> {{$r.Note}}{{else if eq $r.Status "ignorar"}}<span class="tag">ignorado</span> {{$r.Note}}{{else if $r.Category}}sugerida pelo histórico{{end}}</small></td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+    <p class="hint">Linhas "3/10" criam também as parcelas 4 a 10 nas próximas faturas. Duplicados e pagamentos vêm desmarcados.</p>
+    <div class="card-actions">
+      <button class="btn primary">Importar marcadas</button>
+      <a class="btn ghost" href="{{$.Back}}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{{end}}
+
+<section class="two-col wide-left">
+  <article class="card">
+    <div class="card-head"><h2>Compras desta fatura</h2></div>
+    {{if $v.Items}}
+    <ul class="entries">
+      {{range $v.Items}}
+      <li class="entry {{if .Projected}}projected{{end}}">
+        <div class="e-date"><strong>{{dm .Date}}</strong></div>
+        <div class="e-main">
+          {{if .Projected}}<span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
+          {{else}}<a class="e-desc e-link" href="/lancamentos/{{.ID}}/editar?back={{$.Back}}">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</a>{{end}}
+          <span class="e-meta">{{.Category}}{{if .InstallmentOf}} · <span class="tag">{{.InstallmentN}}/{{.InstallmentOf}}</span>{{end}}{{if .Projected}} · <span class="tag">recorrente previsto</span>{{end}}</span>
+        </div>
+        <div class="e-amount negc">{{brl .Amount}}</div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}<p class="empty">Nenhuma compra lançada nesta fatura.</p>{{end}}
+  </article>
+
+  <div class="stack">
+    <article class="card">
+      <div class="card-head"><h2>Valor cheio</h2></div>
+      <form method="post" action="/cartoes/{{$v.Card.ID}}/fatura?mes={{$v.Month}}" class="form">
+        <label>Valor total da fatura (R$)<input name="total" value="{{if $v.HasTotal}}{{money $v.Declared}}{{end}}" inputmode="decimal" data-money placeholder="0,00"></label>
+        <button class="btn primary">Salvar valor</button>
+      </form>
+      <p class="hint">Use se não quiser detalhar: o total conta como "Fatura cartão (não detalhado)". Se lançar itens depois, só a diferença continua sem detalhe. Deixe em branco para valer só a soma dos itens.</p>
+    </article>
+    <article class="card">
+      <div class="card-head"><h2>Importar fatura</h2></div>
+      <form method="post" action="/cartoes/{{$v.Card.ID}}/importar?mes={{$v.Month}}" class="form" enctype="multipart/form-data">
+        <label>Cole as linhas da fatura<textarea name="text" rows="8" placeholder="28/10 Padaria 12,50&#10;30/10 Magazine Luiza 3/10 99,90&#10;ou o CSV exportado pelo banco">{{.Text}}</textarea></label>
+        <label>ou envie o CSV<input type="file" name="file" accept=".csv,.txt,text/csv,text/plain"></label>
+        <button class="btn primary">Ler e revisar</button>
+      </form>
+      <p class="hint">Uma compra por linha, com data, descrição e valor. Nada é salvo antes da revisão.</p>
+    </article>
+  </div>
+</section>
+{{end}}

@@ -96,6 +96,7 @@
       </div>
       <label>A partir de<input type="month" name="start" value="{{.Form.Start}}" required></label>
       {{template "recurrence-fields" .Form}}
+      {{if not .IsIncome}}{{template "payment-select" .Form.Payment}}{{template "card-fields" (dict "Cards" .Cards "Cur" .Form.CardID "New" false)}}{{end}}
       {{if and (not .IsIncome) .Debts}}
       <label>Abate dívida
         <select name="debt_id">

@@ -42,7 +42,7 @@ func Summarize(entries []Entry, from, to Month, lim Limits) []MonthSummary {
 			continue
 		}
 		s.Expense += e.Amount
-		switch e.Bucket {
+		switch e.Group() {
 		case Card:
 			s.Card += e.Amount
 		case Fixed:

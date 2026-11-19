@@ -90,7 +90,7 @@ func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server
 		}
 		s.google = g
 	}
-	pages := []string{"dashboard", "list", "recurrences", "debts", "profile", "edit_tx", "login", "privacy", "terms", "pending", "admin", "guide"}
+	pages := []string{"dashboard", "list", "recurrences", "debts", "profile", "edit_tx", "login", "privacy", "terms", "pending", "admin", "guide", "cards", "statement"}
 	for _, p := range pages {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html")
 		if err != nil {
@@ -144,6 +144,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /dividas", s.saveDebt)
 	mux.HandleFunc("POST /dividas/{id}", s.saveDebt)
 	mux.HandleFunc("POST /dividas/{id}/excluir", s.deleteDebt)
+	mux.HandleFunc("GET /cartoes", s.cardsPage)
+	mux.HandleFunc("POST /cartoes", s.saveCard)
+	mux.HandleFunc("POST /cartoes/{id}", s.saveCard)
+	mux.HandleFunc("POST /cartoes/{id}/excluir", s.deleteCard)
+	mux.HandleFunc("GET /cartoes/{id}/fatura", s.statementPage)
+	mux.HandleFunc("POST /cartoes/{id}/fatura", s.setStatementTotal)
+	mux.HandleFunc("POST /cartoes/{id}/importar", s.previewImport)
+	mux.HandleFunc("POST /cartoes/{id}/importar/confirmar", s.confirmImport)
+	mux.HandleFunc("POST /lancamentos/{id}/parcelas/excluir", s.deleteInstallments)
 
 	mux.HandleFunc("GET /perfil", s.profilePage(tabAccount))
 	mux.HandleFunc("GET /perfil/preferencias", s.profilePage(tabPrefs))
@@ -153,7 +162,6 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /config", http.RedirectHandler("/perfil", http.StatusMovedPermanently))
 	mux.HandleFunc("POST /config/limites", s.saveLimits)
 	mux.HandleFunc("POST /config/categorias", s.addCategory)
-	mux.HandleFunc("POST /config/categorias/{id}", s.updateCategory)
 	mux.HandleFunc("GET /export/lancamentos.csv", s.exportCSV)
 	mux.HandleFunc("GET /export/dados.json", s.exportJSON)
 	mux.HandleFunc("POST /config/excluir-conta", s.deleteAccount)
@@ -339,9 +347,11 @@ var funcs = template.FuncMap{
 	"neg":        func(v int64) bool { return v < 0 },
 	"json":       func(v any) (template.JS, error) { b, err := json.Marshal(v); return template.JS(b), err },
 	"add":        func(a, b int) int { return a + b },
+	"sub":        func(a, b int64) int64 { return a - b },
 	"isZeroTime": func(t time.Time) bool { return t.IsZero() },
 	"intervals":  func() []option { return intervalOptions },
 	"newDebt":    func() db.Debt { return db.Debt{} },
+	"newCard":    func() finance.CreditCard { return finance.CreditCard{} },
 	"dict": func(kv ...any) map[string]any {
 		m := map[string]any{}
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -370,6 +380,7 @@ var funcs = template.FuncMap{
 		}
 		return "Gasto"
 	},
+	"payMethods": func() []finance.PaymentMethod { return finance.PaymentMethods },
 	"bucketLabel": func(b finance.Bucket) string {
 		switch b {
 		case finance.Card:

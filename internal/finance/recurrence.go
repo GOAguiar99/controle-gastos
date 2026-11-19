@@ -14,6 +14,7 @@ const (
 )
 
 // Bucket groups expenses the same way the old dashboard did (Cartão / Fixos / Outros).
+// It is derived from each entry (see Entry.Group), never stored on a category.
 type Bucket string
 
 const (
@@ -21,6 +22,38 @@ const (
 	Fixed Bucket = "fixo"
 	Other Bucket = "outros"
 )
+
+// PaymentMethod is how an expense was paid.
+type PaymentMethod string
+
+const (
+	Credit   PaymentMethod = "credito"
+	Debit    PaymentMethod = "debito"
+	Pix      PaymentMethod = "pix"
+	Cash     PaymentMethod = "dinheiro"
+	Boleto   PaymentMethod = "boleto"
+	OtherPay PaymentMethod = "outro"
+)
+
+// PaymentMethods lists every method in display order.
+var PaymentMethods = []PaymentMethod{Credit, Debit, Pix, Cash, Boleto, OtherPay}
+
+// Label is the pt-BR name shown in the UI.
+func (p PaymentMethod) Label() string {
+	switch p {
+	case Credit:
+		return "Crédito"
+	case Debit:
+		return "Débito"
+	case Pix:
+		return "Pix"
+	case Cash:
+		return "Dinheiro"
+	case Boleto:
+		return "Boleto"
+	}
+	return "Outro"
+}
 
 const (
 	EndNever = "never"
@@ -37,7 +70,8 @@ type Recurrence struct {
 	Description string
 	CategoryID  int64
 	Category    string
-	Bucket      Bucket
+	Payment     PaymentMethod
+	CardID      int64 // credit card charged (Payment == Credit); 0 = none
 	Amount      int64 // cents
 	Day         int
 	Interval    int // months between occurrences (1 = mensal, 12 = anual)
@@ -130,20 +164,53 @@ func (r Recurrence) EndLabel() string {
 
 // Entry is one income or expense line: a real transaction or a projected occurrence.
 type Entry struct {
-	ID           int64 // transaction id; 0 when Projected
-	Kind         Kind
-	Date         time.Time
-	Amount       int64 // cents, always positive
-	CategoryID   int64
-	Category     string
-	Bucket       Bucket
-	Description  string
-	RecurrenceID int64
-	OccMonth     string
-	DebtID       int64
-	Projected    bool
-	CreatedByID  int64  // user who entered it (0 = unknown or projected)
-	CreatedBy    string // their name (or email)
+	ID         int64 // transaction id; 0 when Projected
+	Kind       Kind
+	Date       time.Time
+	Amount     int64 // cents, always positive
+	CategoryID int64
+	Category   string
+	Payment    PaymentMethod
+	Fixed      bool // fixed expense (confirms a recurrence, or was "fixo" before payment methods)
+	// Credit card purchases: the card, the statement (fatura) they are billed
+	// on and the date that statement leaves the cash (its due date).
+	CardID    int64
+	Card      string
+	Statement Month // 0 = not on a card statement
+	CashDate  time.Time
+	// Installment purchases (parcelado): parcel N of Of, all parcels share Group.
+	InstallmentN, InstallmentOf int
+	InstallmentGroup            int64
+	StatementRest               bool // the undetailed part of a declared fatura total (not a stored transaction)
+	Description                 string
+	RecurrenceID                int64
+	OccMonth                    string
+	DebtID                      int64
+	Projected                   bool
+	CreatedByID                 int64  // user who entered it (0 = unknown or projected)
+	CreatedBy                   string // their name (or email)
+}
+
+// CashDay is when the entry moves the cash: the statement due date for card
+// purchases, otherwise its own date.
+func (e Entry) CashDay() time.Time {
+	if !e.CashDate.IsZero() {
+		return e.CashDate
+	}
+	return e.Date
+}
+
+// Group is the expense group in summaries. Each expense lands in exactly one:
+// paid by credit card → Cartão (what the card limit watches), else a fixed
+// expense or a recurrence occurrence → Fixos, else Outros.
+func (e Entry) Group() Bucket {
+	switch {
+	case e.Payment == Credit:
+		return Card
+	case e.Fixed || (e.Projected && e.RecurrenceID != 0):
+		return Fixed
+	}
+	return Other
 }
 
 // Signed returns +amount for income and -amount for expense.
@@ -177,7 +244,7 @@ func Project(recs []Recurrence, done, skipped MonthSet, from, to Month) (active,
 			}
 			e := Entry{
 				Kind: r.Kind, Date: m.Day(r.Day), Amount: r.Amount,
-				CategoryID: r.CategoryID, Category: r.Category, Bucket: r.Bucket,
+				CategoryID: r.CategoryID, Category: r.Category, Payment: r.Payment, CardID: r.CardID,
 				Description: r.Description, RecurrenceID: r.ID, OccMonth: m.String(), Projected: true,
 			}
 			if skipped.Has(r.ID, m) {

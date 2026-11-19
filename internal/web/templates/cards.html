@@ -1,0 +1,93 @@
+{{define "card-form"}}
+<div class="row">
+  <label>Nome<input name="name" value="{{.Name}}" required placeholder="Nubank, Itaú Visa…"></label>
+</div>
+<div class="row">
+  <label>Dia do fechamento<input type="number" name="closing_day" min="1" max="31" value="{{if .ClosingDay}}{{.ClosingDay}}{{end}}" required placeholder="3"></label>
+  <label>Dia do vencimento<input type="number" name="due_day" min="1" max="31" value="{{if .DueDay}}{{.DueDay}}{{end}}" required placeholder="10"></label>
+</div>
+{{end}}
+
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Cartões</h1>
+    <p class="muted">Cada compra no crédito cai numa fatura e sai do caixa no vencimento dela.</p>
+  </div>
+</div>
+
+{{if .Cards}}
+<section class="kpis three">
+  <article class="kpi"><span class="kpi-label">Faturas abertas</span><strong class="kpi-value negc">{{brl .OpenTotal}}</strong>
+    <span class="kpi-sub">soma das faturas que ainda recebem compras</span></article>
+</section>
+{{end}}
+
+<section class="two-col wide-left">
+  <div class="stack">
+  {{range .Cards}}
+    <article class="card" id="cartao-{{.Card.ID}}">
+      <div class="card-head">
+        <h2>{{.Card.Name}} {{if not .Card.Active}}<span class="tag">desativado</span>{{end}}</h2>
+        <span class="muted">fecha dia {{.Card.ClosingDay}} · vence dia {{.Card.DueDay}}</span>
+      </div>
+      <div class="flow-stats">
+        <div><span>Fatura aberta ({{.Open.Month.Label}})</span><strong class="negc">{{brl .Open.Total}}</strong>
+          <small>fecha {{dm .Open.Closing}} · vence {{dm .Open.Due}}</small></div>
+        <div><span>Lançado item a item</span><strong>{{brl .Open.Statement.Items}}</strong><small>{{.Open.Count}} compra(s)</small></div>
+        <div><span>Valor informado</span><strong>{{if .Open.HasTotal}}{{brl .Open.Declared}}{{else}}—{{end}}</strong></div>
+      </div>
+      <table class="grid compact">
+        <thead><tr><th>Fatura</th><th>Vence</th><th class="num">Itens</th><th class="num">Valor informado</th><th class="num">Total</th></tr></thead>
+        <tbody>
+        {{$c := .Card}}
+        {{range .Statements}}
+        <tr><td><a class="link" href="/cartoes/{{$c.ID}}/fatura?mes={{.Month}}">{{.Month.Label}}</a></td>
+          <td>{{dm ($c.Due .Month)}}</td>
+          <td class="num">{{brl .Items}}{{if .Count}} <small class="muted">({{.Count}})</small>{{end}}</td>
+          <td class="num">{{if .HasTotal}}{{brl .Declared}}{{else}}—{{end}}</td>
+          <td class="num"><strong>{{brl .Total}}</strong></td></tr>
+        {{end}}
+        </tbody>
+      </table>
+      <div class="card-actions">
+        <a class="btn" href="/cartoes/{{.Card.ID}}/fatura?mes={{.Open.Month}}">Abrir fatura / importar</a>
+        <details class="pop">
+          <summary class="btn ghost">Editar</summary>
+          <form method="post" action="/cartoes/{{.Card.ID}}" class="pop-body form">
+            {{template "card-form" .Card}}
+            <label class="check"><input type="checkbox" name="active" {{if .Card.Active}}checked{{end}}> Ativo</label>
+            <p class="hint">Mudar o vencimento move a data de pagamento das compras já lançadas; cada compra continua na fatura em que está.</p>
+            <button class="btn primary">Salvar</button>
+          </form>
+        </details>
+        <form method="post" action="/cartoes/{{.Card.ID}}/excluir" data-confirm="Excluir o cartão {{.Card.Name}}?">
+          <button class="btn ghost danger">Excluir</button>
+        </form>
+      </div>
+    </article>
+  {{else}}
+    <article class="card">
+      <p class="empty">Nenhum cartão cadastrado. Sem cartão, gastos no crédito saem do caixa na data da compra, como antes.</p>
+    </article>
+  {{end}}
+  </div>
+
+  <div class="stack">
+    <article class="card">
+      <div class="card-head"><h2>Novo cartão</h2></div>
+      <form method="post" action="/cartoes" class="form">
+        {{template "card-form" newCard}}
+        <button class="btn primary">Adicionar</button>
+      </form>
+      <p class="hint">A fatura leva o nome do mês em que fecha. Compras no dia do fechamento ou depois vão para a fatura seguinte.</p>
+    </article>
+    <article class="card">
+      <div class="card-head"><h2>Dois jeitos de lançar</h2></div>
+      <p><b>Valor cheio:</b> na fatura, informe só o valor total. Ele entra como "Fatura cartão (não detalhado)".</p>
+      <p><b>Item a item:</b> lance cada compra com o cartão (ou importe a fatura) e escolha a categoria de cada uma.</p>
+      <p class="hint">Pode misturar: se você informar o total e lançar alguns itens, só a diferença entra como não detalhada. Nada conta duas vezes.</p>
+    </article>
+  </div>
+</section>
+{{end}}

@@ -25,7 +25,7 @@ func FromSQLite(st *db.Store, path string, out io.Writer) error {
 		return fmt.Errorf("abrir %s: %w", path, err)
 	}
 	return st.InTx(func(st *db.Store) error {
-		c := &sqliteCopy{src: src, st: st, cats: map[int64]int64{}, debts: map[int64]int64{}, recs: map[int64]int64{}}
+		c := &sqliteCopy{src: src, st: st, cats: map[int64]int64{}, kinds: map[int64]finance.Kind{}, buckets: map[int64]finance.Bucket{}, debts: map[int64]int64{}, recs: map[int64]int64{}}
 		for _, step := range []struct {
 			name string
 			fn   func() (int, error)
@@ -51,7 +51,9 @@ func FromSQLite(st *db.Store, path string, out io.Writer) error {
 type sqliteCopy struct {
 	src               *sql.DB
 	st                *db.Store
-	cats, debts, recs map[int64]int64 // old id -> new id
+	cats, debts, recs map[int64]int64          // old id -> new id
+	kinds             map[int64]finance.Kind   // old category id -> kind
+	buckets           map[int64]finance.Bucket // old category id -> old group
 }
 
 // each runs q on the source and calls fn for every row.
@@ -90,13 +92,12 @@ func (c *sqliteCopy) categories() (int, error) {
 		if err := r.Scan(&id, &name, &kind, &bucket); err != nil {
 			return err
 		}
-		nid, err := c.st.EnsureCategory(name, finance.Kind(kind), finance.Bucket(bucket))
+		nid, err := c.st.EnsureCategory(name, finance.Kind(kind))
 		if err != nil {
 			return err
 		}
-		c.cats[id] = nid
-		// the new ledger is seeded with defaults whose bucket may differ
-		return c.st.SetCategoryBucket(nid, finance.Bucket(bucket))
+		c.cats[id], c.kinds[id], c.buckets[id] = nid, finance.Kind(kind), finance.Bucket(bucket)
+		return nil
 	})
 }
 
@@ -145,6 +146,7 @@ func (c *sqliteCopy) recurrences() (int, error) {
 				}
 			}
 			rec.ID, rec.CategoryID, rec.DebtID = 0, c.cats[catID], c.debts[debtID]
+			rec.Payment, _ = legacyPayment(rec.Kind, c.buckets[catID])
 			nid, err := c.st.SaveRecurrence(rec)
 			c.recs[old] = nid
 			return err
@@ -180,6 +182,7 @@ func (c *sqliteCopy) transactions() (int, error) {
 			return err
 		}
 		in.Date, in.CategoryID, in.RecurrenceID, in.DebtID = t, c.cats[catID], c.recs[recID], c.debts[debtID]
+		in.Payment, in.Fixed = legacyPayment(in.Kind, c.buckets[catID])
 		if in.RecurrenceID == 0 {
 			in.OccMonth = ""
 		}

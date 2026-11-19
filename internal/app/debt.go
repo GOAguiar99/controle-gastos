@@ -104,7 +104,7 @@ func (s *Service) suggestLoanRecurrence(debtID int64) (int64, error) {
 		return 0, err
 	}
 	if !ok {
-		if cat.ID, err = s.st.EnsureCategory(LoanCategory, finance.Expense, finance.Fixed); err != nil {
+		if cat.ID, err = s.st.EnsureCategory(LoanCategory, finance.Expense); err != nil {
 			return 0, err
 		}
 	}

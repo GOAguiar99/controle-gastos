@@ -50,7 +50,7 @@ func TestFromSQLite(t *testing.T) {
 	if err != nil || len(txs) != 2 {
 		t.Fatalf("transactions: %v %v", txs, err)
 	}
-	if txs[1].Category != "Padaria" || txs[1].Bucket != finance.Card || txs[1].Amount != 2500 {
+	if txs[1].Category != "Padaria" || txs[1].Payment != finance.Credit || txs[1].Amount != 2500 {
 		t.Fatalf("category not remapped: %+v", txs[1])
 	}
 	recs, _ := st.Recurrences()
@@ -70,11 +70,5 @@ func TestFromSQLite(t *testing.T) {
 	}
 	if snap, _ := st.LatestSnapshot(); snap.Amount != 500000 {
 		t.Fatalf("snapshot: %+v", snap)
-	}
-	cats, _ := st.Categories(finance.Expense)
-	for _, c := range cats {
-		if c.Name == "Luz" && c.Bucket != finance.Other {
-			t.Fatal("bucket not copied over the seeded default")
-		}
 	}
 }

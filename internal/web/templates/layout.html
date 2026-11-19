@@ -19,6 +19,7 @@
       <a href="/receitas" {{if and (eq .Nav "list") .IsIncome}}class="on"{{end}}>Receitas</a>
       <a href="/gastos" {{if and (eq .Nav "list") (not .IsIncome)}}class="on"{{end}}>Gastos</a>
       <a href="/recorrentes" {{if eq .Nav "recurrences"}}class="on"{{end}}>Recorrentes{{with .PendingRecs}} <span class="badge" title="{{.}} sugestão(ões) para revisar">{{.}}</span>{{end}}</a>
+      <a href="/cartoes" {{if or (eq .Nav "cards") (eq .Nav "statement")}}class="on"{{end}}>Cartões</a>
       <a href="/dividas" {{if eq .Nav "debts"}}class="on"{{end}}>Dívidas</a>
       <a href="/como-usar" {{if eq .Nav "guide"}}class="on"{{end}}>Como usar</a>
     </nav>

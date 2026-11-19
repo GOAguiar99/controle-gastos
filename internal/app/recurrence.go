@@ -22,8 +22,10 @@ type RecIn struct {
 	Count       int           // EndMode count: number of occurrences
 	End         finance.Month // EndMode until: last month (inclusive)
 	Active      bool
-	DebtID      int64 // expense paying down this debt
-	Pending     bool  // suggestion waiting for AcceptRecurrence (kept as is on update)
+	DebtID      int64                 // expense paying down this debt
+	Pending     bool                  // suggestion waiting for AcceptRecurrence (kept as is on update)
+	Payment     finance.PaymentMethod // how each occurrence is paid; "" = outro (on update: keep); a card implies credito
+	CardID      int64                 // credit card charged (credito); 0 = the only active card (on update: keep)
 }
 
 func checkSchedule(in *RecIn) error {
@@ -71,12 +73,39 @@ func (s *Service) SaveRecurrence(in RecIn) (int64, error) {
 			return 0, invalid("recorrência não encontrada")
 		}
 		in.Pending = old.Pending // only AcceptRecurrence clears it
+		if in.Payment == "" && in.CardID == 0 {
+			in.Payment = old.Payment
+		}
+		if in.CardID == 0 {
+			in.CardID = old.CardID
+		}
 	}
 	if in.Pending {
 		in.Active = false
 	}
 	if in.Amount <= 0 {
 		return 0, invalid("valor inválido")
+	}
+	if _, err := ParsePaymentMethod(string(in.Payment)); err != nil {
+		return 0, err
+	}
+	if in.Kind == finance.Income {
+		in.Payment = finance.OtherPay
+	}
+	if in.Payment == "" && in.CardID != 0 {
+		in.Payment = finance.Credit
+	}
+	if in.Payment != finance.Credit {
+		in.CardID = 0
+	} else {
+		card, ok, err := s.chargeCard(in.CardID)
+		if err != nil {
+			return 0, err
+		}
+		in.CardID = 0
+		if ok {
+			in.CardID = card.ID
+		}
 	}
 	if err := checkSchedule(&in); err != nil {
 		return 0, err
@@ -116,7 +145,7 @@ func (s *Service) SaveRecurrence(in RecIn) (int64, error) {
 	return s.st.SaveRecurrence(finance.Recurrence{
 		ID: in.ID, Kind: in.Kind, Description: desc, CategoryID: c.ID, Amount: in.Amount, Day: in.Day,
 		Interval: in.Interval, Start: in.Start, EndMode: in.EndMode, Count: in.Count, End: in.End,
-		Active: in.Active, DebtID: in.DebtID, Pending: in.Pending,
+		Active: in.Active, DebtID: in.DebtID, Pending: in.Pending, Payment: in.Payment, CardID: in.CardID,
 	})
 }
 
@@ -130,7 +159,7 @@ func (s *Service) RecurrenceFromTx(tx TxIn, sched RecIn) (int64, error) {
 		sched.Start = finance.MonthOf(tx.Date)
 	}
 	if tx.Kind == finance.Expense {
-		sched.DebtID = tx.DebtID
+		sched.DebtID, sched.Payment, sched.CardID = tx.DebtID, tx.Payment, tx.CardID
 	}
 	return s.SaveRecurrence(sched)
 }
@@ -215,7 +244,8 @@ func (s *Service) ConfirmOccurrence(id int64, m finance.Month, amount int64, dat
 	return s.st.InsertTx(db.TxInput{
 		Kind: r.Kind, Date: date, Amount: amount, CategoryID: r.CategoryID, Description: r.Description,
 		RecurrenceID: r.ID, OccMonth: m.String(), DebtID: r.DebtID, Source: source,
-	})
+		Payment: r.Payment, Fixed: r.Kind == finance.Expense,
+	}.Charge(s.cardOf(r.CardID, r.Payment)))
 }
 
 func (s *Service) SkipOccurrence(id int64, m finance.Month) (finance.Recurrence, error) {
