@@ -196,8 +196,20 @@ func (s *Service) categoryGuesser() (func(string) (catGuess, bool), error) {
 			first[w] = g
 		}
 	}
+	// what the user taught (corrections) wins over plain history
+	rules, err := s.st.CategoryRules()
+	if err != nil {
+		return nil, err
+	}
+	taught := map[string]catGuess{}
+	for _, r := range rules {
+		taught[r.MerchantKey] = catGuess{r.CategoryID, r.Category, "memória: " + r.Example}
+	}
 	return func(desc string) (catGuess, bool) {
 		k := descKey(desc)
+		if c, ok := taught[k]; ok {
+			return c, true
+		}
 		if c, ok := full[k]; ok {
 			return c, true
 		}

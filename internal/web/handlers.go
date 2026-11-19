@@ -807,6 +807,11 @@ func (s *Server) profileData(r *http.Request, tab string) (page, error) {
 			}
 		}
 		data["Limits"], data["IncomeCats"], data["ExpenseCats"] = st.Limits(), inc, exp
+		rules, err := st.CategoryRules()
+		if err != nil {
+			return nil, err
+		}
+		data["Rules"] = rules
 	case tabAgents:
 		tokens, err := s.app.MCPTokens(r.Context(), actorOf(r))
 		if err != nil {
@@ -1069,4 +1074,12 @@ func listRows(es []finance.Entry) []listRow {
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return day(rows[i]).Before(day(rows[j])) })
 	return rows
+}
+
+func (s *Server) forgetCategory(w http.ResponseWriter, r *http.Request) {
+	if err := svcOf(r).ForgetCategory(r.FormValue("merchant")); err != nil {
+		s.fail(w, err)
+		return
+	}
+	profileDone(w, r, tabPrefs, "Memória apagada: as próximas compras desse estabelecimento voltam a seguir o histórico")
 }

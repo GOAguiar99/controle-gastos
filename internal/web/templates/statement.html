@@ -56,16 +56,25 @@
   {{end}}
   <article class="card">
     {{if $v.Items}}
-    <details{{if le (len $v.Items) 12}} open{{end}}>
+    <details open id="compras">
     <summary class="card-head"><h2>Todas as compras ({{len $v.Items}})</h2></summary>
+    <p class="hint">Troque a categoria de uma compra e o app aprende: as outras compras iguais que estavam na categoria antiga mudam junto, e as próximas desse estabelecimento já chegam na nova. As memórias ficam em <a class="link" href="/perfil/preferencias#memorias">Preferências</a>.</p>
     <ul class="entries">
       {{range $v.Items}}
-      <li class="entry {{if .Projected}}projected{{end}}">
+      <li class="entry {{if .Projected}}projected{{end}}" id="compra-{{.ID}}">
         <div class="e-date"><strong>{{dm .Date}}</strong></div>
         <div class="e-main">
           {{if .Projected}}<span class="e-desc">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</span>
           {{else}}<a class="e-desc e-link" href="/lancamentos/{{.ID}}/editar?back={{$.Back}}">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</a>{{end}}
-          <span class="e-meta">{{.Category}}{{if .InstallmentOf}} · <span class="tag">{{.InstallmentN}}/{{.InstallmentOf}}</span>{{end}}{{if .Projected}} · <span class="tag">recorrente previsto</span>{{end}}</span>
+          <span class="e-meta">{{if .Projected}}{{.Category}} · <span class="tag">recorrente previsto</span>{{else}}
+            <form method="post" action="/lancamentos/{{.ID}}/categoria" class="inline-form tight cat-pick">
+              <input type="hidden" name="back" value="{{$.Back}}">
+              {{$cur := .CategoryID}}
+              <select name="category_id" data-autosubmit aria-label="Categoria de {{.Description}}">
+                {{range $.Categories}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}</option>{{end}}
+              </select>
+              <noscript><button class="btn small">ok</button></noscript>
+            </form>{{end}}{{if .InstallmentOf}} · <span class="tag">{{.InstallmentN}}/{{.InstallmentOf}}</span>{{end}}</span>
         </div>
         <div class="e-amount negc">{{brl .Amount}}</div>
       </li>

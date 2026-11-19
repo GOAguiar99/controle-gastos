@@ -393,6 +393,24 @@ func TestCardsAndStatementImport(t *testing.T) {
 			t.Errorf("statement page misses %q", want)
 		}
 	}
+	// each purchase has a category picker; changing it remembers the merchant
+	if !strings.Contains(f, `action="/lancamentos/`) || !strings.Contains(f, `/categoria"`) {
+		t.Error("statement page without per-purchase category picker")
+	}
+	cinema := regexp.MustCompile(`id="compra-(\d+)"[^<]*<div class="e-date"><strong>[^<]*</strong></div>\s*<div class="e-main">\s*<a[^>]*>Cinema`).FindStringSubmatch(f)
+	if cinema == nil {
+		t.Fatal("cinema row not found")
+	}
+	res := post("/lancamentos/"+cinema[1]+"/categoria", url.Values{"new_category": {"Cultura"}, "back": {"/cartoes/1/fatura?mes=2026-11"}})
+	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "Cultura") {
+		t.Fatalf("recategorize: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	if p := string(mustGet(t, client, ts.URL+"/perfil/preferencias")); !strings.Contains(p, "Memória de categorias") || !strings.Contains(p, "Cinema") {
+		t.Error("memory not listed in preferences")
+	}
+	if res := post("/config/memorias/apagar", url.Values{"merchant": {"cinema"}}); res.StatusCode != http.StatusSeeOther {
+		t.Errorf("forget: %d", res.StatusCode)
+	}
 	if c := string(mustGet(t, client, ts.URL+"/cartoes")); !strings.Contains(c, `id="card-hist-1"`) || !strings.Contains(c, `id="card-history"`) {
 		t.Error("cards page without the fatura history chart")
 	}
@@ -405,7 +423,7 @@ func TestCardsAndStatementImport(t *testing.T) {
 	if strings.Contains(g, `href="/cartoes"`) || strings.Contains(g, `name="card_id"`) {
 		t.Error("cards still offered with the module off")
 	}
-	res, _ := client.Get(ts.URL + "/cartoes")
+	res, _ = client.Get(ts.URL + "/cartoes")
 	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "/perfil/preferencias") {
 		t.Errorf("cards page with module off: %d %s", res.StatusCode, res.Header.Get("Location"))
 	}

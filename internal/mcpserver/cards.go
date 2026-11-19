@@ -295,3 +295,77 @@ func (t *tools) setCardsModule(ctx context.Context, _ *mcp.CallToolRequest, in c
 	}
 	return nil, msgOut{Message: "módulo de cartões desligado"}, nil
 }
+
+type ruleOut struct {
+	Merchant    string `json:"merchant" jsonschema:"estabelecimento como apareceu na fatura"`
+	MerchantKey string `json:"merchant_key" jsonschema:"chave normalizada usada para reconhecer o estabelecimento"`
+	Category    string `json:"category"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+type rulesOut struct {
+	Rules []ruleOut `json:"rules"`
+}
+
+func (t *tools) listCategoryRules(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, rulesOut, error) {
+	out := rulesOut{Rules: []ruleOut{}}
+	rs, err := t.svcFor(ctx).CategoryRules()
+	if err != nil {
+		return nil, out, toolErr(err)
+	}
+	for _, r := range rs {
+		out.Rules = append(out.Rules, ruleOut{Merchant: r.Example, MerchantKey: r.MerchantKey, Category: r.Category, UpdatedAt: iso(r.UpdatedAt)})
+	}
+	return nil, out, nil
+}
+
+type recategorizeIn struct {
+	ID             int64  `json:"id" jsonschema:"lançamento (gasto)"`
+	Category       string `json:"category"`
+	CreateCategory bool   `json:"create_category,omitempty"`
+	Remember       *bool  `json:"remember,omitempty" jsonschema:"padrão true: muda junto as outras compras do mesmo estabelecimento que estavam na categoria antiga e lembra para as próximas"`
+}
+
+type recategorizeOut struct {
+	Transaction txOut  `json:"transaction"`
+	Others      int    `json:"others_moved" jsonschema:"outras compras do mesmo estabelecimento que mudaram junto"`
+	Remembered  bool   `json:"remembered"`
+	Message     string `json:"message"`
+}
+
+func (t *tools) recategorize(ctx context.Context, _ *mcp.CallToolRequest, in recategorizeIn) (*mcp.CallToolResult, recategorizeOut, error) {
+	res, err := t.svcFor(ctx).Recategorize(in.ID, app.CategoryRef{Name: in.Category, Create: in.CreateCategory}, in.Remember == nil || *in.Remember)
+	if err != nil {
+		return nil, recategorizeOut{}, toolErr(err)
+	}
+	msg := res.Merchant + " → " + res.Category
+	if res.Others > 0 {
+		msg += "; mais " + itoa(res.Others) + " compra(s) iguais"
+	}
+	return nil, recategorizeOut{Transaction: txOf(res.Tx), Others: res.Others, Remembered: res.Remembered, Message: msg}, nil
+}
+
+type rememberIn struct {
+	Merchant       string `json:"merchant" jsonschema:"estabelecimento como aparece na fatura (ex.: Vmt*Shelf)"`
+	Category       string `json:"category"`
+	CreateCategory bool   `json:"create_category,omitempty"`
+}
+
+func (t *tools) rememberCategory(ctx context.Context, _ *mcp.CallToolRequest, in rememberIn) (*mcp.CallToolResult, ruleOut, error) {
+	r, err := t.svcFor(ctx).RememberCategory(in.Merchant, app.CategoryRef{Name: in.Category, Create: in.CreateCategory})
+	if err != nil {
+		return nil, ruleOut{}, toolErr(err)
+	}
+	return nil, ruleOut{Merchant: r.Example, MerchantKey: r.MerchantKey, Category: r.Category}, nil
+}
+
+type forgetIn struct {
+	Merchant string `json:"merchant" jsonschema:"merchant ou merchant_key de list_category_rules"`
+}
+
+func (t *tools) forgetCategory(ctx context.Context, _ *mcp.CallToolRequest, in forgetIn) (*mcp.CallToolResult, msgOut, error) {
+	if err := t.svcFor(ctx).ForgetCategory(in.Merchant); err != nil {
+		return nil, msgOut{}, toolErr(err)
+	}
+	return nil, msgOut{Message: "memória apagada"}, nil
+}

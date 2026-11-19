@@ -161,8 +161,14 @@ func (s *Server) statementPage(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
+	cats, err := svc.Categories(finance.Expense)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
 	s.render(w, r, "statement", page{
-		"Title": "Fatura " + v.Card.Name + " · " + v.Month.Label(), "V": v,
+		"Categories": cats,
+		"Title":      "Fatura " + v.Card.Name + " · " + v.Month.Label(), "V": v,
 		"Prev": v.Month.Add(-1), "Next": v.Month.Add(1), "Back": statementPath(id, v.Month),
 	})
 }
@@ -212,4 +218,36 @@ func (s *Server) deleteInstallments(w http.ResponseWriter, r *http.Request) {
 		sep = "&"
 	}
 	http.Redirect(w, r, to+sep+"msg="+url.QueryEscape(fmt.Sprintf("%d parcela(s) excluída(s)", n)), http.StatusSeeOther)
+}
+
+// recategorize files a purchase under another category from the fatura page
+// and remembers it for the merchant's other and future purchases.
+func (s *Server) recategorize(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	ref := app.CategoryRef{ID: formID(r, "category_id")}
+	if name := strings.TrimSpace(r.FormValue("new_category")); name != "" {
+		ref = app.CategoryRef{Name: name, Create: true}
+	}
+	res, err := svcOf(r).Recategorize(id, ref, r.FormValue("remember") != "off")
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	msg := res.Merchant + " → " + res.Category
+	if res.Others > 0 {
+		msg += fmt.Sprintf("; %d outra(s) compra(s) iguais também mudaram", res.Others)
+	}
+	if res.Remembered {
+		msg += ". As próximas compras desse estabelecimento já vêm nessa categoria"
+	}
+	to := localBack(r.FormValue("back"), "/cartoes")
+	sep := "?"
+	if strings.Contains(to, "?") {
+		sep = "&"
+	}
+	http.Redirect(w, r, to+sep+"msg="+url.QueryEscape(msg)+"#compra-"+fmt.Sprint(id), http.StatusSeeOther)
 }
