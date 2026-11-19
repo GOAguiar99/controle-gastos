@@ -31,7 +31,7 @@ func anaData(t *testing.T, env *testEnv) (actor app.Actor, tx, rec, debt, cat in
 		t.Fatal(err)
 	}
 	svc := env.app.For(ctx, actor)
-	cat, err = svc.AddCategory("Mercado", finance.Expense, finance.Other)
+	cat, err = svc.AddCategory("Mercado", finance.Expense)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,6 @@ func TestCrossTenantHTTP(t *testing.T) {
 		fmt.Sprintf("/recorrentes/%d/descartar", rec): nil,
 		fmt.Sprintf("/dividas/%d", debt):              {"name": {"hacked"}, "initial": {"1,00"}},
 		fmt.Sprintf("/dividas/%d/excluir", debt):      nil,
-		fmt.Sprintf("/config/categorias/%d", cat):     {"bucket": {"fixo"}},
 		"/previstos/confirmar":                        month,
 		"/previstos/pular":                            month,
 		"/previstos/restaurar":                        month,
@@ -364,15 +363,13 @@ func TestGuideAndWelcome(t *testing.T) {
 	if strings.Contains(body(client, "/"), "Bem-vindo") {
 		t.Error("welcome card still shown with data")
 	}
-	// income sources are added without a group
+	// categories are added without a group: the group comes from how each expense is paid
 	cfg := body(client, "/perfil/preferencias")
 	if !strings.Contains(cfg, `name="kind" value="income"`) {
 		t.Error("no income-source form")
 	}
-	inc := cfg[strings.Index(cfg, `name="kind" value="income"`):]
-	inc = inc[:strings.Index(inc, "</form>")]
-	if strings.Contains(inc, `name="bucket"`) {
-		t.Error("income-source form asks for a group")
+	if strings.Contains(cfg, `name="bucket"`) {
+		t.Error("preferences still ask for a category group")
 	}
 }
 

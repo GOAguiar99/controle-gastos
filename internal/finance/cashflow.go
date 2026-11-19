@@ -1,6 +1,9 @@
 package finance
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // Snapshot is a cash balance the user typed in ("caixa") on a given date.
 // Entries dated on or before Date are considered already reflected in Amount.
@@ -39,7 +42,7 @@ func (f *FlowMonth) add(e Entry) {
 		return
 	}
 	f.Out += e.Amount
-	switch e.Bucket {
+	switch e.Group() {
 	case Card:
 		f.Card += e.Amount
 	case Fixed:
@@ -78,7 +81,7 @@ func MonthlyFlow(entries []Entry, snap Snapshot, today time.Time, from, to Month
 			Opening: BalanceAt(entries, snap, m.First().AddDate(0, 0, -1)),
 			Closing: BalanceAt(entries, snap, m.Last())}
 		for _, e := range entries {
-			if MonthOf(e.Date) == m {
+			if MonthOf(e.CashDay()) == m {
 				fm.add(e)
 			}
 		}
@@ -103,9 +106,9 @@ func BalanceAt(entries []Entry, snap Snapshot, t time.Time) int64 {
 	bal := snap.Amount
 	for _, e := range entries {
 		switch {
-		case t.After(snap.Date) && e.Date.After(snap.Date) && !e.Date.After(t):
+		case t.After(snap.Date) && e.CashDay().After(snap.Date) && !e.CashDay().After(t):
 			bal += e.Signed()
-		case t.Before(snap.Date) && e.Date.After(t) && !e.Date.After(snap.Date):
+		case t.Before(snap.Date) && e.CashDay().After(t) && !e.CashDay().After(snap.Date):
 			bal -= e.Signed()
 		}
 	}
@@ -124,8 +127,10 @@ func FillClosing(sums []MonthSummary, entries []Entry, snap Snapshot) {
 }
 
 // ProjectCash builds the future cash flow from today through the next n months.
-// entries must be sorted by date and cover snap.Date .. end of horizon.
+// entries must cover every entry whose cash day is in snap.Date .. end of
+// horizon (card purchases move the cash on the statement due date).
 func ProjectCash(entries []Entry, snap Snapshot, today time.Time, n int) CashFlow {
+	entries = byCashDay(entries)
 	today = DateOnly(today)
 	if !snap.Set || snap.Date.After(today) {
 		snap.Date = today
@@ -141,29 +146,29 @@ func ProjectCash(entries []Entry, snap Snapshot, today time.Time, n int) CashFlo
 	start := MonthOf(today)
 	end := start.Add(n - 1).Last()
 	i := 0
-	for i < len(entries) && !entries[i].Date.After(today) {
+	for i < len(entries) && !entries[i].CashDay().After(today) {
 		i++
 	}
 	for m := start; m <= MonthOf(end); m++ {
 		fm := FlowMonth{Month: m, Partial: m == start, Opening: bal, Low: bal}
-		for i < len(entries) && MonthOf(entries[i].Date) == m {
+		for i < len(entries) && MonthOf(entries[i].CashDay()) == m {
 			e := entries[i]
 			i++
 			fm.add(e)
 			bal += e.Signed()
-			if last := len(cf.Points) - 1; cf.Points[last].Date.Equal(e.Date) {
+			if last := len(cf.Points) - 1; cf.Points[last].Date.Equal(e.CashDay()) {
 				cf.Points[last].Balance = bal
 			} else {
-				cf.Points = append(cf.Points, FlowPoint{e.Date, bal})
+				cf.Points = append(cf.Points, FlowPoint{e.CashDay(), bal})
 			}
 			if bal < fm.Low {
 				fm.Low = bal
 			}
 			if bal < cf.Low {
-				cf.Low, cf.LowDate = bal, e.Date
+				cf.Low, cf.LowDate = bal, e.CashDay()
 			}
 			if bal < 0 && cf.FirstNegative.IsZero() {
-				cf.FirstNegative = e.Date
+				cf.FirstNegative = e.CashDay()
 			}
 		}
 		fm.Closing = bal
@@ -173,4 +178,11 @@ func ProjectCash(entries []Entry, snap Snapshot, today time.Time, n int) CashFlo
 		cf.Points = append(cf.Points, FlowPoint{end, bal})
 	}
 	return cf
+}
+
+// byCashDay returns a copy of entries ordered by the day they move the cash.
+func byCashDay(entries []Entry) []Entry {
+	out := append([]Entry(nil), entries...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].CashDay().Before(out[j].CashDay()) })
+	return out
 }

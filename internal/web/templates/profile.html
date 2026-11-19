@@ -48,32 +48,16 @@
       <label>Meta de sobra mínima (R$)<input name="min_savings" value="{{money .Limits.MinSavings}}" inputmode="decimal" placeholder="0,00" data-money></label>
       <button class="btn primary">Salvar</button>
     </form>
-    <p class="hint">O limite do cartão vale para a soma das categorias do grupo Cartão; o dashboard avisa quando passa dele.</p>
+    <p class="hint">O limite do cartão vale para a soma dos gastos pagos no crédito no mês; o dashboard avisa quando passa dele.</p>
   </article>
 
   <article class="card">
     <div class="card-head"><h2>Categorias</h2></div>
-    <p class="hint">O grupo define em qual coluna do dashboard o gasto entra (Cartão, Fixos ou Outros).</p>
-    <table class="grid compact">
-      <thead><tr><th>Gasto</th><th>Grupo</th></tr></thead>
-      <tbody>
-      {{range .ExpenseCats}}
-      <tr><td>{{.Name}}</td><td>
-        <form method="post" action="/config/categorias/{{.ID}}" class="inline-form tight">
-          <select name="bucket" data-autosubmit aria-label="Grupo de {{.Name}}">
-            <option value="cartao" {{if eq .Bucket "cartao"}}selected{{end}}>Cartão</option>
-            <option value="fixo" {{if eq .Bucket "fixo"}}selected{{end}}>Fixos</option>
-            <option value="outros" {{if eq .Bucket "outros"}}selected{{end}}>Outros</option>
-          </select>
-          <noscript><button class="btn small">ok</button></noscript>
-        </form></td></tr>
-      {{end}}
-      </tbody>
-    </table>
+    <p class="hint">A categoria diz o que foi comprado. A coluna do dashboard (Cartão, Fixos ou Outros) vem de cada lançamento: pago no crédito entra em Cartão, recorrência entra em Fixos.</p>
+    <p class="chips">{{range .ExpenseCats}}<span class="chip">{{.Name}}</span>{{end}}</p>
     <form method="post" action="/config/categorias" class="inline-form add-cat">
       <input type="hidden" name="kind" value="expense">
       <label>Nova categoria de gasto<input name="name" required placeholder="ex.: Pets"></label>
-      <label>Grupo<select name="bucket"><option value="cartao">Cartão</option><option value="fixo">Fixos</option><option value="outros" selected>Outros</option></select></label>
       <button class="btn">Adicionar</button>
     </form>
     <h3>Fontes de receita</h3>

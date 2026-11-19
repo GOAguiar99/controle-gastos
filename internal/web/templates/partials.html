@@ -21,3 +21,33 @@
   </div>
 </div>
 {{end}}
+
+{{/* payment-select: forma de pagamento de um gasto. Recebe a atual; "" oferece
+     "Automático" (a última usada na categoria), só em lançamento novo. */}}
+{{define "payment-select"}}
+<label>Forma de pagamento
+  <select name="payment_method">
+    {{if not .}}<option value="" selected>Automático (a última usada na categoria)</option>{{end}}
+    {{$cur := .}}{{range payMethods}}<option value="{{.}}" {{if eq . $cur}}selected{{end}}>{{.Label}}</option>{{end}}
+  </select>
+</label>
+{{end}}
+
+{{/* card-fields: cartão (e parcelas, em compra nova) de um gasto no crédito.
+     dict "Cards" []CreditCard "Cur" id atual "New" bool. Some sem cartões. */}}
+{{define "card-fields"}}
+{{if .Cards}}
+<div class="row" data-card-fields>
+  <label>Cartão
+    <select name="card_id">
+      <option value="0">{{if eq (len .Cards) 1}}— (no crédito, vai no {{(index .Cards 0).Name}}){{else}}—{{end}}</option>
+      {{$cur := .Cur}}{{range .Cards}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}</option>{{end}}
+    </select>
+  </label>
+  {{if .New}}<label>Parcelas<input type="number" name="installments" min="1" max="99" value="1" title="Em quantas vezes; o valor informado é o total da compra"></label>{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{/* entry-card: cartão, fatura e parcela de um lançamento, para a linha da lista. */}}
+{{define "entry-card"}}{{if .CardID}} · <a class="link" href="/cartoes/{{.CardID}}/fatura?mes={{.Statement}}" title="Fatura que vence em {{dmy .CashDay}}">{{.Card}} {{.Statement.Label}}</a>{{end}}{{if .InstallmentOf}} · <span class="tag">{{.InstallmentN}}/{{.InstallmentOf}}</span>{{end}}{{end}}

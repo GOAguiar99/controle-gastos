@@ -15,6 +15,8 @@
     </label>
     <label>ou nova<input name="new_category" placeholder="opcional"></label>
     <label>Descrição<input name="description" value="{{.Tx.Description}}"></label>
+    {{if not .IsIncome}}{{template "payment-select" .Tx.Payment}}{{template "card-fields" (dict "Cards" .Cards "Cur" .Tx.CardID "New" false)}}
+    {{if .Tx.CardID}}<p class="hint">Fatura {{.Tx.Card}} de {{.Tx.Statement.Label}}, vence em {{dmy .Tx.CashDay}}.{{if .Tx.InstallmentOf}} Parcela {{.Tx.InstallmentN}} de {{.Tx.InstallmentOf}}.{{end}}</p>{{end}}{{end}}
     {{if not .IsIncome}}{{if .Debts}}
     <label>Abate dívida
       <select name="debt_id"><option value="0">—</option>{{range .Debts}}<option value="{{.ID}}" {{if eq .ID $.Tx.DebtID}}selected{{end}}>{{.Name}}</option>{{end}}</select>
@@ -29,5 +31,11 @@
     <input type="hidden" name="back" value="{{.Back}}">
     <button class="btn ghost danger">Excluir lançamento</button>
   </form>
+  {{if and .Tx.InstallmentOf (lt .Tx.InstallmentN .Tx.InstallmentOf)}}
+  <form method="post" action="/lancamentos/{{.Tx.ID}}/parcelas/excluir" data-confirm="Excluir a parcela {{.Tx.InstallmentN}} e as seguintes (até {{.Tx.InstallmentOf}})?" class="card-actions">
+    <input type="hidden" name="back" value="{{.Back}}">
+    <button class="btn ghost danger">Excluir esta e as próximas parcelas</button>
+  </form>
+  {{end}}
 </article>
 {{end}}

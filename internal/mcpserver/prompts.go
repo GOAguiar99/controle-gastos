@@ -18,12 +18,12 @@ const importPrompt = `Vou te passar um extrato ou fatura (arquivo ou texto). Imp
 3. Para cada linha, classifique:
    - já lançado: mesma data (±3 dias) e mesmo valor, descrição compatível;
    - recorrência prevista: bate com uma ocorrência prevista → use confirm_occurrence com o valor/data reais;
-   - novo: proponha a categoria pelo nome (use as existentes; não crie categoria sem me perguntar);
+   - novo: proponha a categoria pelo nome (use as existentes; não crie categoria sem me perguntar) e a forma de pagamento (fatura do cartão → credito; extrato da conta → debito, pix ou boleto, conforme a linha);
    - ignorar: transferências entre minhas contas, estornos que se anulam, pagamento da fatura do cartão quando os itens já estão lançados;
    - dúvida: me pergunte.
-4. Siga o padrão que a carteira já usa: se os meses anteriores têm um lançamento "Fatura cartão" por mês, lance a fatura como um total nessa categoria; se os itens são lançados um a um, faça igual. Nunca lance os itens e também o pagamento da fatura.
+4. Fatura do cartão: descubra o cartão (list_cards; se não houver, pergunte o dia de fechamento e de vencimento e cadastre com save_card) e o mês da fatura (o mês em que ela fecha). Consulte get_statement dessa fatura: o que já está nela não entra de novo (inclusive parcelas "4/10" criadas na importação anterior). Grave com import_statement, cada compra na sua categoria, com installment_n/installments nas linhas parceladas. Se eu preferir só o total, use set_statement_total. Se get_statement avisar de um "Fatura cartão" total sem cartão no mês, me pergunte antes: itens + total contariam em dobro. Nunca lance os itens e também o pagamento da fatura.
 5. Me mostre uma tabela (novos, confirmações, já lançados, ignorados, dúvidas) com os totais. Não grave nada antes do meu ok.
-6. Com o ok, grave os novos com add_transactions numa chamada só (é tudo ou nada) e as confirmações com confirm_occurrence. No fim, mostre o resumo do mês com get_overview.`
+6. Com o ok, grave os novos numa chamada só (import_statement para fatura de cartão, add_transactions para extrato de conta; é tudo ou nada) e as confirmações com confirm_occurrence. No fim, mostre o resumo do mês com get_overview.`
 
 const reviewPrompt = `Revise o mês no Controle de Gastos e me diga o que precisa de atenção. Só leia; não altere nada sem me perguntar.
 

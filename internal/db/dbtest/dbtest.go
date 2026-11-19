@@ -30,6 +30,18 @@ const role, rolePassword = "cg_test", "cg_test"
 // is skipped (it fails instead when CI is set, so CI never skips silently).
 func Open(t testing.TB) *db.DB {
 	t.Helper()
+	d, err := db.Open(context.Background(), URL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Close)
+	return d
+}
+
+// URL creates a fresh, empty database (dropped when the test ends) and returns
+// its connection URL for the ordinary role, without applying migrations.
+func URL(t testing.TB) string {
+	t.Helper()
 	admin := os.Getenv("TEST_DATABASE_URL")
 	if admin == "" {
 		if os.Getenv("CI") != "" {
@@ -70,12 +82,7 @@ func Open(t testing.TB) *db.DB {
 	}
 	u.User = url.UserPassword(role, rolePassword)
 	u.Path = "/" + name
-	d, err := db.Open(ctx, u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(d.Close)
-	return d
+	return u.String()
 }
 
 // Ledger opens a fresh database and returns the store of a new, seeded ledger.

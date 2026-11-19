@@ -26,9 +26,10 @@ func shortMonth(m finance.Month) string {
 
 type catTotal struct {
 	Name   string
-	Bucket finance.Bucket
+	Bucket finance.Bucket // group holding most of the category's money (bar color)
 	Total  int64
 	Count  int
+	groups map[finance.Bucket]int64
 }
 
 func byCategory(es []finance.Entry) []catTotal {
@@ -39,12 +40,42 @@ func byCategory(es []finance.Entry) []catTotal {
 		if !ok {
 			i = len(out)
 			idx[e.Category] = i
-			out = append(out, catTotal{Name: e.Category, Bucket: e.Bucket})
+			out = append(out, catTotal{Name: e.Category, groups: map[finance.Bucket]int64{}})
 		}
 		out[i].Total += e.Amount
 		out[i].Count++
+		out[i].groups[e.Group()] += e.Amount
+	}
+	for i := range out {
+		for _, b := range []finance.Bucket{finance.Card, finance.Fixed, finance.Other} {
+			if out[i].Bucket == "" || out[i].groups[b] > out[i].groups[out[i].Bucket] {
+				out[i].Bucket = b
+			}
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Total > out[j].Total })
+	return out
+}
+
+// payTotal is the month's spending paid one way (Análise tab).
+type payTotal struct {
+	Method finance.PaymentMethod
+	Total  int64
+	Pct    float64
+}
+
+func byPayment(es []finance.Entry, total int64) []payTotal {
+	sums := map[finance.PaymentMethod]int64{}
+	for _, e := range es {
+		sums[e.Payment] += e.Amount
+	}
+	var out []payTotal
+	for _, p := range finance.PaymentMethods {
+		if sums[p] > 0 {
+			out = append(out, payTotal{Method: p, Total: sums[p], Pct: ratioOf(sums[p], total)})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Total > out[j].Total })
 	return out
 }
 
@@ -171,7 +202,7 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 		buckets := map[finance.Bucket]int64{}
 		for _, e := range cur {
 			total += e.Amount
-			buckets[e.Bucket] += e.Amount
+			buckets[e.Group()] += e.Amount
 			if e.Projected {
 				projected += e.Amount
 			}
@@ -232,7 +263,8 @@ func (s *Server) list(kind finance.Kind) http.HandlerFunc {
 			"Month": mes, "Prev": mes.Add(-1), "Next": mes.Add(1), "Today": today,
 			"Entries": cur, "Skipped": skipped, "Total": total, "PrevTotal": prevTotal, "Diff": total - prevTotal,
 			"Projected": projected, "Real": total - projected, "ByCat": byCat, "MaxCat": maxCat, "Split": split,
-			"Categories": cats, "Debts": debts, "DefaultDate": defDate,
+			"ByPayment":  byPayment(cur, total),
+			"Categories": cats, "Debts": debts, "DefaultDate": defDate, "Cards": activeCards(r),
 			"NewRec": finance.Recurrence{Interval: 1, EndMode: finance.EndNever},
 			"Back":   kindPath(kind) + "?mes=" + mes.String(),
 			"Chart":  chart, "Analysis": analysis,
@@ -252,6 +284,11 @@ func categoryFromForm(r *http.Request) app.CategoryRef {
 func txFromForm(r *http.Request, kind finance.Kind) (app.TxIn, error) {
 	in := app.TxIn{Kind: kind, Category: categoryFromForm(r), Description: r.FormValue("description"), DebtID: formID(r, "debt_id")}
 	var err error
+	if in.Payment, err = app.ParsePaymentMethod(r.FormValue("payment_method")); err != nil {
+		return in, err
+	}
+	in.CardID = formID(r, "card_id")
+	in.Installments = formInt(r, "installments", 0)
 	if in.Date, err = finance.ParseDate(r.FormValue("date")); err != nil {
 		return in, fmt.Errorf("data inválida")
 	}
@@ -317,9 +354,9 @@ func (s *Server) editTxPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.render(w, r, "edit_tx", page{
-		"Title": "Editar lançamento", "Tx": tx, "Categories": cats, "Debts": debts, "Rec": rec,
+		"Title": "Editar lançamento", "Tx": tx, "Categories": cats, "Debts": debts, "Rec": rec, "Cards": activeCards(r),
 		"IsIncome": tx.Kind == finance.Income,
-		"Back":     kindPath(tx.Kind) + "?mes=" + finance.MonthOf(tx.Date).String(),
+		"Back":     localBack(r.URL.Query().Get("back"), kindPath(tx.Kind)+"?mes="+finance.MonthOf(tx.Date).String()),
 	})
 }
 
@@ -438,7 +475,7 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	editID := formID(r, "editar")
-	form := finance.Recurrence{Kind: kind, Interval: 1, Start: cur, Day: today.Day(), EndMode: finance.EndNever, Active: true}
+	form := finance.Recurrence{Kind: kind, Interval: 1, Start: cur, Day: today.Day(), EndMode: finance.EndNever, Active: true, Payment: finance.OtherPay}
 	var rows []recRow
 	var thisMonth, monthlyEq int64
 	for _, rc := range recs {
@@ -483,7 +520,7 @@ func (s *Server) recurrencesPage(w http.ResponseWriter, r *http.Request) {
 		"Title":       "Recorrentes", "Kind": string(kind), "IsIncome": kind == finance.Income,
 		"Rows": rows, "ThisMonth": thisMonth, "MonthlyEq": monthlyEq, "Current": cur,
 		"Form": form, "Editing": editID != 0 && form.ID == editID, "Categories": cats,
-		"Debts": debts, "DebtNames": debtNames,
+		"Debts": debts, "DebtNames": debtNames, "Cards": activeCards(r),
 	})
 }
 
@@ -518,6 +555,11 @@ func (s *Server) saveRecurrence(w http.ResponseWriter, r *http.Request) {
 	in.Active = in.ID == 0 || r.FormValue("active") == "on"
 	if kind == finance.Expense {
 		in.DebtID = formID(r, "debt_id")
+		if in.Payment, err = app.ParsePaymentMethod(r.FormValue("payment_method")); err != nil {
+			s.fail(w, err)
+			return
+		}
+		in.CardID = formID(r, "card_id")
 	}
 	if _, err := svcOf(r).SaveRecurrence(in); err != nil {
 		s.fail(w, err)
@@ -798,34 +840,13 @@ func (s *Server) saveLimits(w http.ResponseWriter, r *http.Request) {
 	profileDone(w, r, tabPrefs, "Limites salvos")
 }
 
-func parseBucket(v string) finance.Bucket {
-	switch finance.Bucket(v) {
-	case finance.Card, finance.Fixed:
-		return finance.Bucket(v)
-	}
-	return finance.Other
-}
-
 func (s *Server) addCategory(w http.ResponseWriter, r *http.Request) {
 	kind, _ := app.ParseKind(r.FormValue("kind"))
-	if _, err := svcOf(r).AddCategory(r.FormValue("name"), kind, parseBucket(r.FormValue("bucket"))); err != nil {
+	if _, err := svcOf(r).AddCategory(r.FormValue("name"), kind); err != nil {
 		s.fail(w, err)
 		return
 	}
 	profileDone(w, r, tabPrefs, "Categoria adicionada")
-}
-
-func (s *Server) updateCategory(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if err := svcOf(r).SetCategoryBucket(id, parseBucket(r.FormValue("bucket"))); err != nil {
-		s.fail(w, err)
-		return
-	}
-	profileDone(w, r, tabPrefs, "Categoria atualizada")
 }
 
 func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
@@ -962,4 +983,24 @@ func (s *Server) declineInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.sharingDone(w, r, s.app.DeclineInvite(r.Context(), actorOf(r), id), "Convite recusado.", profileURL(tabShare))
+}
+
+// activeCards lists the cards offered in expense forms.
+func activeCards(r *http.Request) []finance.CreditCard {
+	cards, _ := svcOf(r).Cards()
+	out := cards[:0:0]
+	for _, c := range cards {
+		if c.Active {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// localBack is to when it is a path on this site, otherwise fallback.
+func localBack(to, fallback string) string {
+	if !strings.HasPrefix(to, "/") || strings.HasPrefix(to, "//") || strings.Contains(to, "\\") {
+		return fallback
+	}
+	return to
 }

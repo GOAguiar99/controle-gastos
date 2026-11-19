@@ -99,14 +99,13 @@ func nzs(v string) any {
 // ---------- categories ----------
 
 type Category struct {
-	ID     int64
-	Name   string
-	Kind   finance.Kind
-	Bucket finance.Bucket
+	ID   int64
+	Name string
+	Kind finance.Kind
 }
 
 func (s *Store) Categories(kind finance.Kind) ([]Category, error) {
-	q := `SELECT id, name, kind, bucket FROM categories`
+	q := `SELECT id, name, kind FROM categories`
 	args := []any{}
 	if kind != "" {
 		q += ` WHERE kind = $1`
@@ -121,7 +120,7 @@ func (s *Store) Categories(kind finance.Kind) ([]Category, error) {
 	var out []Category
 	for rows.Next() {
 		var c Category
-		if err := rows.Scan(&c.ID, &c.Name, &c.Kind, &c.Bucket); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Kind); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -129,12 +128,9 @@ func (s *Store) Categories(kind finance.Kind) ([]Category, error) {
 	return out, rows.Err()
 }
 
-// EnsureCategory returns the id of (name, kind), creating it with bucket if missing.
-func (s *Store) EnsureCategory(name string, kind finance.Kind, bucket finance.Bucket) (int64, error) {
-	if bucket == "" {
-		bucket = finance.Other
-	}
-	if err := s.exec(`INSERT INTO categories (name, kind, bucket) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, name, kind, bucket); err != nil {
+// EnsureCategory returns the id of (name, kind), creating it if missing.
+func (s *Store) EnsureCategory(name string, kind finance.Kind) (int64, error) {
+	if err := s.exec(`INSERT INTO categories (name, kind) VALUES ($1, $2) ON CONFLICT DO NOTHING`, name, kind); err != nil {
 		return 0, err
 	}
 	var id int64
@@ -142,14 +138,9 @@ func (s *Store) EnsureCategory(name string, kind finance.Kind, bucket finance.Bu
 	return id, err
 }
 
-func (s *Store) SetCategoryBucket(id int64, bucket finance.Bucket) error {
-	err := s.exec(`UPDATE categories SET bucket = $1 WHERE id = $2`, bucket, id)
-	return err
-}
-
 func (s *Store) Category(id int64) (Category, error) {
 	var c Category
-	err := s.queryRow(`SELECT id, name, kind, bucket FROM categories WHERE id = $1`, id).Scan(&c.ID, &c.Name, &c.Kind, &c.Bucket)
+	err := s.queryRow(`SELECT id, name, kind FROM categories WHERE id = $1`, id).Scan(&c.ID, &c.Name, &c.Kind)
 	return c, err
 }
 
@@ -165,17 +156,42 @@ type TxInput struct {
 	OccMonth     string
 	DebtID       int64
 	Source       string
+	Payment      finance.PaymentMethod // "" saves as outro; the service fills the default
+	Fixed        bool
+	// Card purchases: card, statement and the statement's due date (set together).
+	CardID    int64
+	Statement finance.Month
+	CashDate  time.Time
+	// Parcelado: parcel N of Of. Rows of one InsertTxs call with the same
+	// nonzero GroupKey share a new installment group (the first row's id).
+	InstallmentN, InstallmentOf int
+	GroupKey                    int
 }
 
-const txSelect = `SELECT t.id, t.kind, t.date, t.amount_cents, t.category_id, c.name, c.bucket, t.description,
+const txSelect = `SELECT t.id, t.kind, t.date, t.amount_cents, t.category_id, c.name, t.payment_method, t.fixed, t.description,
 	COALESCE(t.recurrence_id, 0), COALESCE(t.occurrence_month, ''), COALESCE(t.debt_id, 0),
-	COALESCE(t.created_by, 0), COALESCE(NULLIF(u.name, ''), u.email, '')
-	FROM transactions t JOIN categories c ON c.id = t.category_id LEFT JOIN users u ON u.id = t.created_by`
+	COALESCE(t.created_by, 0), COALESCE(NULLIF(u.name, ''), u.email, ''),
+	COALESCE(t.card_id, 0), COALESCE(k.name, ''), COALESCE(t.statement_month, ''), t.cash_date,
+	COALESCE(t.installment_group, 0), COALESCE(t.installment_n, 0), COALESCE(t.installment_of, 0)
+	FROM transactions t JOIN categories c ON c.id = t.category_id LEFT JOIN users u ON u.id = t.created_by
+	LEFT JOIN cards k ON k.id = t.card_id`
 
 func scanTx(sc interface{ Scan(...any) error }) (finance.Entry, error) {
 	var e finance.Entry
-	err := sc.Scan(&e.ID, &e.Kind, &e.Date, &e.Amount, &e.CategoryID, &e.Category, &e.Bucket, &e.Description,
-		&e.RecurrenceID, &e.OccMonth, &e.DebtID, &e.CreatedByID, &e.CreatedBy)
+	var statement string
+	var cash *time.Time
+	err := sc.Scan(&e.ID, &e.Kind, &e.Date, &e.Amount, &e.CategoryID, &e.Category, &e.Payment, &e.Fixed, &e.Description,
+		&e.RecurrenceID, &e.OccMonth, &e.DebtID, &e.CreatedByID, &e.CreatedBy,
+		&e.CardID, &e.Card, &statement, &cash, &e.InstallmentGroup, &e.InstallmentN, &e.InstallmentOf)
+	if err != nil {
+		return e, err
+	}
+	if cash != nil {
+		e.CashDate = *cash
+	}
+	if statement != "" {
+		e.Statement, err = finance.ParseMonth(statement)
+	}
 	return e, err
 }
 
@@ -215,8 +231,9 @@ func (s *Store) Tx(id int64) (finance.Entry, error) {
 	return scanTx(s.queryRow(txSelect+` WHERE t.id = $1`, id))
 }
 
-const txInsert = `INSERT INTO transactions (kind, date, amount_cents, category_id, description, recurrence_id, occurrence_month, debt_id, source, created_by)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+const txInsert = `INSERT INTO transactions (kind, date, amount_cents, category_id, description, recurrence_id, occurrence_month, debt_id, source, created_by, payment_method, fixed,
+	card_id, statement_month, cash_date, installment_n, installment_of, installment_group)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`
 
 // txArgs builds the insert arguments; the author is always the store's
 // acting user, never something from the input.
@@ -224,8 +241,33 @@ func (s *Store) txArgs(in TxInput) []any {
 	if in.Source == "" {
 		in.Source = "manual"
 	}
+	if in.Payment == "" {
+		in.Payment = finance.OtherPay
+	}
 	return []any{in.Kind, in.Date, in.Amount, in.CategoryID, in.Description,
-		nz(in.RecurrenceID), nzs(in.OccMonth), nz(in.DebtID), in.Source, nz(s.userID)}
+		nz(in.RecurrenceID), nzs(in.OccMonth), nz(in.DebtID), in.Source, nz(s.userID), in.Payment, in.Fixed,
+		nz(in.CardID), statementArg(in), cashArg(in), nzi(in.InstallmentN), nzi(in.InstallmentOf), nil}
+}
+
+func statementArg(in TxInput) any {
+	if in.CardID == 0 || in.Statement == 0 {
+		return nil
+	}
+	return in.Statement.String()
+}
+
+func cashArg(in TxInput) any {
+	if in.CardID == 0 || in.CashDate.IsZero() {
+		return nil
+	}
+	return in.CashDate
+}
+
+func nzi(v int) any {
+	if v == 0 {
+		return nil
+	}
+	return v
 }
 
 func (s *Store) InsertTx(in TxInput) (int64, error) {
@@ -237,12 +279,24 @@ func (s *Store) InsertTx(in TxInput) (int64, error) {
 func (s *Store) InsertTxs(ins []TxInput) ([]int64, error) {
 	ids := make([]int64, 0, len(ins))
 	err := s.InTx(func(s *Store) error {
+		groups := map[int]int64{} // GroupKey -> installment group (first parcel's id)
 		for _, in := range ins {
 			id, err := s.insert(txInsert, s.txArgs(in)...)
 			if err != nil {
 				return err
 			}
 			ids = append(ids, id)
+			if in.GroupKey == 0 {
+				continue
+			}
+			g, ok := groups[in.GroupKey]
+			if !ok {
+				g = id
+				groups[in.GroupKey] = id
+			}
+			if err := s.exec(`UPDATE transactions SET installment_group = $1 WHERE id = $2`, g, id); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -266,11 +320,26 @@ func (s *Store) OccurrenceConfirmed(recID int64, m finance.Month) (bool, error) 
 	return n > 0, err
 }
 
-// UpdateTx edits the user-editable fields; the recurrence link is kept.
+// UpdateTx edits the user-editable fields; the recurrence link and the fixed
+// flag are kept.
 func (s *Store) UpdateTx(id int64, in TxInput) error {
-	err := s.exec(`UPDATE transactions SET date = $1, amount_cents = $2, category_id = $3, description = $4, debt_id = $5 WHERE id = $6`,
-		in.Date, in.Amount, in.CategoryID, in.Description, nz(in.DebtID), id)
+	if in.Payment == "" {
+		in.Payment = finance.OtherPay
+	}
+	err := s.exec(`UPDATE transactions SET date = $1, amount_cents = $2, category_id = $3, description = $4, debt_id = $5, payment_method = $6,
+		card_id = $7, statement_month = $8, cash_date = $9 WHERE id = $10`,
+		in.Date, in.Amount, in.CategoryID, in.Description, nz(in.DebtID), in.Payment, nz(in.CardID), statementArg(in), cashArg(in), id)
 	return err
+}
+
+// LastPaymentMethod is how the most recent transaction in the category was
+// paid (ok=false when it has none), used as the default for a new one.
+func (s *Store) LastPaymentMethod(categoryID int64) (p finance.PaymentMethod, ok bool, err error) {
+	err = s.queryRow(`SELECT payment_method FROM transactions WHERE category_id = $1 ORDER BY date DESC, id DESC LIMIT 1`, categoryID).Scan(&p)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	return p, err == nil, err
 }
 
 func (s *Store) DeleteTx(id int64) error {
@@ -280,7 +349,7 @@ func (s *Store) DeleteTx(id int64) error {
 
 // ---------- recurrences ----------
 
-const recSelect = `SELECT r.id, r.kind, r.description, r.category_id, c.name, c.bucket, r.amount_cents, r.day_of_month,
+const recSelect = `SELECT r.id, r.kind, r.description, r.category_id, c.name, r.payment_method, COALESCE(r.card_id, 0), r.amount_cents, r.day_of_month,
 	r.interval_months, r.start_month, r.end_mode, COALESCE(r.occurrences, 0), COALESCE(r.end_month, ''), r.active,
 	COALESCE(r.debt_id, 0), r.pending
 	FROM recurrences r JOIN categories c ON c.id = r.category_id`
@@ -288,7 +357,7 @@ const recSelect = `SELECT r.id, r.kind, r.description, r.category_id, c.name, c.
 func scanRec(sc interface{ Scan(...any) error }) (finance.Recurrence, error) {
 	var r finance.Recurrence
 	var start, end string
-	err := sc.Scan(&r.ID, &r.Kind, &r.Description, &r.CategoryID, &r.Category, &r.Bucket, &r.Amount, &r.Day,
+	err := sc.Scan(&r.ID, &r.Kind, &r.Description, &r.CategoryID, &r.Category, &r.Payment, &r.CardID, &r.Amount, &r.Day,
 		&r.Interval, &start, &r.EndMode, &r.Count, &end, &r.Active, &r.DebtID, &r.Pending)
 	if err != nil {
 		return r, err
@@ -337,14 +406,17 @@ func (s *Store) SaveRecurrence(r finance.Recurrence) (int64, error) {
 	if r.Interval < 1 {
 		r.Interval = 1
 	}
+	if r.Payment == "" {
+		r.Payment = finance.OtherPay
+	}
 	if r.ID == 0 {
-		return s.insert(`INSERT INTO recurrences (kind, description, category_id, amount_cents, day_of_month, interval_months, start_month, end_mode, occurrences, end_month, active, debt_id, pending)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-			r.Kind, r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.Pending)
+		return s.insert(`INSERT INTO recurrences (kind, description, category_id, amount_cents, day_of_month, interval_months, start_month, end_mode, occurrences, end_month, active, debt_id, pending, payment_method, card_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+			r.Kind, r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.Pending, r.Payment, nz(r.CardID))
 	}
 	err := s.exec(`UPDATE recurrences SET description = $1, category_id = $2, amount_cents = $3, day_of_month = $4, interval_months = $5,
-		start_month = $6, end_mode = $7, occurrences = $8, end_month = $9, active = $10, debt_id = $11, pending = $12 WHERE id = $13`,
-		r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.Pending, r.ID)
+		start_month = $6, end_mode = $7, occurrences = $8, end_month = $9, active = $10, debt_id = $11, pending = $12, payment_method = $13, card_id = $14 WHERE id = $15`,
+		r.Description, r.CategoryID, r.Amount, r.Day, r.Interval, r.Start.String(), r.EndMode, count, end, r.Active, nz(r.DebtID), r.Pending, r.Payment, nz(r.CardID), r.ID)
 	if err != nil {
 		return r.ID, err
 	}
@@ -434,7 +506,18 @@ func (s *Store) Entries(from, to finance.Month) (active, skipped []finance.Entry
 	if err := s.applyLoanInstallments(recs, proj); err != nil {
 		return nil, nil, err
 	}
+	cards, err := s.CardMap()
+	if err != nil {
+		return nil, nil, err
+	}
+	billProjected(cards, proj)
+	billProjected(cards, skipped)
 	active = append(txs, proj...)
+	rests, err := s.statementRests(cards, from, to, proj)
+	if err != nil {
+		return nil, nil, err
+	}
+	active = append(active, rests...)
 	finance.SortEntries(active)
 	finance.SortEntries(skipped)
 	return active, skipped, nil

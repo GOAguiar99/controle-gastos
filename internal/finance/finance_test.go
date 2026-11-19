@@ -75,7 +75,7 @@ func TestRecurrenceMonths(t *testing.T) {
 }
 
 func TestProjectSkipsDoneAndSkipped(t *testing.T) {
-	r := Recurrence{ID: 7, Kind: Expense, Amount: 1000, Day: 31, Interval: 1, Start: m("2027-01"), EndMode: EndNever, Active: true, Bucket: Fixed}
+	r := Recurrence{ID: 7, Kind: Expense, Amount: 1000, Day: 31, Interval: 1, Start: m("2027-01"), EndMode: EndNever, Active: true}
 	done, skipped := MonthSet{}, MonthSet{}
 	done.Add(7, m("2027-01"))
 	skipped.Add(7, m("2027-03"))
@@ -91,11 +91,11 @@ func TestProjectSkipsDoneAndSkipped(t *testing.T) {
 func TestSummarizeStatus(t *testing.T) {
 	es := []Entry{
 		{Kind: Income, Date: d("2026-01-05"), Amount: 10000},
-		{Kind: Expense, Date: d("2026-01-10"), Amount: 9000, Bucket: Card},
-		{Kind: Expense, Date: d("2026-01-11"), Amount: 500, Bucket: Fixed},
-		{Kind: Expense, Date: d("2026-01-12"), Amount: 1000, Bucket: Other},
+		{Kind: Expense, Date: d("2026-01-10"), Amount: 9000, Payment: Credit},
+		{Kind: Expense, Date: d("2026-01-11"), Amount: 500, Fixed: true},
+		{Kind: Expense, Date: d("2026-01-12"), Amount: 1000},
 		{Kind: Income, Date: d("2026-02-05"), Amount: 10000},
-		{Kind: Expense, Date: d("2026-02-10"), Amount: 1000, Bucket: Card},
+		{Kind: Expense, Date: d("2026-02-10"), Amount: 1000, Payment: Credit},
 	}
 	s := Summarize(es, m("2026-01"), m("2026-03"), Limits{CardLimit: 8000})
 	if s[0].Expense != 10500 || s[0].Balance != -500 || s[0].Status != "Sobra e cartão" {
@@ -156,5 +156,25 @@ func TestCashFlow(t *testing.T) {
 	// balance before the snapshot walks backwards
 	if got := BalanceAt(es, snap, d("2026-11-01")); got != 500 {
 		t.Fatalf("backwards: %d", got)
+	}
+}
+
+func TestEntryGroup(t *testing.T) {
+	cases := []struct {
+		name string
+		e    Entry
+		want Bucket
+	}{
+		{"pix", Entry{Payment: Pix}, Other},
+		{"credito", Entry{Payment: Credit}, Card},
+		{"credito ganha de fixo", Entry{Payment: Credit, Fixed: true}, Card},
+		{"fixo", Entry{Payment: Boleto, Fixed: true}, Fixed},
+		{"recorrência prevista", Entry{Projected: true, RecurrenceID: 3}, Fixed},
+		{"recorrência prevista no cartão", Entry{Projected: true, RecurrenceID: 3, Payment: Credit}, Card},
+	}
+	for _, c := range cases {
+		if got := c.e.Group(); got != c.want {
+			t.Errorf("%s: Group() = %s, want %s", c.name, got, c.want)
+		}
 	}
 }

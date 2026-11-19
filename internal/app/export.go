@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"controle-gastos/internal/db"
+	"controle-gastos/internal/finance"
 )
 
 // DataExport is everything the app stores about a person and their ledger,
@@ -31,10 +32,9 @@ type ExportLimits struct {
 }
 
 type ExportCategory struct {
-	ID     int64  `json:"id"`
-	Name   string `json:"name"`
-	Kind   string `json:"kind"`
-	Bucket string `json:"bucket"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
 }
 
 type ExportTx struct {
@@ -47,6 +47,8 @@ type ExportTx struct {
 	RecurrenceID int64  `json:"recurrence_id,omitempty"`
 	DebtID       int64  `json:"debt_id,omitempty"`
 	CreatedBy    string `json:"created_by,omitempty"`
+	Payment      string `json:"payment_method,omitempty"` // gastos: credito, debito, pix, dinheiro, boleto, outro
+	Group        string `json:"group,omitempty"`          // gastos: cartao, fixo, outros
 }
 
 type ExportRec struct {
@@ -63,6 +65,7 @@ type ExportRec struct {
 	End            string `json:"end,omitempty"`
 	Active         bool   `json:"active"`
 	DebtID         int64  `json:"debt_id,omitempty"`
+	Payment        string `json:"payment_method,omitempty"`
 }
 
 type ExportDebt struct {
@@ -92,14 +95,19 @@ func (s *Service) ExportData(user db.User) (DataExport, error) {
 		return out, err
 	}
 	for _, c := range cats {
-		out.Categories = append(out.Categories, ExportCategory{c.ID, c.Name, string(c.Kind), string(c.Bucket)})
+		out.Categories = append(out.Categories, ExportCategory{c.ID, c.Name, string(c.Kind)})
 	}
 	txs, err := s.st.AllTransactions()
 	if err != nil {
 		return out, err
 	}
 	for _, e := range txs {
-		out.Transactions = append(out.Transactions, ExportTx{e.ID, e.Date.Format("2006-01-02"), string(e.Kind), e.Amount, e.Category, e.Description, e.RecurrenceID, e.DebtID, e.CreatedBy})
+		x := ExportTx{ID: e.ID, Date: e.Date.Format("2006-01-02"), Kind: string(e.Kind), AmountCents: e.Amount, Category: e.Category,
+			Description: e.Description, RecurrenceID: e.RecurrenceID, DebtID: e.DebtID, CreatedBy: e.CreatedBy}
+		if e.Kind == finance.Expense {
+			x.Payment, x.Group = string(e.Payment), string(e.Group())
+		}
+		out.Transactions = append(out.Transactions, x)
 	}
 	recs, err := s.st.Recurrences()
 	if err != nil {
@@ -108,6 +116,9 @@ func (s *Service) ExportData(user db.User) (DataExport, error) {
 	for _, r := range recs {
 		x := ExportRec{ID: r.ID, Kind: string(r.Kind), Description: r.Description, Category: r.Category, AmountCents: r.Amount,
 			Day: r.Day, IntervalMonths: r.Interval, Start: r.Start.String(), EndMode: r.EndMode, Count: r.Count, Active: r.Active, DebtID: r.DebtID}
+		if r.Kind == finance.Expense {
+			x.Payment = string(r.Payment)
+		}
 		if r.EndMode == "until" {
 			x.End = r.End.String()
 		}

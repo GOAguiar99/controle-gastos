@@ -24,6 +24,18 @@ func bucketFor(name string) finance.Bucket {
 	return finance.Other
 }
 
+// legacyPayment maps the old dashboard group of an expense category to the
+// payment method and fixed flag of its transactions, like migration 0007.
+func legacyPayment(kind finance.Kind, b finance.Bucket) (finance.PaymentMethod, bool) {
+	if kind != finance.Expense {
+		return finance.OtherPay, false
+	}
+	if b == finance.Card {
+		return finance.Credit, false
+	}
+	return finance.OtherPay, b == finance.Fixed
+}
+
 type row struct {
 	kind   finance.Kind
 	date   time.Time
@@ -45,11 +57,7 @@ func (im *importer) cat(kind finance.Kind, name string) (int64, error) {
 	if id, ok := im.catIDs[key]; ok {
 		return id, nil
 	}
-	b := finance.Other
-	if kind == finance.Expense {
-		b = bucketFor(name)
-	}
-	id, err := im.st.EnsureCategory(name, kind, b)
+	id, err := im.st.EnsureCategory(name, kind)
 	if err == nil {
 		im.catIDs[key] = id
 	}
@@ -152,7 +160,7 @@ func Run(st *db.Store, file string, today time.Time, out io.Writer) error {
 		day := 1
 		fmt.Sscan(c["C"], &day)
 		if err := addRec(finance.Recurrence{
-			Kind: finance.Expense, Description: desc, CategoryID: catID, Category: catName, Amount: amt,
+			Kind: finance.Expense, Description: desc, CategoryID: catID, Category: catName, Amount: amt, Payment: legacyRecPayment(catName),
 			Day: day, Interval: 1, Start: start, EndMode: finance.EndNever, Active: strings.EqualFold(c["E"], "Sim"),
 		}); err != nil {
 			return err
@@ -239,6 +247,7 @@ func Run(st *db.Store, file string, today time.Time, out io.Writer) error {
 		m := finance.MonthOf(rw.date)
 		rec := matchRecurrence(recs, linked, rw, m)
 		in := db.TxInput{Kind: rw.kind, Date: rw.date, Amount: rw.amount, CategoryID: catID, Description: rw.note, Source: "import"}
+		in.Payment, in.Fixed = legacyPayment(rw.kind, bucketFor(rw.cat))
 		if rec != nil {
 			// Future rows that just repeat the recurrence are dropped: the projection covers them.
 			if rw.date.After(im.today) && rw.amount == rec.Amount && (rw.auto || rw.note == "") {
@@ -370,4 +379,10 @@ func compare(st *db.Store, dash Sheet, cur finance.Month, out io.Writer) error {
 		fmt.Fprintf(out, "\n⚠ %d valores divergentes (app≠planilha).\n", bad)
 	}
 	return nil
+}
+
+// legacyRecPayment is the payment method of an expense recurrence in category name.
+func legacyRecPayment(name string) finance.PaymentMethod {
+	p, _ := legacyPayment(finance.Expense, bucketFor(name))
+	return p
 }
