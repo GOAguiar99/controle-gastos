@@ -51,6 +51,15 @@
     <p class="hint">O limite do cartão vale para a soma dos gastos pagos no crédito no mês; o dashboard avisa quando passa dele.</p>
   </article>
 
+  <article class="card" id="cartoes">
+    <div class="card-head"><h2>Cartões de crédito</h2></div>
+    <form method="post" action="/config/cartoes" class="form">
+      <label class="check"><input type="checkbox" name="enabled" {{if .CardsOn}}checked{{end}} data-autosubmit-check> Usar o módulo de cartões</label>
+      <noscript><button class="btn small">Salvar</button></noscript>
+    </form>
+    <p class="hint">Ligado: cada compra no crédito cai na fatura do cartão e sai do caixa no vencimento, e o menu Cartões aparece. Desligado: gastos no crédito saem do caixa na data da compra, como antes; o que já está em faturas continua como está.</p>
+  </article>
+
   <article class="card">
     <div class="card-head"><h2>Categorias</h2></div>
     <p class="hint">A categoria diz o que foi comprado. A coluna do dashboard (Cartão, Fixos ou Outros) vem de cada lançamento: pago no crédito entra em Cartão, recorrência entra em Fixos.</p>

@@ -19,6 +19,11 @@
     sync();
   });
 
+  // A checkbox that saves its form as soon as it changes.
+  document.querySelectorAll('[data-autosubmit-check]').forEach(function (el) {
+    el.addEventListener('change', function () { el.form.submit(); });
+  });
+
   // Confirm destructive actions.
   document.querySelectorAll('form[data-confirm]').forEach(function (f) {
     f.addEventListener('submit', function (e) {

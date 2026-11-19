@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,7 +19,19 @@ type cardView struct {
 	Editing    bool
 }
 
+// cardsOff sends card pages to the preference that turns the module on.
+func (s *Server) cardsOff(w http.ResponseWriter, r *http.Request) bool {
+	if svcOf(r).CardsEnabled() {
+		return false
+	}
+	http.Redirect(w, r, "/perfil/preferencias?msg="+url.QueryEscape("O módulo de cartões está desativado; ative-o aqui")+"#cartoes", http.StatusSeeOther)
+	return true
+}
+
 func (s *Server) cardsPage(w http.ResponseWriter, r *http.Request) {
+	if s.cardsOff(w, r) {
+		return
+	}
 	svc := svcOf(r)
 	cards, err := svc.Cards()
 	if err != nil {
@@ -97,13 +108,13 @@ func (s *Server) statementMonth(r *http.Request) finance.Month {
 	return 0
 }
 
+// statementPage shows a fatura. Importing it is done by the assistant over MCP
+// (import_statement), which reads the bill and categorizes each purchase far
+// better than a paste-and-pick form; the page shows the result.
 func (s *Server) statementPage(w http.ResponseWriter, r *http.Request) {
-	s.renderStatement(w, r, nil, "", "")
-}
-
-// renderStatement shows a fatura; with preview, also the import review, and
-// errMsg above it when confirming failed.
-func (s *Server) renderStatement(w http.ResponseWriter, r *http.Request, preview *app.ImportPreview, text, errMsg string) {
+	if s.cardsOff(w, r) {
+		return
+	}
 	id, err := pathID(r)
 	if err != nil {
 		http.NotFound(w, r)
@@ -119,15 +130,9 @@ func (s *Server) renderStatement(w http.ResponseWriter, r *http.Request, preview
 		s.fail(w, err)
 		return
 	}
-	cats, err := svc.Categories(finance.Expense)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
 	s.render(w, r, "statement", page{
-		"Title": "Fatura " + v.Card.Name + " · " + v.Month.Label(), "V": v, "Categories": cats,
-		"Prev": v.Month.Add(-1), "Next": v.Month.Add(1), "Preview": preview, "Text": text,
-		"Back": statementPath(id, v.Month), "Error": errMsg,
+		"Title": "Fatura " + v.Card.Name + " · " + v.Month.Label(), "V": v,
+		"Prev": v.Month.Add(-1), "Next": v.Month.Add(1), "Back": statementPath(id, v.Month),
 	})
 }
 
@@ -156,106 +161,6 @@ func (s *Server) setStatementTotal(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, statementPath(id, m)+"&msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
-// maxStatementFile bounds an uploaded statement (the request body is already
-// limited to maxBodyBytes).
-const maxStatementFile = 512 << 10
-
-func (s *Server) previewImport(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	text := r.FormValue("text")
-	if f, _, err := r.FormFile("file"); err == nil {
-		b, err := io.ReadAll(io.LimitReader(f, maxStatementFile+1))
-		f.Close()
-		if err != nil || len(b) > maxStatementFile {
-			badRequest(w, "arquivo grande demais (máximo 512 KB)")
-			return
-		}
-		text = strings.TrimSpace(text + "\n" + string(b))
-	}
-	p, err := svcOf(r).PreviewStatement(id, s.statementMonth(r), text)
-	if err != nil {
-		s.fail(w, err)
-		return
-	}
-	s.renderStatement(w, r, &p, text, "")
-}
-
-func (s *Server) confirmImport(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	m := s.statementMonth(r)
-	n := formInt(r, "rows", 0)
-	// the review as submitted, to show it again if something is wrong
-	review := app.ImportPreview{Month: m}
-	var items []app.ImportItem
-	var lines []int // review line of each item
-	problem := ""
-	for i := 0; i < n && i < 2000; i++ {
-		k := func(f string) string { return fmt.Sprintf("%s_%d", f, i) }
-		use := r.FormValue(k("use")) == "on"
-		row := app.ImportRow{Status: app.ImportNew, CategoryID: formID(r, k("cat"))}
-		if !use {
-			row.Status = app.ImportIgnore
-		}
-		row.Description, row.InstallmentN, row.Installments = r.FormValue(k("desc")), formInt(r, k("n"), 0), formInt(r, k("of"), 0)
-		row.Date, err = finance.ParseDate(r.FormValue(k("date")))
-		if err != nil && use && problem == "" {
-			problem = fmt.Sprintf("linha %d: data inválida", i+1)
-		}
-		row.Amount, err = finance.ParseMoney(r.FormValue(k("amount")))
-		if err != nil && use && problem == "" {
-			problem = fmt.Sprintf("linha %d: valor inválido", i+1)
-		}
-		review.Rows = append(review.Rows, row)
-		if !use {
-			continue
-		}
-		review.NewCount++
-		review.New += row.Amount
-		it := app.ImportItem{Date: row.Date, Description: row.Description, Amount: row.Amount,
-			InstallmentN: row.InstallmentN, Installments: row.Installments, Category: app.CategoryRef{ID: row.CategoryID}}
-		if name := strings.TrimSpace(r.FormValue(k("newcat"))); name != "" {
-			it.Category = app.CategoryRef{Name: name, Create: true}
-		} else if row.CategoryID == 0 && problem == "" {
-			problem = fmt.Sprintf("linha %d (%s): escolha uma categoria", i+1, row.Description)
-		}
-		items = append(items, it)
-		lines = append(lines, i+1)
-	}
-	if len(items) == 0 && problem == "" {
-		problem = "nenhuma linha marcada para importar"
-	}
-	var ids []int64
-	if problem == "" {
-		ids, err = svcOf(r).ImportStatement(id, m, items, app.SourceImport)
-		if err != nil && !app.IsValidation(err) {
-			s.fail(w, err)
-			return
-		}
-		if err != nil {
-			problem = itemToLine(err.Error(), lines)
-		}
-	}
-	if problem != "" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		s.renderStatement(w, r, &review, "", "Nada foi importado: "+problem)
-		return
-	}
-	msg := fmt.Sprintf("%d compra(s) importada(s)", len(items))
-	if extra := len(ids) - len(items); extra > 0 {
-		msg += fmt.Sprintf(", mais %d parcela(s) futura(s) nas próximas faturas", extra)
-	}
-	http.Redirect(w, r, statementPath(id, m)+"&msg="+url.QueryEscape(msg), http.StatusSeeOther)
-}
-
 func (s *Server) deleteInstallments(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -276,14 +181,4 @@ func (s *Server) deleteInstallments(w http.ResponseWriter, r *http.Request) {
 		sep = "&"
 	}
 	http.Redirect(w, r, to+sep+"msg="+url.QueryEscape(fmt.Sprintf("%d parcela(s) excluída(s)", n)), http.StatusSeeOther)
-}
-
-// itemToLine turns the service's "item N: ..." (N counts only the checked
-// rows) into the line number of the review.
-func itemToLine(msg string, lines []int) string {
-	var n int
-	if _, err := fmt.Sscanf(msg, "item %d:", &n); err == nil && n >= 1 && n <= len(lines) {
-		return fmt.Sprintf("linha %d:%s", lines[n-1], strings.SplitN(msg, ":", 2)[1])
-	}
-	return msg
 }

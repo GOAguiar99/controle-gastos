@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -88,4 +89,47 @@ func TestCardTools(t *testing.T) {
 		{"kind": "expense", "date": "2026-11-16", "amount": 1, "category": "Casa", "card": "Inexistente"},
 	}}, nil, true)
 	call(t, cs, "delete_card", map[string]any{"id": 1}, nil, true) // has purchases
+}
+
+// check_statement tells new purchases from the ones already in the app and
+// suggests categories; set_cards_module turns the card tools off.
+func TestCheckStatementAndModule(t *testing.T) {
+	cs, _ := connect(t)
+	call(t, cs, "save_card", map[string]any{"name": "Nubank", "closing_day": 3, "due_day": 10}, nil, false)
+	call(t, cs, "import_statement", map[string]any{"card": "Nubank", "month": "2026-11", "items": []map[string]any{
+		{"date": "2026-10-28", "description": "Padaria Pão Quente", "amount": 12.5, "category": "Alimentação", "create_category": true},
+		{"date": "2026-10-30", "description": "Magazine", "amount": 99.9, "category": "Casa", "create_category": true, "installment_n": 3, "installments": 10},
+	}}, nil, false)
+	var out struct {
+		Lines []struct {
+			Status            string `json:"status"`
+			SuggestedCategory string `json:"suggested_category"`
+		} `json:"lines"`
+		NewCount int `json:"new_count"`
+	}
+	call(t, cs, "check_statement", map[string]any{"card": "Nubank", "month": "2026-12", "lines": []map[string]any{
+		{"date": "2026-10-30", "description": "Magazine", "amount": 99.9, "installment_n": 4, "installments": 10},
+		{"date": "2026-11-20", "description": "PADARIA PAO QUENTE", "amount": 15},
+	}}, &out, false)
+	if len(out.Lines) != 2 || out.Lines[0].Status != "duplicado" || out.Lines[1].Status != "novo" ||
+		out.Lines[1].SuggestedCategory != "Alimentação" || out.NewCount != 1 {
+		t.Fatalf("check: %+v", out)
+	}
+
+	var lim struct {
+		CardsOn bool `json:"cards_module"`
+	}
+	call(t, cs, "get_limits", map[string]any{}, &lim, false)
+	if !lim.CardsOn {
+		t.Fatal("module should start on")
+	}
+	call(t, cs, "set_cards_module", map[string]any{"enabled": false}, nil, false)
+	if text := call(t, cs, "list_cards", map[string]any{}, nil, false); !strings.Contains(text, `"cards":[]`) {
+		t.Errorf("list_cards with module off: %s", text)
+	}
+	if text := call(t, cs, "get_statement", map[string]any{"card": "Nubank"}, nil, true); !strings.Contains(text, "desativado") {
+		t.Errorf("get_statement with module off: %s", text)
+	}
+	call(t, cs, "set_cards_module", map[string]any{"enabled": true}, nil, false)
+	call(t, cs, "get_statement", map[string]any{"card": "Nubank"}, nil, false)
 }

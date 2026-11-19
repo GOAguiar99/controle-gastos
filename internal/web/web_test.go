@@ -337,7 +337,7 @@ func TestExpensePaymentMethodForm(t *testing.T) {
 	}
 }
 
-// Cards: register one, set a fatura total, import a statement and confirm it.
+// Cards: register one and set a fatura total; the cards module can be turned off.
 func TestCardsAndStatementImport(t *testing.T) {
 	ts, client, env := newTestServer(t)
 	env.mustLogin(t, client, anaUser)
@@ -367,36 +367,37 @@ func TestCardsAndStatementImport(t *testing.T) {
 		t.Fatal("declared total not shown")
 	}
 
-	res := post("/cartoes/1/importar?mes=2026-11", url.Values{"text": {"28/10 Padaria 12,50\n30/10 Magazine Luiza 3/10 99,90\n01/11 Pagamento recebido -500,00"}})
-	b, _ := io.ReadAll(res.Body)
-	page := string(b)
-	if res.StatusCode != http.StatusOK || !strings.Contains(page, "Revisar importação") || !strings.Contains(page, "3/10") ||
-		!strings.Contains(page, `name="use_0" aria-label="Importar linha 1" checked`) || strings.Contains(page, `name="use_2" aria-label="Importar linha 3" checked`) {
-		t.Fatalf("preview: %d", res.StatusCode)
-	}
-	v := url.Values{"rows": {"2"},
-		"use_0": {"on"}, "date_0": {"2026-10-28"}, "desc_0": {"Padaria"}, "amount_0": {"12,50"}, "newcat_0": {"Alimentação"},
-		"use_1": {"on"}, "date_1": {"2026-10-30"}, "desc_1": {"Magazine Luiza"}, "amount_1": {"99,90"}, "newcat_1": {"Casa"}, "n_1": {"3"}, "of_1": {"10"}}
-	// a checked line without a category: the review comes back, nothing saved
-	bad := url.Values{"rows": {"1"}, "use_0": {"on"}, "date_0": {"2026-10-28"}, "desc_0": {"Padaria"}, "amount_0": {"12,50"}, "cat_0": {"0"}}
-	res = post("/cartoes/1/importar/confirmar?mes=2026-11", bad)
-	b, _ = io.ReadAll(res.Body)
-	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(b), "linha 1 (Padaria): escolha uma categoria") ||
-		!strings.Contains(string(b), `value="Padaria"`) {
-		t.Fatalf("missing category: %d", res.StatusCode)
-	}
-	res = post("/cartoes/1/importar/confirmar?mes=2026-11", v)
-	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "7+parcela") {
-		t.Fatalf("confirm: %d %s", res.StatusCode, res.Header.Get("Location"))
-	}
+	// importing is done by the assistant over MCP: the page says so, and the
+	// old web import routes are gone
 	f := string(mustGet(t, client, ts.URL+"/cartoes/1/fatura?mes=2026-11"))
-	for _, want := range []string{"Padaria", "Magazine Luiza", "3/10", "R$ 887,60"} { // não detalhado: 1000 - 12,50 - 99,90
-		if !strings.Contains(f, want) {
-			t.Errorf("statement misses %q", want)
-		}
+	if !strings.Contains(f, "Importa esta fatura do Nubank") || strings.Contains(f, `name="text"`) {
+		t.Error("statement page should point to the assistant, without a paste form")
+	}
+	if res := post("/cartoes/1/importar?mes=2026-11", url.Values{"text": {"28/10 Padaria 12,50"}}); res.StatusCode == http.StatusOK || res.StatusCode == http.StatusSeeOther {
+		t.Errorf("web import still answers: %d", res.StatusCode)
 	}
 	// the November expenses list shows the undetailed part, linked to the fatura
 	if g := string(mustGet(t, client, ts.URL+"/gastos?mes=2026-11")); !strings.Contains(g, "Fatura Nubank (não detalhado)") {
 		t.Error("undetailed part not in the expense list")
+	}
+
+	// turning the module off hides the menu and the card fields
+	if res := post("/config/cartoes", url.Values{}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("turn off: %d", res.StatusCode)
+	}
+	g := string(mustGet(t, client, ts.URL+"/gastos"))
+	if strings.Contains(g, `href="/cartoes"`) || strings.Contains(g, `name="card_id"`) {
+		t.Error("cards still offered with the module off")
+	}
+	res, _ := client.Get(ts.URL + "/cartoes")
+	if res.StatusCode != http.StatusSeeOther || !strings.Contains(res.Header.Get("Location"), "/perfil/preferencias") {
+		t.Errorf("cards page with module off: %d %s", res.StatusCode, res.Header.Get("Location"))
+	}
+	if p := string(mustGet(t, client, ts.URL+"/perfil/preferencias")); !strings.Contains(p, `name="enabled"  data-autosubmit-check`) {
+		t.Error("preference not shown as off")
+	}
+	post("/config/cartoes", url.Values{"enabled": {"on"}})
+	if g := string(mustGet(t, client, ts.URL+"/gastos")); !strings.Contains(g, `href="/cartoes"`) {
+		t.Error("menu not back after turning the module on")
 	}
 }
