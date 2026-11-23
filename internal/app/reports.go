@@ -21,6 +21,7 @@ type Overview struct {
 	Flow     finance.CashFlow // caixa projetado dia a dia / mês a mês
 	FlowRows []finance.FlowMonth
 	Entries  []finance.Entry // all entries loaded (history through the horizon)
+	Cash     CashSetup       // contas do caixa e rendimento usado na projeção
 }
 
 func (s *Service) Overview(sel finance.Month) (Overview, error) {
@@ -46,8 +47,16 @@ func (s *Service) Overview(sel finance.Month) (Overview, error) {
 	o.Summary = finance.Summarize(o.Entries, sel, sel, o.Limits)[0]
 	// The future only counts what is launched (recurrences, loan parcels and
 	// future-dated expenses): what's left is what can still be spent.
-	o.Flow = finance.ProjectCash(o.Entries, o.Snapshot, today, HorizonMonths)
-	o.FlowRows = finance.MonthlyFlow(o.Entries, o.Snapshot, today, cur.Add(-HistoryMonths), cur.Add(HorizonMonths-1))
+	if o.Cash, err = s.Cash(); err != nil {
+		return o, err
+	}
+	// the cash's own yield only enters the cash flow, not the month's income
+	flow, err := s.withYield(o.Entries, o.Snapshot, cur.Add(HorizonMonths-1).Last())
+	if err != nil {
+		return o, err
+	}
+	o.Flow = finance.ProjectCash(flow, o.Snapshot, today, HorizonMonths)
+	o.FlowRows = finance.MonthlyFlow(flow, o.Snapshot, today, cur.Add(-HistoryMonths), cur.Add(HorizonMonths-1))
 	return o, nil
 }
 
@@ -72,6 +81,9 @@ func (s *Service) CashProjection(n int) (finance.CashFlow, error) {
 	}
 	es, _, err := s.st.Entries(lo.Add(-cardLag), cur.Add(n-1))
 	if err != nil {
+		return finance.CashFlow{}, err
+	}
+	if es, err = s.withYield(es, snap, cur.Add(n-1).Last()); err != nil {
 		return finance.CashFlow{}, err
 	}
 	return finance.ProjectCash(es, snap, today, n), nil

@@ -76,8 +76,14 @@ func (t *tools) register(s *mcp.Server) {
 	addTool(s, &mcp.Tool{Name: "save_debt", Annotations: write,
 		Description: "Cria (sem id) ou altera (com id; envie todos os campos) uma dívida. system: none (sem juros; pagamentos lançados avulsos com debt_id) ou sac/price (financiamento: ao criar, o app sugere a recorrência mensal das parcelas restantes, com o valor de cada parcela pela tabela; ela fica pendente até accept_recurrence)."}, t.saveDebt)
 	addTool(s, &mcp.Tool{Name: "set_cash", Annotations: write,
-		Description: "Informa o caixa real (soma das contas) numa data, padrão hoje. Lançamentos até essa data passam a ser considerados já incluídos."},
+		Description: "Informa o caixa real numa data, padrão hoje: com contas cadastradas, o saldo de cada uma em accounts (o caixa é a soma); sem contas, o total em amount. Lançamentos até essa data passam a ser considerados já incluídos."},
 		t.setCash)
+	addTool(s, &mcp.Tool{Name: "list_cash_accounts", Annotations: readOnly,
+		Description: "Contas do caixa (onde está o dinheiro), com % do CDI que rendem (bruto) e último saldo, o CDI atual e o rendimento médio que a projeção de caixa usa."}, t.listCashAccounts)
+	addTool(s, &mcp.Tool{Name: "save_cash_account", Annotations: idempotent,
+		Description: "Cria (sem id) ou altera (com id) uma conta do caixa: nome e % do CDI que rende (bruto; 0 = não rende, 100 = 100% do CDI). O saldo se informa com set_cash."}, t.saveCashAccount)
+	addTool(s, &mcp.Tool{Name: "delete_cash_account", Annotations: destructive,
+		Description: "Exclui uma conta do caixa (o caixa informado antes não muda)."}, t.deleteCashAccount)
 	addTool(s, &mcp.Tool{Name: "add_category", Annotations: idempotent,
 		Description: "Cria uma categoria (se já existir com o mesmo nome, retorna a existente)."}, t.addCategory)
 	addTool(s, &mcp.Tool{Name: "set_cards_module", Annotations: idempotent,
@@ -845,9 +851,15 @@ type debtSavedOut struct {
 }
 
 type cashIn struct {
-	Amount float64 `json:"amount" jsonschema:"saldo real em reais (pode ser negativo)"`
-	Date   string  `json:"date,omitempty" jsonschema:"AAAA-MM-DD; padrão hoje"`
-	Note   string  `json:"note,omitempty"`
+	Amount   float64          `json:"amount,omitempty" jsonschema:"saldo total em reais (pode ser negativo); use quando não há contas cadastradas"`
+	Accounts []accountBalance `json:"accounts,omitempty" jsonschema:"saldo de cada conta do caixa (list_cash_accounts); o caixa vira a soma, contas omitidas mantêm o último saldo"`
+	Date     string           `json:"date,omitempty" jsonschema:"AAAA-MM-DD; padrão hoje"`
+	Note     string           `json:"note,omitempty"`
+}
+
+type accountBalance struct {
+	Account string  `json:"account" jsonschema:"nome da conta"`
+	Amount  float64 `json:"amount" jsonschema:"saldo em reais"`
 }
 
 func (t *tools) setCash(ctx context.Context, _ *mcp.CallToolRequest, in cashIn) (*mcp.CallToolResult, msgOut, error) {
@@ -855,8 +867,24 @@ func (t *tools) setCash(ctx context.Context, _ *mcp.CallToolRequest, in cashIn) 
 	if err != nil {
 		return nil, msgOut{}, err
 	}
+	svc := t.svcFor(ctx)
+	if len(in.Accounts) > 0 {
+		bal := map[int64]int64{}
+		for _, a := range in.Accounts {
+			acc, err := svc.CashAccountByName(a.Account)
+			if err != nil {
+				return nil, msgOut{}, toolErr(err)
+			}
+			bal[acc.ID] = finance.FromReais(a.Amount)
+		}
+		total, err := svc.SetCashBalances(d, bal, in.Note)
+		if err != nil {
+			return nil, msgOut{}, toolErr(err)
+		}
+		return nil, msgOut{Message: "caixa de " + finance.BRL(total) + " (soma das contas) informado"}, nil
+	}
 	cents := finance.FromReais(in.Amount)
-	d, err = t.svcFor(ctx).SetCash(d, cents, in.Note)
+	d, err = svc.SetCash(d, cents, in.Note)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}

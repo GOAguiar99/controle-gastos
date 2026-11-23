@@ -48,18 +48,23 @@
     <span class="kpi-label">Caixa hoje · {{dmy .Today}}</span>
     <strong class="kpi-value {{if neg .Flow.Current}}negc{{end}}">{{brl .Flow.Current}}</strong>
     {{if .Snap.Set}}
-      <span class="kpi-sub">Informado {{brl .Snap.Amount}} em {{dmy .Snap.Date}}{{if ne (iso .Snap.Date) (iso .Today)}} + lançamentos desde então{{end}}</span>
+      <span class="kpi-sub">Informado {{brl .Snap.Amount}} em {{dmy .Snap.Date}}{{if ne (iso .Snap.Date) (iso .Today)}} + lançamentos{{if .Cash.Annual}} e rendimento{{end}} desde então{{end}}</span>
+      {{if .Cash.Annual}}<span class="kpi-sub">Rende ~{{brl .Cash.Monthly}}/mês bruto · {{pctNum .Cash.PctOfCDI}}% do CDI ({{pct2 .Cash.CDI}}% a.a. em {{dm .Cash.CDIAsOf}})</span>{{end}}
     {{else}}
       <span class="kpi-sub warn-text">Informe o saldo atual para projetar o fluxo de caixa.</span>
     {{end}}
     <details class="cash-form" {{if not .Snap.Set}}open{{end}}>
       <summary>Atualizar caixa</summary>
-      <form method="post" action="/caixa" class="inline-form">
+      <form method="post" action="/caixa" class="inline-form{{if .Cash.Accounts}} cash-accounts{{end}}">
+        {{if .Cash.Accounts}}
+        {{range .Cash.Accounts}}<label>{{.Name}} <small class="muted">{{pctNum .CDIPct}}% CDI</small><input name="acct_{{.ID}}" value="{{money .Balance}}" inputmode="decimal" placeholder="0,00" data-money></label>{{end}}
+        {{else}}
         <label>Saldo<input name="amount" inputmode="decimal" placeholder="0,00" required data-money></label>
+        {{end}}
         <label>Em<input type="date" name="date" value="{{iso .Today}}"></label>
         <button class="btn">Salvar</button>
       </form>
-      <p class="hint">Lançamentos com data até o dia informado já estão no saldo.</p>
+      <p class="hint">Lançamentos com data até o dia informado já estão no saldo. {{if .Cash.Accounts}}O caixa é a soma das contas.{{else}}Para o caixa render na projeção, cadastre as contas e o % do CDI em <a class="link" href="/perfil/preferencias#contas">Preferências</a>.{{end}}</p>
     </details>
   </article>
 </section>

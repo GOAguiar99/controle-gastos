@@ -162,6 +162,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /config/limites", s.saveLimits)
 	mux.HandleFunc("POST /config/cartoes", s.saveCardsModule)
 	mux.HandleFunc("POST /config/memorias/apagar", s.forgetCategory)
+	mux.HandleFunc("POST /config/contas", s.saveCashAccount)
+	mux.HandleFunc("POST /config/contas/{id}", s.saveCashAccount)
+	mux.HandleFunc("POST /config/contas/{id}/excluir", s.deleteCashAccount)
 	mux.HandleFunc("POST /config/categorias", s.addCategory)
 	mux.HandleFunc("GET /export/lancamentos.csv", s.exportCSV)
 	mux.HandleFunc("GET /export/dados.json", s.exportJSON)
@@ -342,14 +345,19 @@ var funcs = template.FuncMap{
 		}
 		return float64(a) / float64(b)
 	},
-	"dm":         func(t time.Time) string { return t.Format("02/01") },
-	"dmy":        func(t time.Time) string { return t.Format("02/01/2006") },
-	"iso":        func(t time.Time) string { return t.Format("2006-01-02") },
-	"weekday":    func(t time.Time) string { return weekdays[t.Weekday()] },
-	"neg":        func(v int64) bool { return v < 0 },
-	"json":       func(v any) (template.JS, error) { b, err := json.Marshal(v); return template.JS(b), err },
-	"add":        func(a, b int) int { return a + b },
-	"sub":        func(a, b int64) int64 { return a - b },
+	"dm":      func(t time.Time) string { return t.Format("02/01") },
+	"dmy":     func(t time.Time) string { return t.Format("02/01/2006") },
+	"iso":     func(t time.Time) string { return t.Format("2006-01-02") },
+	"weekday": func(t time.Time) string { return weekdays[t.Weekday()] },
+	"neg":     func(v int64) bool { return v < 0 },
+	"json":    func(v any) (template.JS, error) { b, err := json.Marshal(v); return template.JS(b), err },
+	"add":     func(a, b int) int { return a + b },
+	"sub":     func(a, b int64) int64 { return a - b },
+	// pctNum prints a percentage without trailing zeros, with a comma: 120 / 12,5
+	"pctNum": func(f float64) string {
+		return strings.Replace(strconv.FormatFloat(math.Round(f*10)/10, 'f', -1, 64), ".", ",", 1)
+	},
+	"pct2":       func(f float64) string { return strings.Replace(strconv.FormatFloat(f, 'f', 2, 64), ".", ",", 1) },
 	"isZeroTime": func(t time.Time) bool { return t.IsZero() },
 	"intervals":  func() []option { return intervalOptions },
 	"newDebt":    func() db.Debt { return db.Debt{} },

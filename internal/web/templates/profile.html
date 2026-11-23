@@ -51,6 +51,34 @@
     <p class="hint">O limite do cartão vale para a soma dos gastos pagos no crédito no mês; o dashboard avisa quando passa dele.</p>
   </article>
 
+  <article class="card" id="contas">
+    <div class="card-head"><h2>Contas do caixa</h2>{{if .Cash.HasCDI}}<span class="muted">CDI {{pct2 .Cash.CDI}}% a.a. ({{dm .Cash.CDIAsOf}})</span>{{end}}</div>
+    <p class="hint">Onde está o seu dinheiro e quanto rende (bruto, em % do CDI). Com contas, "Atualizar caixa" pede o saldo de cada uma e a projeção soma o rendimento mês a mês.</p>
+    {{if .Cash.Accounts}}
+    <table class="grid compact">
+      <thead><tr><th>Conta</th><th>% do CDI</th><th class="num">Último saldo</th><th></th></tr></thead>
+      <tbody>
+      {{range .Cash.Accounts}}
+      <tr><td colspan="2">
+        <form method="post" action="/config/contas/{{.ID}}" class="inline-form tight">
+          <input name="name" value="{{.Name}}" aria-label="Nome da conta" required>
+          <input name="cdi_pct" value="{{pctNum .CDIPct}}" inputmode="decimal" size="5" aria-label="% do CDI de {{.Name}}">
+          <button class="btn small">Salvar</button>
+        </form></td>
+        <td class="num">{{brl .Balance}}{{if not (isZeroTime .BalanceDate)}} <small class="muted">{{dm .BalanceDate}}</small>{{end}}</td>
+        <td><form method="post" action="/config/contas/{{.ID}}/excluir" data-confirm="Excluir a conta {{.Name}}?"><button class="btn ghost small danger" aria-label="Excluir {{.Name}}">✕</button></form></td></tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{if .Cash.Annual}}<p class="hint">O caixa rende {{pctNum .Cash.PctOfCDI}}% do CDI na média: ~{{brl .Cash.Monthly}} por mês, bruto.</p>{{end}}
+    {{end}}
+    <form method="post" action="/config/contas" class="inline-form">
+      <label>Nova conta<input name="name" required placeholder="ex.: CDB Inter"></label>
+      <label>% do CDI<input name="cdi_pct" inputmode="decimal" placeholder="100" size="5"></label>
+      <button class="btn">Adicionar</button>
+    </form>
+  </article>
+
   <article class="card" id="memorias">
     <div class="card-head"><h2>Memória de categorias</h2><span class="muted">{{len .Rules}}</span></div>
     <p class="hint">Quando você troca a categoria de uma compra na fatura, o app (e o assistente) passa a usar essa categoria para as próximas compras do mesmo estabelecimento.</p>

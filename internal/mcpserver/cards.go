@@ -369,3 +369,58 @@ func (t *tools) forgetCategory(ctx context.Context, _ *mcp.CallToolRequest, in f
 	}
 	return nil, msgOut{Message: "memória apagada"}, nil
 }
+
+type cashAccountOut struct {
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	CDIPct      float64  `json:"cdi_pct" jsonschema:"% do CDI que rende, bruto"`
+	Balance     moneyOut `json:"balance" jsonschema:"último saldo informado"`
+	BalanceDate string   `json:"balance_date,omitempty"`
+}
+
+type cashAccountsOut struct {
+	Accounts  []cashAccountOut `json:"accounts"`
+	CDI       float64          `json:"cdi_pct_year,omitempty" jsonschema:"CDI atual, % a.a. (Banco Central)"`
+	CDIAsOf   string           `json:"cdi_as_of,omitempty"`
+	PctOfCDI  float64          `json:"cash_pct_of_cdi" jsonschema:"rendimento médio do caixa em % do CDI, ponderado pelos saldos"`
+	YearlyPct float64          `json:"cash_yield_pct_year" jsonschema:"rendimento bruto do caixa, % a.a., usado na projeção"`
+	Monthly   moneyOut         `json:"monthly_yield" jsonschema:"rendimento bruto estimado em 30 dias sobre os últimos saldos"`
+}
+
+func (t *tools) listCashAccounts(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, cashAccountsOut, error) {
+	out := cashAccountsOut{Accounts: []cashAccountOut{}}
+	c, err := t.svcFor(ctx).Cash()
+	if err != nil {
+		return nil, out, toolErr(err)
+	}
+	for _, a := range c.Accounts {
+		out.Accounts = append(out.Accounts, cashAccountOut{ID: a.ID, Name: a.Name, CDIPct: a.CDIPct, Balance: money(a.Balance), BalanceDate: iso(a.BalanceDate)})
+	}
+	if c.HasCDI {
+		out.CDI, out.CDIAsOf = c.CDI, iso(c.CDIAsOf)
+	}
+	out.PctOfCDI, out.YearlyPct, out.Monthly = c.PctOfCDI, c.Annual, money(c.Monthly)
+	return nil, out, nil
+}
+
+type cashAccountIn struct {
+	ID     int64   `json:"id,omitempty" jsonschema:"para alterar uma conta existente"`
+	Name   string  `json:"name"`
+	CDIPct float64 `json:"cdi_pct" jsonschema:"% do CDI que rende, bruto (0 = não rende, 100, 120...)"`
+}
+
+func (t *tools) saveCashAccount(ctx context.Context, _ *mcp.CallToolRequest, in cashAccountIn) (*mcp.CallToolResult, idOut, error) {
+	id, err := t.svcFor(ctx).SaveCashAccount(app.CashAccountIn{ID: in.ID, Name: in.Name, CDIPct: in.CDIPct})
+	if err != nil {
+		return nil, idOut{}, toolErr(err)
+	}
+	return nil, idOut{ID: id, Message: "conta salva"}, nil
+}
+
+func (t *tools) deleteCashAccount(ctx context.Context, _ *mcp.CallToolRequest, in cardRefIn) (*mcp.CallToolResult, msgOut, error) {
+	a, err := t.svcFor(ctx).DeleteCashAccount(in.ID)
+	if err != nil {
+		return nil, msgOut{}, toolErr(err)
+	}
+	return nil, msgOut{Message: "conta " + a.Name + " excluída"}, nil
+}

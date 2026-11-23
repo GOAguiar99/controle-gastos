@@ -157,3 +157,24 @@ func TestCategoryMemoryTools(t *testing.T) {
 	call(t, cs, "forget_category", map[string]any{"merchant": "Vmt*Shelf"}, nil, false)
 	call(t, cs, "forget_category", map[string]any{"merchant": "Vmt*Shelf"}, nil, true)
 }
+
+func TestCashAccountTools(t *testing.T) {
+	cs, _ := connect(t)
+	call(t, cs, "save_cash_account", map[string]any{"name": "Nubank", "cdi_pct": 100}, nil, false)
+	call(t, cs, "save_cash_account", map[string]any{"name": "CDB", "cdi_pct": 120}, nil, false)
+	if text := call(t, cs, "set_cash", map[string]any{"accounts": []map[string]any{{"account": "nubank", "amount": 1000}, {"account": "CDB", "amount": 4000}}}, nil, false); !strings.Contains(text, "5.000,00") {
+		t.Fatalf("set_cash: %s", text)
+	}
+	var out struct {
+		Accounts []struct {
+			Name    string
+			Balance struct{ Cents int64 } `json:"balance"`
+		} `json:"accounts"`
+		Pct float64 `json:"cash_pct_of_cdi"`
+	}
+	call(t, cs, "list_cash_accounts", map[string]any{}, &out, false)
+	if len(out.Accounts) != 2 || out.Pct != 116 {
+		t.Fatalf("accounts: %+v", out)
+	}
+	call(t, cs, "set_cash", map[string]any{"accounts": []map[string]any{{"account": "Inexistente", "amount": 1}}}, nil, true)
+}
