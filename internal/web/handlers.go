@@ -146,7 +146,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, r, "dashboard", page{
 		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur, "Welcome": !hasData,
-		"Today": today, "Sum": selSum, "Limits": lim, "Snap": o.Snapshot, "Flow": flow,
+		"Today": today, "Sum": selSum, "Limits": lim, "Snap": o.Snapshot, "Flow": flow, "Cash": o.Cash,
 		"FlowRows": flowRows, "PastTot": finance.SumFlow(pastRows), "NextTot": finance.SumFlow(nextRows),
 		"PastN": len(pastRows), "NextN": len(nextRows),
 		"ExpCats": expCats, "ProjectedCount": projectedCount, "Chart": cd,
@@ -162,17 +162,80 @@ func ratioOf(a, b int64) float64 {
 }
 
 func (s *Server) saveCash(w http.ResponseWriter, r *http.Request) {
-	amount, err := finance.ParseMoney(r.FormValue("amount"))
-	if err != nil {
-		badRequest(w, err.Error())
+	date, _ := finance.ParseDate(r.FormValue("date")) // zero = today
+	if err := r.ParseForm(); err != nil {
+		badRequest(w, "formulário inválido")
 		return
 	}
-	date, _ := finance.ParseDate(r.FormValue("date")) // zero = today
-	if _, err := svcOf(r).SetCash(date, amount, r.FormValue("note")); err != nil {
+	// with cash accounts the form sends one balance per account (acct_<id>)
+	balances := map[int64]int64{}
+	for k, vs := range r.PostForm {
+		id, ok := strings.CutPrefix(k, "acct_")
+		if !ok || len(vs) == 0 || strings.TrimSpace(vs[0]) == "" {
+			continue
+		}
+		n, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			continue
+		}
+		v, err := finance.ParseMoney(vs[0])
+		if err != nil {
+			badRequest(w, "valor inválido")
+			return
+		}
+		balances[n] = v
+	}
+	if len(balances) > 0 {
+		if _, err := svcOf(r).SetCashBalances(date, balances, r.FormValue("note")); err != nil {
+			s.fail(w, err)
+			return
+		}
+	} else {
+		amount, err := finance.ParseMoney(r.FormValue("amount"))
+		if err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+		if _, err := svcOf(r).SetCash(date, amount, r.FormValue("note")); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
+	http.Redirect(w, r, "/?msg="+url.QueryEscape("Caixa atualizado"), http.StatusSeeOther)
+}
+
+func (s *Server) saveCashAccount(w http.ResponseWriter, r *http.Request) {
+	pct, err := strconv.ParseFloat(strings.Replace(strings.TrimSpace(r.FormValue("cdi_pct")), ",", ".", 1), 64)
+	if err != nil && strings.TrimSpace(r.FormValue("cdi_pct")) != "" {
+		badRequest(w, "percentual do CDI inválido")
+		return
+	}
+	in := app.CashAccountIn{Name: r.FormValue("name"), CDIPct: pct}
+	if r.PathValue("id") != "" {
+		if in.ID, err = pathID(r); err != nil {
+			http.NotFound(w, r)
+			return
+		}
+	}
+	if _, err := svcOf(r).SaveCashAccount(in); err != nil {
 		s.fail(w, err)
 		return
 	}
-	http.Redirect(w, r, "/?msg="+url.QueryEscape("Caixa atualizado"), http.StatusSeeOther)
+	profileDone(w, r, tabPrefs, "Conta "+strings.TrimSpace(in.Name)+" salva")
+}
+
+func (s *Server) deleteCashAccount(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	a, err := svcOf(r).DeleteCashAccount(id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	profileDone(w, r, tabPrefs, "Conta "+a.Name+" excluída")
 }
 
 // ---------- receitas / gastos ----------
@@ -812,6 +875,11 @@ func (s *Server) profileData(r *http.Request, tab string) (page, error) {
 			return nil, err
 		}
 		data["Rules"] = rules
+		cash, err := svcOf(r).Cash()
+		if err != nil {
+			return nil, err
+		}
+		data["Cash"] = cash
 	case tabAgents:
 		tokens, err := s.app.MCPTokens(r.Context(), actorOf(r))
 		if err != nil {

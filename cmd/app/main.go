@@ -178,6 +178,9 @@ func serve() error {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if os.Getenv("APP_NO_CDI") == "" { // CDI for the cash yield, from the Banco Central
+		go a.KeepCDIFresh(ctx, log.Printf)
+	}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

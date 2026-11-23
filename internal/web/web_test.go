@@ -306,6 +306,30 @@ func countTx(t *testing.T, link string) int {
 	return len(out.Transactions)
 }
 
+// Cash accounts: registered in Preferences, the cash form asks each balance.
+func TestCashAccountsWeb(t *testing.T) {
+	ts, client, env := newTestServer(t)
+	env.mustLogin(t, client, anaUser)
+	for _, v := range []url.Values{{"name": {"Nubank"}, "cdi_pct": {"100"}}, {"name": {"CDB"}, "cdi_pct": {"120,5"}}} {
+		if res, _ := client.PostForm(ts.URL+"/config/contas", v); res.StatusCode != http.StatusSeeOther {
+			t.Fatalf("save account: %d", res.StatusCode)
+		}
+	}
+	dash := string(mustGet(t, client, ts.URL+"/"))
+	if !strings.Contains(dash, `name="acct_1"`) || !strings.Contains(dash, `name="acct_2"`) || strings.Contains(dash, `name="amount"`) {
+		t.Fatal("cash form should ask each account's balance")
+	}
+	if res, _ := client.PostForm(ts.URL+"/caixa", url.Values{"acct_1": {"1.000,00"}, "acct_2": {"2.500,00"}}); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("save cash: %d", res.StatusCode)
+	}
+	if dash = string(mustGet(t, client, ts.URL+"/")); !strings.Contains(dash, "Informado R$ 3.500,00") {
+		t.Error("cash is not the sum of the accounts")
+	}
+	if p := string(mustGet(t, client, ts.URL+"/perfil/preferencias")); !strings.Contains(p, "Contas do caixa") || !strings.Contains(p, `value="120,5"`) {
+		t.Error("accounts not listed in preferences")
+	}
+}
+
 // The expense form asks how it was paid; the Análise tab splits the month by it.
 func TestExpensePaymentMethodForm(t *testing.T) {
 	ts, client, env := newTestServer(t)
