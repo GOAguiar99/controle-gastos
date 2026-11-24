@@ -309,3 +309,41 @@ func TestStatementWarnsOnlyAboutThisCard(t *testing.T) {
 		t.Fatalf("other cards' totals flagged: %+v", v.Loose)
 	}
 }
+
+// A fatura total naming another bank isn't the only card's bill: it stays
+// off the card and leaves cash on its date, even after an edit.
+func TestOtherBankBillTotalStaysOffCard(t *testing.T) {
+	s := newSvc(t)
+	card := nubank(t, s)
+	bill := CategoryRef{Name: finance.RestCategory}
+	other, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-11-24"), Amount: 120771, Category: bill, Description: "Fatura Bradesco - Adiantamento última parcela", Payment: finance.Credit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := s.Tx(other); e.CardID != 0 || e.Statement != 0 || !e.CashDay().Equal(d("2026-11-24")) {
+		t.Fatalf("other bank: %+v", e)
+	}
+	if _, err := s.UpdateTx(other, TxIn{Date: d("2026-11-25"), Amount: 120771, Category: bill, Description: "Fatura Bradesco"}); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := s.Tx(other); e.CardID != 0 || !e.CashDay().Equal(d("2026-11-25")) {
+		t.Fatalf("other bank edited: %+v", e)
+	}
+	// generic or naming the card: still the card's fatura; an explicit card always wins
+	for _, desc := range []string{"", "Fatura", "Pagamento fatura novembro 2026", "Fatura Nubank"} {
+		id, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-11-10"), Amount: 1000, Category: bill, Description: desc, Payment: finance.Credit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e, _ := s.Tx(id); e.CardID != card || e.Statement != nov {
+			t.Fatalf("%q: %+v", desc, e)
+		}
+	}
+	id, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-11-10"), Amount: 1000, Category: bill, Description: "Fatura Bradesco", CardID: card})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := s.Tx(id); e.CardID != card {
+		t.Fatalf("explicit card: %+v", e)
+	}
+}

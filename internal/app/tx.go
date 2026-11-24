@@ -137,6 +137,11 @@ func (s *Service) txInput(in TxIn) (db.TxInput, error) {
 		if err != nil {
 			return row, err
 		}
+		// a fatura total naming another bank ("Fatura Bradesco") is not
+		// this card's bill: it leaves cash on its date, as before cards
+		if ok && in.CardID == 0 && isBillTotal(c.Name) && !billOfCard(in.Description, card) {
+			ok = false
+		}
 		if ok {
 			row.CardID, row.Statement = card.ID, in.Statement
 			switch {
@@ -156,6 +161,34 @@ func (s *Service) txInput(in TxIn) (db.TxInput, error) {
 
 // isBillTotal reports whether a category holds whole-fatura totals.
 func isBillTotal(category string) bool { return fold(category) == fold(finance.RestCategory) }
+
+// billWords are common in fatura descriptions without naming a card.
+var billWords = map[string]bool{"pagamento": true, "adiantamento": true, "antecipacao": true,
+	"parcela": true, "ultima": true, "total": true, "mensal": true, "conjunta": true,
+	"dos": true, "das": true, "para": true, "com": true, "mes": true}
+
+var monthWords = map[string]bool{"janeiro": true, "fevereiro": true, "marco": true, "abril": true,
+	"maio": true, "junho": true, "julho": true, "agosto": true, "setembro": true, "outubro": true,
+	"novembro": true, "dezembro": true, "jan": true, "fev": true, "mar": true, "abr": true, "mai": true,
+	"jun": true, "jul": true, "ago": true, "set": true, "out": true, "nov": true, "dez": true}
+
+// billOfCard reports whether a whole-fatura description can be this card's
+// bill: it names the card, or names nothing but the bill itself ("Fatura",
+// "Pagamento fatura 11/2026"). "Fatura Bradesco" on a Nubank-only wallet is
+// another card's bill.
+func billOfCard(desc string, c finance.CreditCard) bool {
+	if sameFatura(finance.Entry{Description: desc, Amount: -1}, c, 0) {
+		return true
+	}
+	for _, w := range strings.FieldsFunc(fold(desc), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z')
+	}) {
+		if len(w) >= 3 && !genericCardWords[w] && !billWords[w] && !monthWords[w] {
+			return false
+		}
+	}
+	return true
+}
 
 // chargeCard is the card a credit purchase goes on: the given one, or the
 // only active card when none is given (ok=false: no card, cash moves on the
