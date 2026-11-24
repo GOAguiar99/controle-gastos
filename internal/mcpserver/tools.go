@@ -44,6 +44,12 @@ func (t *tools) register(s *mcp.Server) {
 	addTool(s, &mcp.Tool{Name: "category_report", Annotations: readOnly,
 		Description: "Totais por categoria e por ano (realizado/previsto) desde o primeiro lançamento até o próximo ano, mais a composição do mês, do ano e do histórico até hoje."},
 		t.categoryReport)
+	addTool(s, &mcp.Tool{Name: "get_currency", Annotations: readOnly,
+		Description: "Moeda de exibição da carteira (e a cotação usada para mostrar os valores) e as moedas aceitas. Com currency (e date), a cotação PTAX de venda do Banco Central naquele dia ou no último dia útil antes dele."},
+		t.getCurrency)
+	addTool(s, &mcp.Tool{Name: "set_display_currency", Annotations: idempotent,
+		Description: "Escolhe a moeda em que o app mostra totais, dashboard e fluxo (padrão BRL), convertidos pela PTAX mais recente. Os valores continuam guardados em reais e as tools continuam respondendo em reais. Só quando o usuário pedir."},
+		t.setDisplayCurrency)
 	addTool(s, &mcp.Tool{Name: "list_categories", Annotations: readOnly,
 		Description: "Categorias existentes, com tipo. A categoria diz o que foi comprado; como foi pago fica em cada lançamento (payment_method)."}, t.listCategories)
 	addTool(s, &mcp.Tool{Name: "list_recurrences", Annotations: readOnly,
@@ -128,25 +134,34 @@ func (t *tools) register(s *mcp.Server) {
 // ---------- shared shapes ----------
 
 type txOut struct {
-	ID           int64  `json:"id,omitempty" jsonschema:"id do lançamento real (ausente em previstos)"`
-	Kind         string `json:"kind"`
-	Date         string `json:"date"`
-	AmountCents  int64  `json:"amount_cents"`
-	AmountBRL    string `json:"amount_brl"`
-	Category     string `json:"category"`
-	Payment      string `json:"payment_method,omitempty" jsonschema:"forma de pagamento do gasto; ausente em receitas"`
-	Group        string `json:"group,omitempty" jsonschema:"grupo do gasto no resumo, derivado: cartao (pago no crédito), fixo (recorrência) ou outros; ausente em receitas"`
-	Card         string `json:"card,omitempty" jsonschema:"cartão de crédito da compra"`
-	Statement    string `json:"statement,omitempty" jsonschema:"fatura (mês em que fecha, AAAA-MM)"`
-	CashDate     string `json:"cash_date,omitempty" jsonschema:"quando sai do caixa (vencimento da fatura), se diferente da data"`
-	Installment  string `json:"installment,omitempty" jsonschema:"parcela, ex. 3/10"`
-	Undetailed   bool   `json:"undetailed,omitempty" jsonschema:"parte não detalhada de um valor de fatura informado (set_statement_total); não é um lançamento"`
-	Description  string `json:"description"`
-	Projected    bool   `json:"projected,omitempty" jsonschema:"ocorrência prevista de recorrência, ainda não confirmada"`
-	RecurrenceID int64  `json:"recurrence_id,omitempty"`
-	Month        string `json:"occurrence_month,omitempty" jsonschema:"mês da ocorrência da recorrência (AAAA-MM)"`
-	DebtID       int64  `json:"debt_id,omitempty"`
-	CreatedBy    string `json:"created_by,omitempty" jsonschema:"quem lançou (em carteiras compartilhadas)"`
+	ID           int64    `json:"id,omitempty" jsonschema:"id do lançamento real (ausente em previstos)"`
+	Kind         string   `json:"kind"`
+	Date         string   `json:"date"`
+	AmountCents  int64    `json:"amount_cents"`
+	AmountBRL    string   `json:"amount_brl"`
+	Category     string   `json:"category"`
+	Payment      string   `json:"payment_method,omitempty" jsonschema:"forma de pagamento do gasto; ausente em receitas"`
+	Group        string   `json:"group,omitempty" jsonschema:"grupo do gasto no resumo, derivado: cartao (pago no crédito), fixo (recorrência) ou outros; ausente em receitas"`
+	Card         string   `json:"card,omitempty" jsonschema:"cartão de crédito da compra"`
+	Statement    string   `json:"statement,omitempty" jsonschema:"fatura (mês em que fecha, AAAA-MM)"`
+	CashDate     string   `json:"cash_date,omitempty" jsonschema:"quando sai do caixa (vencimento da fatura), se diferente da data"`
+	Installment  string   `json:"installment,omitempty" jsonschema:"parcela, ex. 3/10"`
+	Undetailed   bool     `json:"undetailed,omitempty" jsonschema:"parte não detalhada de um valor de fatura informado (set_statement_total); não é um lançamento"`
+	Description  string   `json:"description"`
+	Projected    bool     `json:"projected,omitempty" jsonschema:"ocorrência prevista de recorrência, ainda não confirmada"`
+	RecurrenceID int64    `json:"recurrence_id,omitempty"`
+	Month        string   `json:"occurrence_month,omitempty" jsonschema:"mês da ocorrência da recorrência (AAAA-MM)"`
+	DebtID       int64    `json:"debt_id,omitempty"`
+	CreatedBy    string   `json:"created_by,omitempty" jsonschema:"quem lançou (em carteiras compartilhadas)"`
+	Currency     string   `json:"currency,omitempty" jsonschema:"moeda em que foi lançado, se não for reais; amount_cents é o valor convertido em reais"`
+	Original     *moneyIn `json:"original_amount,omitempty" jsonschema:"valor lançado na moeda original"`
+	FXRate       float64  `json:"fx_rate,omitempty" jsonschema:"cotação usada (reais por unidade da moeda)"`
+}
+
+// moneyIn is an amount in a currency other than reais.
+type moneyIn struct {
+	Cents int64  `json:"cents"`
+	Text  string `json:"text" jsonschema:"ex. US$ 100,00"`
 }
 
 func txOf(e finance.Entry) txOut {
@@ -166,6 +181,10 @@ func txOf(e finance.Entry) txOut {
 		o.Installment = itoa(e.InstallmentN) + "/" + itoa(e.InstallmentOf)
 	}
 	o.Undetailed = e.StatementRest
+	if e.Foreign() {
+		o.Currency, o.FXRate = e.Currency, e.FXRate
+		o.Original = &moneyIn{Cents: e.OrigAmount, Text: finance.FormatMoney(e.OrigAmount, e.Currency)}
+	}
 	return o
 }
 
@@ -590,7 +609,9 @@ func (t *tools) getLimits(ctx context.Context, _ *mcp.CallToolRequest, _ struct{
 type txItem struct {
 	Kind           string  `json:"kind" jsonschema:"income ou expense"`
 	Date           string  `json:"date" jsonschema:"AAAA-MM-DD"`
-	Amount         float64 `json:"amount" jsonschema:"valor positivo em reais, ex. 129.90"`
+	Amount         float64 `json:"amount" jsonschema:"valor positivo na moeda do item (padrão reais), ex. 129.90"`
+	Currency       string  `json:"currency,omitempty" jsonschema:"moeda do valor: BRL (padrão), USD, EUR... (get_currency); é convertido para reais pela PTAX do dia"`
+	FXRate         float64 `json:"fx_rate,omitempty" jsonschema:"cotação em reais por unidade, só se o usuário informar uma (ex. a da fatura); padrão a PTAX da data ou do último dia útil"`
 	Category       string  `json:"category" jsonschema:"nome da categoria (use list_categories)"`
 	CreateCategory bool    `json:"create_category,omitempty" jsonschema:"criar a categoria se não existir"`
 	Description    string  `json:"description,omitempty"`
@@ -628,7 +649,8 @@ func (t *tools) addTransactions(ctx context.Context, _ *mcp.CallToolRequest, in 
 		}
 		ins[i] = app.TxIn{Kind: k, Date: d, Amount: finance.FromReais(it.Amount),
 			Category:    app.CategoryRef{Name: it.Category, Create: it.CreateCategory},
-			Description: it.Description, DebtID: it.DebtID, Source: app.SourceMCP, Payment: pay, Installments: it.Installments}
+			Description: it.Description, DebtID: it.DebtID, Source: app.SourceMCP, Payment: pay, Installments: it.Installments,
+			Currency: it.Currency, FXRate: it.FXRate}
 		if it.Card != "" {
 			c, err := t.svcFor(ctx).CardByName(it.Card)
 			if err != nil {
@@ -636,11 +658,15 @@ func (t *tools) addTransactions(ctx context.Context, _ *mcp.CallToolRequest, in 
 			}
 			ins[i].CardID = c.ID
 		}
-		total += ins[i].Amount
 	}
 	ids, err := t.svcFor(ctx).AddTxs(ins)
 	if err != nil {
 		return nil, out, toolErr(err)
+	}
+	for _, id := range ids { // in reais, as saved (other currencies converted)
+		if e, err := t.svcFor(ctx).Tx(id); err == nil {
+			total += e.Amount
+		}
 	}
 	return nil, addTxOut{IDs: ids, Message: itoa(len(ids)) + " lançamento(s) salvo(s), total " + finance.BRL(total)}, nil
 }
@@ -648,7 +674,9 @@ func (t *tools) addTransactions(ctx context.Context, _ *mcp.CallToolRequest, in 
 type updateTxIn struct {
 	ID             int64    `json:"id"`
 	Date           string   `json:"date,omitempty" jsonschema:"AAAA-MM-DD"`
-	Amount         *float64 `json:"amount,omitempty" jsonschema:"valor em reais"`
+	Amount         *float64 `json:"amount,omitempty" jsonschema:"valor na moeda do lançamento (reais, ou a moeda em que foi lançado)"`
+	Currency       string   `json:"currency,omitempty" jsonschema:"muda a moeda do valor (BRL volta para reais); informe amount junto"`
+	FXRate         *float64 `json:"fx_rate,omitempty" jsonschema:"cotação em reais por unidade; 0 = PTAX da data. Sem ela, a cotação é mantida se moeda e data não mudam"`
 	Category       string   `json:"category,omitempty"`
 	CreateCategory bool     `json:"create_category,omitempty"`
 	Description    *string  `json:"description,omitempty"`
@@ -670,6 +698,15 @@ func (t *tools) updateTransaction(ctx context.Context, _ *mcp.CallToolRequest, i
 	}
 	tx := app.TxIn{Date: old.Date, Amount: old.Amount, Category: app.CategoryRef{ID: old.CategoryID},
 		Description: old.Description, DebtID: old.DebtID, Payment: old.Payment}
+	if old.Foreign() {
+		tx.Amount, tx.Currency = old.OrigAmount, old.Currency
+	}
+	if in.Currency != "" {
+		tx.Currency = in.Currency
+	}
+	if in.FXRate != nil {
+		tx.FXRate = *in.FXRate
+	}
 	if in.PaymentMethod != "" {
 		if tx.Payment, err = app.ParsePaymentMethod(in.PaymentMethod); err != nil {
 			return nil, out, err

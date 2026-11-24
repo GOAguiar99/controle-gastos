@@ -13,7 +13,7 @@ import (
 	"controle-gastos/internal/app"
 )
 
-const instructions = `Controle de gastos pessoal (valores em reais). Este conector acessa uma carteira (os dados de uma pessoa ou de quem a compartilha) em nome do dono do link; o que você altera fica registrado como feito por ele via Claude.
+const instructions = `Controle de gastos pessoal (valores em reais; lançamentos podem ser em outras moedas). Este conector acessa uma carteira (os dados de uma pessoa ou de quem a compartilha) em nome do dono do link; o que você altera fica registrado como feito por ele via Claude.
 
 Modelo:
 - Lançamentos (transactions) são receitas (kind=income) ou gastos (kind=expense), com data, valor, categoria e descrição.
@@ -30,9 +30,11 @@ Modelo:
 - Previsão de gastos (get_forecast / set_forecast): estimativa do gasto do dia a dia (tudo que não é fixo/recorrência nem pagamento de dívida) pelos últimos 6 meses fechados, em três cenários: otimista (P25), base (mediana) e pessimista (P75). Ligada, a projeção de caixa completa cada mês até a estimativa, descontando o que já está lançado (aparece como forecast no fluxo). É só estimativa: não cria lançamentos e não entra nas receitas e gastos do mês. Ligue ou troque o cenário só quando o usuário pedir; para comparar cenários sem mudar o salvo, use get_forecast ou get_cash_projection com scenario.
 - "Caixa hoje" (set_cash) é o saldo real informado numa data: lançamentos com data até essa data já estão incluídos nele; o caixa futuro = caixa informado + lançamentos posteriores (reais e previstos).
 - Dívidas podem ser simples (sem juros: cada pagamento é um gasto avulso com debt_id) ou financiamentos SAC/Price. Ao criar um financiamento, o app sugere a recorrência das parcelas (categoria Financiamento, valores pela tabela mês a mês), que fica pendente: pergunte ao usuário e use accept_recurrence ou dismiss_recurrence. Não crie outra recorrência para o mesmo financiamento.
+- Outras moedas: um gasto ou receita pode ser lançado em USD, EUR etc. (add_transactions/update_transaction com currency). O app guarda o valor e a moeda originais e a cotação usada (fx_rate, reais por unidade: a PTAX de venda do Banco Central da data, ou do último dia útil antes dela; o usuário pode informar outra, como a da fatura do cartão) e converte para reais: amount_cents é sempre em reais, e é ele que conta em totais, faturas e fluxo. Saídas desses lançamentos trazem currency, original_amount e fx_rate. Recorrências, dívidas, caixa, limites e faturas importadas (import_statement) são só em reais.
+- Moeda de exibição (get_currency / set_display_currency): preferência da carteira para o app mostrar os valores em outra moeda pela PTAX mais recente. Não muda o que está guardado nem as respostas das tools (sempre em reais); para falar em outra moeda com o usuário, converta com a cotação de get_currency. Troque só quando o usuário pedir.
 
 Convenções:
-- Valores de entrada em reais como número decimal (1234.56). Saídas trazem amount_cents e amount_brl.
+- Valores de entrada em reais como número decimal (1234.56), salvo amount com currency. Saídas trazem amount_cents e amount_brl.
 - Datas AAAA-MM-DD, meses AAAA-MM. "Hoje" e o mês atual vêm de get_overview.
 - Categorias por nome (sem diferenciar maiúsculas/acentos). Use list_categories; só crie categoria nova (create_category=true) se o usuário pedir ou nenhuma existente servir.
 - Antes de lançar em lote (ex.: fatura colada), consulte list_transactions no período para não duplicar.

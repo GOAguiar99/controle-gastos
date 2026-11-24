@@ -10,7 +10,7 @@
       count = form.querySelector('[data-filter-count]'), total = form.querySelector('[data-filter-total]'),
       empty = document.querySelector('[data-filter-empty]');
   var rows = Array.prototype.slice.call(list.children);
-  var brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+  var brl = cgFx.money();
   function fold(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
 
   function apply(scroll) {

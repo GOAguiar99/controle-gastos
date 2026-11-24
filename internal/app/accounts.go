@@ -54,6 +54,8 @@ type App struct {
 	Signup string
 	// MaxPending caps sign-ups waiting for approval (0 = 200).
 	MaxPending int
+	// FX fetches exchange rates missing from the database (nil = none).
+	FX FXSource
 }
 
 func NewApp(d *db.DB, loc *time.Location) *App {
@@ -75,7 +77,7 @@ func (a *App) Today() time.Time { return finance.DateOnly(a.now().In(a.loc)) }
 // For returns the Service of the actor's ledger. Queries use ctx and can only
 // reach that ledger's rows.
 func (a *App) For(ctx context.Context, actor Actor) *Service {
-	return New(a.db.Ledger(actor.LedgerID).WithContext(ctx).WithUser(actor.User.ID), a.loc).withClock(a.now)
+	return New(a.db.Ledger(actor.LedgerID).WithContext(ctx).WithUser(actor.User.ID), a.loc).withClock(a.now).withFX(a.FX)
 }
 
 // AllowList parses "a@x.com, b@y.com" into an AllowEmail func; "*" allows

@@ -36,7 +36,16 @@ type TxIn struct {
 	// ParcelAmount: Amount is one parcel even for parcel 1 (a statement line
 	// "1/10"), not the purchase total to split.
 	ParcelAmount bool
+	// Currency of Amount ("" or BRL = reais). In another currency Amount is
+	// in that currency and is saved converted to reais at FXRate (reais per
+	// unit; 0 = the PTAX of Date, or of the last business day before it).
+	// On update, 0 keeps the rate in use while currency and date don't change.
+	Currency string
+	FXRate   float64
 }
+
+// maxFXRate bounds a typed rate (reais per unit) to catch typos.
+const maxFXRate = 10000
 
 func (s *Service) checkTx(in *TxIn) error {
 	if _, err := ParseKind(string(in.Kind)); err != nil {
@@ -50,6 +59,16 @@ func (s *Service) checkTx(in *TxIn) error {
 	}
 	if _, err := ParsePaymentMethod(string(in.Payment)); err != nil {
 		return err
+	}
+	cur, err := ParseCurrency(in.Currency)
+	if err != nil {
+		return err
+	}
+	if in.Currency = cur.Code; cur.Code == finance.BRLCode {
+		in.Currency, in.FXRate = "", 0
+	}
+	if in.FXRate < 0 || in.FXRate > maxFXRate || in.FXRate != in.FXRate {
+		return invalid("cotação inválida (reais por unidade da moeda, ex. 5,43)")
 	}
 	if in.Kind == finance.Income {
 		in.Payment, in.CardID, in.Installments = finance.OtherPay, 0, 0 // receitas não têm forma de pagamento
@@ -99,6 +118,20 @@ func (s *Service) txInput(in TxIn) (db.TxInput, error) {
 	}
 	row := db.TxInput{Kind: in.Kind, Date: in.Date, Amount: in.Amount, CategoryID: c.ID,
 		Description: in.Description, DebtID: in.DebtID, Source: in.Source, Payment: pay}
+	if in.Currency != "" {
+		rate := in.FXRate
+		if rate == 0 {
+			q, err := s.Rate(in.Currency, in.Date)
+			if err != nil {
+				return row, err
+			}
+			rate = q.Rate
+		}
+		row.Currency, row.OrigAmount, row.FXRate = in.Currency, in.Amount, rate
+		if row.Amount = finance.ToBRL(in.Amount, rate); row.Amount <= 0 {
+			return row, invalid("valor inválido: menos de um centavo em reais")
+		}
+	}
 	if in.Kind == finance.Expense && pay == finance.Credit {
 		card, ok, err := s.chargeCard(in.CardID)
 		if err != nil {
@@ -164,10 +197,14 @@ func parcels(in TxIn, row db.TxInput, key int) []db.TxInput {
 	if in.Installments == 0 {
 		return []db.TxInput{row}
 	}
-	amount, extra := row.Amount, int64(0)
+	total := row.Amount
+	if row.Currency != "" { // split the amount as entered, then convert each parcel
+		total = row.OrigAmount
+	}
+	amount, extra := total, int64(0)
 	if in.InstallmentN == 1 && !in.ParcelAmount {
-		amount = row.Amount / int64(in.Installments)
-		extra = row.Amount - amount*int64(in.Installments)
+		amount = total / int64(in.Installments)
+		extra = total - amount*int64(in.Installments)
 	}
 	var out []db.TxInput
 	for k := in.InstallmentN; k <= in.Installments; k++ {
@@ -177,6 +214,9 @@ func parcels(in TxIn, row db.TxInput, key int) []db.TxInput {
 		p.Amount = amount
 		if k == in.InstallmentN {
 			p.Amount += extra
+		}
+		if row.Currency != "" {
+			p.OrigAmount, p.Amount = p.Amount, finance.ToBRL(p.Amount, row.FXRate)
 		}
 		p.InstallmentN, p.InstallmentOf, p.GroupKey = k, in.Installments, key
 		if row.CardID != 0 {
@@ -303,6 +343,10 @@ func (s *Service) UpdateTx(id int64, in TxIn) (finance.Entry, error) {
 		in.Payment = old.Payment
 	}
 	in.Installments = 0 // parcels are edited one by one
+	// same currency and date: keep the rate in use (PTAX or typed)
+	if c, ok := finance.CurrencyOf(in.Currency); ok && old.Foreign() && c.Code == old.Currency && in.FXRate == 0 && in.Date.Equal(old.Date) {
+		in.FXRate = old.FXRate
+	}
 	// with the cards module off, a purchase already on a fatura keeps it
 	keepBilling := !s.CardsEnabled() && old.CardID != 0 && in.Payment == finance.Credit && (in.CardID == 0 || in.CardID == old.CardID)
 	if keepBilling {

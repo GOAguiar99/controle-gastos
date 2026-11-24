@@ -168,13 +168,19 @@ type TxInput struct {
 	InstallmentN, InstallmentOf int
 	GroupKey                    int
 	InstallmentGroup            int64
+	// Another currency: Amount is in reais, converted from OrigAmount cents
+	// of Currency at FXRate. "" = entered in reais (the others are ignored).
+	Currency   string
+	OrigAmount int64
+	FXRate     float64
 }
 
 const txSelect = `SELECT t.id, t.kind, t.date, t.amount_cents, t.category_id, c.name, t.payment_method, t.fixed, t.description,
 	COALESCE(t.recurrence_id, 0), COALESCE(t.occurrence_month, ''), COALESCE(t.debt_id, 0),
 	COALESCE(t.created_by, 0), COALESCE(NULLIF(u.name, ''), u.email, ''),
 	COALESCE(t.card_id, 0), COALESCE(k.name, ''), COALESCE(t.statement_month, ''), t.cash_date,
-	COALESCE(t.installment_group, 0), COALESCE(t.installment_n, 0), COALESCE(t.installment_of, 0)
+	COALESCE(t.installment_group, 0), COALESCE(t.installment_n, 0), COALESCE(t.installment_of, 0),
+	COALESCE(t.currency, ''), COALESCE(t.orig_amount_cents, 0), COALESCE(t.fx_rate, 0)
 	FROM transactions t JOIN categories c ON c.id = t.category_id LEFT JOIN users u ON u.id = t.created_by
 	LEFT JOIN cards k ON k.id = t.card_id`
 
@@ -184,7 +190,8 @@ func scanTx(sc interface{ Scan(...any) error }) (finance.Entry, error) {
 	var cash *time.Time
 	err := sc.Scan(&e.ID, &e.Kind, &e.Date, &e.Amount, &e.CategoryID, &e.Category, &e.Payment, &e.Fixed, &e.Description,
 		&e.RecurrenceID, &e.OccMonth, &e.DebtID, &e.CreatedByID, &e.CreatedBy,
-		&e.CardID, &e.Card, &statement, &cash, &e.InstallmentGroup, &e.InstallmentN, &e.InstallmentOf)
+		&e.CardID, &e.Card, &statement, &cash, &e.InstallmentGroup, &e.InstallmentN, &e.InstallmentOf,
+		&e.Currency, &e.OrigAmount, &e.FXRate)
 	if err != nil {
 		return e, err
 	}
@@ -235,8 +242,8 @@ func (s *Store) Tx(id int64) (finance.Entry, error) {
 }
 
 const txInsert = `INSERT INTO transactions (kind, date, amount_cents, category_id, description, recurrence_id, occurrence_month, debt_id, source, created_by, payment_method, fixed,
-	card_id, statement_month, cash_date, installment_n, installment_of, installment_group)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`
+	card_id, statement_month, cash_date, installment_n, installment_of, installment_group, currency, orig_amount_cents, fx_rate)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`
 
 // txArgs builds the insert arguments; the author is always the store's
 // acting user, never something from the input.
@@ -247,9 +254,18 @@ func (s *Store) txArgs(in TxInput) []any {
 	if in.Payment == "" {
 		in.Payment = finance.OtherPay
 	}
-	return []any{in.Kind, in.Date, in.Amount, in.CategoryID, in.Description,
+	args := []any{in.Kind, in.Date, in.Amount, in.CategoryID, in.Description,
 		nz(in.RecurrenceID), nzs(in.OccMonth), nz(in.DebtID), in.Source, nz(s.userID), in.Payment, in.Fixed,
 		nz(in.CardID), statementArg(in), cashArg(in), nzi(in.InstallmentN), nzi(in.InstallmentOf), nil}
+	return append(args, fxArgs(in)...)
+}
+
+// fxArgs are currency, orig_amount_cents and fx_rate (all NULL in reais).
+func fxArgs(in TxInput) []any {
+	if in.Currency == "" || in.Currency == finance.BRLCode {
+		return []any{nil, nil, nil}
+	}
+	return []any{in.Currency, in.OrigAmount, in.FXRate}
 }
 
 func statementArg(in TxInput) any {
@@ -332,9 +348,11 @@ func (s *Store) UpdateTx(id int64, in TxInput) error {
 	if in.Payment == "" {
 		in.Payment = finance.OtherPay
 	}
+	fx := fxArgs(in)
 	err := s.exec(`UPDATE transactions SET date = $1, amount_cents = $2, category_id = $3, description = $4, debt_id = $5, payment_method = $6,
-		card_id = $7, statement_month = $8, cash_date = $9 WHERE id = $10`,
-		in.Date, in.Amount, in.CategoryID, in.Description, nz(in.DebtID), in.Payment, nz(in.CardID), statementArg(in), cashArg(in), id)
+		card_id = $7, statement_month = $8, cash_date = $9, currency = $11, orig_amount_cents = $12, fx_rate = $13 WHERE id = $10`,
+		in.Date, in.Amount, in.CategoryID, in.Description, nz(in.DebtID), in.Payment, nz(in.CardID), statementArg(in), cashArg(in), id,
+		fx[0], fx[1], fx[2])
 	return err
 }
 
@@ -827,3 +845,6 @@ func inWindow(es []finance.Entry, from, to finance.Month) []finance.Entry {
 	}
 	return out
 }
+
+// Context is the context the store's queries use.
+func (s *Store) Context() context.Context { return s.ctx }

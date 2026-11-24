@@ -152,6 +152,9 @@ func (s *Service) SaveRecurrence(in RecIn) (int64, error) {
 // RecurrenceFromTx turns a transaction into the recurrence that starts with
 // it: same kind, category, amount and day, starting in the transaction's month.
 func (s *Service) RecurrenceFromTx(tx TxIn, sched RecIn) (int64, error) {
+	if c, ok := finance.CurrencyOf(tx.Currency); !ok || c.Code != finance.BRLCode {
+		return 0, invalid("recorrências são só em reais por enquanto: lance em R$ ou sem repetir")
+	}
 	sched.ID = 0
 	sched.Kind, sched.Description, sched.Category, sched.Amount = tx.Kind, tx.Description, tx.Category, tx.Amount
 	sched.Day, sched.Active = tx.Date.Day(), true

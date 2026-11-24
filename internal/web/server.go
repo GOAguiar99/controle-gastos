@@ -35,11 +35,12 @@ var staticFS embed.FS
 // user's ledger (svcOf); views may read through its Store, writes go through
 // the Service.
 type Server struct {
-	app    *app.App
-	cfg    Config
-	google *googleAuth // nil when only DevLogin is enabled
-	tpl    map[string]*template.Template
-	mcp    http.Handler // MCP endpoint served at /mcp/{token}; nil = disabled
+	app     *app.App
+	cfg     Config
+	google  *googleAuth // nil when only DevLogin is enabled
+	tpl     map[string]*template.Template
+	tplBase map[string]*template.Template // unexecuted originals of tpl (withDisplay)
+	mcp     http.Handler                  // MCP endpoint served at /mcp/{token}; nil = disabled
 
 	healthMu  sync.Mutex // guards the cached /healthz result
 	healthAt  time.Time
@@ -81,7 +82,7 @@ func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server
 	if len(cfg.Secret) < 32 {
 		return nil, errors.New("segredo do servidor curto demais (mínimo 32 bytes)")
 	}
-	s := &Server{app: a, cfg: cfg, mcp: mcp, tpl: map[string]*template.Template{},
+	s := &Server{app: a, cfg: cfg, mcp: mcp, tpl: map[string]*template.Template{}, tplBase: map[string]*template.Template{},
 		authLimit: newLimiter(30, 30), mcpLimit: newLimiter(120, 60)}
 	if cfg.Google != nil {
 		g, err := newGoogleAuth(ctx, cfg.Google)
@@ -96,7 +97,12 @@ func New(ctx context.Context, a *app.App, cfg Config, mcp http.Handler) (*Server
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", p, err)
 		}
-		s.tpl[p] = t
+		// pages run a clone; the parsed original is never executed, so it can
+		// be cloned per request with amounts in the display currency
+		if s.tpl[p], err = t.Clone(); err != nil {
+			return nil, err
+		}
+		s.tplBase[p] = t
 	}
 	return s, nil
 }
@@ -162,6 +168,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /config", http.RedirectHandler("/perfil", http.StatusMovedPermanently))
 	mux.HandleFunc("POST /config/limites", s.saveLimits)
 	mux.HandleFunc("POST /config/cartoes", s.saveCardsModule)
+	mux.HandleFunc("POST /config/moeda", s.saveDisplayCurrency)
 	mux.HandleFunc("POST /config/memorias/apagar", s.forgetCategory)
 	mux.HandleFunc("POST /config/contas", s.saveCashAccount)
 	mux.HandleFunc("POST /config/contas/{id}", s.saveCashAccount)
@@ -251,8 +258,18 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, dat
 	if _, ok := data["Flash"]; !ok {
 		data["Flash"] = r.URL.Query().Get("msg")
 	}
+	t := s.tpl[name]
+	if svc := svcOf(r); svc != nil {
+		disp := svc.Display()
+		data["Display"] = disp
+		var err error
+		if t, err = withDisplay(t, s.tplBase[name], disp); err != nil {
+			s.fail(w, err)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tpl[name].Execute(w, data); err != nil {
+	if err := t.Execute(w, data); err != nil {
 		log.Printf("render %s: %v", name, err)
 	}
 }
@@ -338,8 +355,11 @@ var weekdays = [...]string{"dom", "seg", "ter", "qua", "qui", "sex", "sáb"}
 // brl formats cents as "R$ 1.234,56" wrapped in the money marker that the
 // "Ocultar valores" toggle masks (app.css, privacy.js). In attributes
 // html/template strips the tags; use brlText there to make that explicit.
-func brl(cents int64) template.HTML {
-	return template.HTML(`<span class="money"><span>` + template.HTMLEscapeString(finance.BRL(cents)) + `</span></span>`)
+func brl(cents int64) template.HTML { return moneySpan(finance.BRL(cents)) }
+
+// moneySpan wraps a formatted amount in the "Ocultar valores" marker.
+func moneySpan(s string) template.HTML {
+	return template.HTML(`<span class="money"><span>` + template.HTMLEscapeString(s) + `</span></span>`)
 }
 
 var funcs = template.FuncMap{
@@ -400,6 +420,10 @@ var funcs = template.FuncMap{
 		return "Gasto"
 	},
 	"payMethods": func() []finance.PaymentMethod { return finance.PaymentMethods },
+	"currencies": func() []finance.Currency { return finance.Currencies },
+	"origMoney":  origMoney,
+	"reais":      brl, // always in reais, whatever the display currency
+	"rateText":   rateText,
 	"bucketLabel": func(b finance.Bucket) string {
 		switch b {
 		case finance.Card:

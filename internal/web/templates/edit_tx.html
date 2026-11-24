@@ -6,8 +6,10 @@
   <form method="post" action="/lancamentos/{{.Tx.ID}}" class="form">
     <div class="row">
       <label>Data<input type="date" name="date" value="{{iso .Tx.Date}}" required></label>
-      <label>Valor (R$)<input name="amount" value="{{money .Tx.Amount}}" inputmode="decimal" required data-money></label>
+      <label>Valor<input name="amount" value="{{if .Tx.Foreign}}{{money .Tx.OrigAmount}}{{else}}{{money .Tx.Amount}}{{end}}" inputmode="decimal" required data-money></label>
     </div>
+    {{template "currency-fields" (dict "Cur" .Tx.Currency "Rate" .Tx.FXRate)}}
+    {{if .Tx.Foreign}}<p class="hint">Lançado como {{origMoney .Tx}} = {{reais .Tx.Amount}}. Sem nova cotação, ela é mantida enquanto moeda e data não mudarem; mudando a data, vale a PTAX do novo dia.</p>{{end}}
     <label>{{if .IsIncome}}Fonte{{else}}Categoria{{end}}
       <select name="category_id">
         {{range .Categories}}<option value="{{.ID}}" {{if eq .ID $.Tx.CategoryID}}selected{{end}}>{{.Name}}</option>{{end}}

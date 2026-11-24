@@ -8,8 +8,8 @@
   var SLOTS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6'];
   var OTHER = '#8c8a85';
   function color(i) { return d.cats[i] === 'Outras' ? OTHER : SLOTS[i]; }
-  var brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-  var compact = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
+  var brl = cgFx.money();
+  var compact = cgFx.compact();
   var pctFmt = new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 1 });
   var STATE = { realizado: '', parcial: 'em andamento', previsto: 'previsto' };
 

@@ -121,7 +121,7 @@
           {{else}}<a class="e-desc e-link" href="/lancamentos/{{.ID}}/editar" title="Editar">{{if .Description}}{{.Description}}{{else}}{{.Category}}{{end}}</a>{{end}}
           <span class="e-meta">{{.Category}}{{if .RecurrenceID}} · <span class="tag">{{if .Projected}}previsto{{else}}recorrente{{end}}</span>{{end}}{{if .StatementRest}} · <span class="tag">valor da fatura</span>{{end}}{{if and (not $.IsIncome) (ne (printf "%s" .Payment) "outro") (not .CardID)}} · {{.Payment.Label}}{{end}}{{template "entry-card" .}}{{if .DebtID}} · <span class="tag">dívida</span>{{end}}{{if and $.Shared .CreatedBy}} · por {{.CreatedBy}}{{end}}</span>
         </div>
-        <div class="e-amount {{if $.IsIncome}}pos{{else}}negc{{end}}">{{brl .Amount}}</div>
+        <div class="e-amount {{if $.IsIncome}}pos{{else}}negc{{end}}">{{brl .Amount}}{{if .Foreign}}<small class="e-orig" title="Valor lançado e cotação usada">{{origMoney .}}</small>{{end}}</div>
         <div class="e-actions">
           {{if .StatementRest}}
             <a class="btn ghost small" href="/cartoes/{{.CardID}}/fatura?mes={{.Statement}}">Ver fatura</a>
@@ -185,8 +185,9 @@
         <input type="hidden" name="kind" value="{{.Kind}}">
         <div class="row">
           <label>Data<input type="date" name="date" value="{{iso .DefaultDate}}" required></label>
-          <label>Valor (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required data-money></label>
+          <label>Valor<input name="amount" inputmode="decimal" placeholder="0,00" required data-money></label>
         </div>
+        {{template "currency-fields" (dict "Cur" "" "Rate" 0.0)}}
         <label>{{if .IsIncome}}Fonte{{else}}Categoria{{end}}
           <select name="category_id">
             {{range .Categories}}<option value="{{.ID}}">{{.Name}}</option>{{end}}

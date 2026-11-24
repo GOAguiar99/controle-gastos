@@ -49,6 +49,10 @@ type ExportTx struct {
 	CreatedBy    string `json:"created_by,omitempty"`
 	Payment      string `json:"payment_method,omitempty"` // gastos: credito, debito, pix, dinheiro, boleto, outro
 	Group        string `json:"group,omitempty"`          // gastos: cartao, fixo, outros
+	// lançado em outra moeda: amount_cents é o valor convertido em reais
+	Currency        string  `json:"currency,omitempty"`
+	OrigAmountCents int64   `json:"orig_amount_cents,omitempty"`
+	FXRate          float64 `json:"fx_rate,omitempty"`
 }
 
 type ExportRec struct {
@@ -107,6 +111,7 @@ func (s *Service) ExportData(user db.User) (DataExport, error) {
 		if e.Kind == finance.Expense {
 			x.Payment, x.Group = string(e.Payment), string(e.Group())
 		}
+		x.Currency, x.OrigAmountCents, x.FXRate = e.Currency, e.OrigAmount, e.FXRate
 		out.Transactions = append(out.Transactions, x)
 	}
 	recs, err := s.st.Recurrences()

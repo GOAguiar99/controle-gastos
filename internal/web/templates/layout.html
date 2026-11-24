@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR"{{with .Display}}{{if not .IsBRL}} data-currency="{{.Code}}" data-fx="{{.Rate}}"{{end}}{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,6 +9,7 @@
 <title>{{.Title}} · Controle de Gastos</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230B2F4A'/><path d='M8 22l6-7 4 4 7-9' stroke='%23C6EFCE' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="stylesheet" href="{{asset "app.css"}}">
+<script src="{{asset "currency.js"}}"></script>
 </head>
 <body>
 {{if .User}}
@@ -54,6 +55,7 @@
 {{end}}
 <main class="wrap">
   {{with .Flash}}<div class="flash" role="status">{{.}}</div>{{end}}
+  {{with .Display}}{{if .Unavailable}}<div class="flash" role="status">Sem cotação da moeda de exibição agora: valores em reais.</div>{{else if not .IsBRL}}<p class="fx-note muted">Valores em {{.Code}}, convertidos pela PTAX de {{dm .AsOf}} ({{rateText .Rate}}). <a href="/perfil/preferencias#moeda">Mudar</a></p>{{end}}{{end}}
   {{template "content" .}}
 </main>
 <footer class="wrap legal-links"><a href="/como-usar">Como usar</a> · <a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a> · <details class="theme-menu up" data-menu><summary class="theme-toggle" data-theme-toggle>Tema</summary><div class="menu-panel theme-panel" role="menu" data-theme-menu></div></details></footer>
