@@ -129,11 +129,20 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		ComCard  []float64 `json:"comCard"`
 		ComFixed []float64 `json:"comFixed"`
 		ComOther []float64 `json:"comOther"`
+		// previsão de gastos ligada: the balance under every scenario on FlowX
+		ComForecast []float64            `json:"comForecast,omitempty"`
+		FlowScen    map[string][]float64 `json:"flowScen,omitempty"`
+		Scenario    string               `json:"scenario,omitempty"`
 	}
 	var cd chartData
-	for _, p := range flow.Points {
-		cd.FlowX = append(cd.FlowX, p.Date.Format("2006-01-02"))
-		cd.FlowY = append(cd.FlowY, reais(p.Balance))
+	if o.Forecast.Active() {
+		cd.FlowX, cd.FlowScen = scenarioSeries(o.Forecast.Flows)
+		cd.FlowY, cd.Scenario = cd.FlowScen[string(o.Forecast.Mode)], string(o.Forecast.Mode)
+	} else {
+		for _, p := range flow.Points {
+			cd.FlowX = append(cd.FlowX, p.Date.Format("2006-01-02"))
+			cd.FlowY = append(cd.FlowY, reais(p.Balance))
+		}
 	}
 	for _, fm := range flowRows {
 		cd.ComX = append(cd.ComX, shortMonth(fm.Month))
@@ -142,6 +151,9 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		cd.ComCard = append(cd.ComCard, reais(fm.Card))
 		cd.ComFixed = append(cd.ComFixed, reais(fm.Fixed))
 		cd.ComOther = append(cd.ComOther, reais(fm.Other))
+		if o.Forecast.Active() {
+			cd.ComForecast = append(cd.ComForecast, reais(fm.Forecast))
+		}
 	}
 
 	s.render(w, r, "dashboard", page{
@@ -150,8 +162,63 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		"FlowRows": flowRows, "PastTot": finance.SumFlow(pastRows), "NextTot": finance.SumFlow(nextRows),
 		"PastN": len(pastRows), "NextN": len(nextRows),
 		"ExpCats": expCats, "ProjectedCount": projectedCount, "Chart": cd,
+		"Fc": o.Forecast, "Scenarios": app.Scenarios,
 		"CardPct": barPct(selSum.Card, lim.CardLimit), "CardRatio": ratioOf(selSum.Card, lim.CardLimit),
 	})
+}
+
+// scenarioSeries puts the projected balance of every scenario on one axis:
+// the union of their dates, each balance holding until its next change.
+func scenarioSeries(flows map[app.Scenario]finance.CashFlow) ([]string, map[string][]float64) {
+	seen := map[time.Time]bool{}
+	var days []time.Time
+	for _, cf := range flows {
+		for _, p := range cf.Points {
+			if !seen[p.Date] {
+				seen[p.Date] = true
+				days = append(days, p.Date)
+			}
+		}
+	}
+	sort.Slice(days, func(i, j int) bool { return days[i].Before(days[j]) })
+	xs := make([]string, len(days))
+	for i, d := range days {
+		xs[i] = d.Format("2006-01-02")
+	}
+	ys := map[string][]float64{}
+	for sc, cf := range flows {
+		k, bal := 0, int64(0)
+		for _, d := range days {
+			for k < len(cf.Points) && !cf.Points[k].Date.After(d) {
+				bal = cf.Points[k].Balance
+				k++
+			}
+			ys[string(sc)] = append(ys[string(sc)], reais(bal))
+		}
+	}
+	return xs, ys
+}
+
+// saveForecast turns the spending estimate on with a scenario, or off.
+func (s *Server) saveForecast(w http.ResponseWriter, r *http.Request) {
+	sc, err := app.ParseScenario(r.FormValue("mode"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	if err := svcOf(r).SetForecast(sc); err != nil {
+		s.fail(w, err)
+		return
+	}
+	msg := "Previsão de gastos desativada"
+	if sc != app.ScenarioOff {
+		msg = "Previsão de gastos: cenário " + sc.Label()
+	}
+	to := "/?msg=" + url.QueryEscape(msg)
+	if m, err := finance.ParseMonth(r.FormValue("mes")); err == nil {
+		to = "/?mes=" + m.String() + "&msg=" + url.QueryEscape(msg)
+	}
+	http.Redirect(w, r, to+"#fluxo", http.StatusSeeOther)
 }
 
 func ratioOf(a, b int64) float64 {

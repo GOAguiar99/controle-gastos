@@ -17,6 +17,7 @@
   --limit: #d81b60;
   --fixed: #1e88e5;
   --other: #fb8c00;
+  --forecast: #78909c;
   --ok-bg: #c6efce;
   --ok-fg: #1e6b34;
   --warn-bg: #ffc7ce;
@@ -683,6 +684,11 @@ table.grid tr.past td { color: var(--muted); }
 
 /* flow card filters: segmented buttons, big enough to tap */
 .flow-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.forecast-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.forecast-bar form { margin: 0; }
+.forecast-bar .hint { flex-basis: 100%; margin: 0; }
+.flow-table td.forecast { color: var(--forecast); }
+.scen-lows { margin-top: 0; }
 .seg { display: inline-flex; background: var(--tabs-bg); border-radius: 10px; padding: 3px; }
 .seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: .86rem;
   padding: 7px 12px; border-radius: 8px; cursor: pointer; min-height: 36px; }

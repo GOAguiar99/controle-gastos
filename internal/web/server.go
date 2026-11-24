@@ -122,6 +122,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /{$}", s.dashboard)
 	mux.HandleFunc("POST /caixa", s.saveCash)
+	mux.HandleFunc("POST /previsao", s.saveForecast)
 
 	mux.HandleFunc("GET /receitas", s.list(finance.Income))
 	mux.HandleFunc("GET /gastos", s.list(finance.Expense))

@@ -71,7 +71,7 @@
 
 {{if .ProjectedCount}}<p class="hint center">Este mês inclui {{.ProjectedCount}} lançamento(s) previsto(s) de recorrências ainda não confirmados.</p>{{end}}
 
-<section class="card">
+<section class="card" id="fluxo">
   <div class="card-head">
     <h2>Fluxo de caixa</h2>
     <span class="muted">{{.PastN}} meses de histórico + próximos {{.NextN}} a partir do caixa de hoje</span>
@@ -88,7 +88,25 @@
       <button type="button" data-view="table">Tabela</button>
     </div>
   </div>
-  <p class="hint flow-note">Meses passados mostram o realizado; do mês atual em diante, só o que está lançado (recorrências, parcelas de financiamento e gastos futuros).
+  <div class="forecast-bar">
+    {{if .Fc.Active}}
+    <form method="post" action="/previsao" class="seg" role="group" aria-label="Cenário da previsão de gastos">
+      <input type="hidden" name="mes" value="{{.Month}}">
+      {{range .Scenarios}}<button name="mode" value="{{.}}" class="{{if eq . $.Fc.Mode}}on{{end}}" aria-pressed="{{eq . $.Fc.Mode}}">{{.Label}}</button>{{end}}
+    </form>
+    <form method="post" action="/previsao"><input type="hidden" name="mes" value="{{.Month}}"><button class="btn ghost small" name="mode" value="desligado">Desativar previsão</button></form>
+    {{else}}
+    <form method="post" action="/previsao"><input type="hidden" name="mes" value="{{.Month}}"><button class="btn small" name="mode" value="base" {{if not .Fc.OK}}disabled{{end}}>Ativar previsão de gastos</button></form>
+    {{end}}
+    {{if .Fc.OK}}
+    <p class="hint">Gasto do dia a dia por mês, pelos últimos {{len .Fc.Base.Months}} meses fechados:
+      otimista <strong>{{brl .Fc.Base.Optimistic}}</strong> · base <strong>{{brl .Fc.Base.Base}}</strong> · pessimista <strong>{{brl .Fc.Base.Pessimistic}}</strong>.
+      A previsão completa cada mês só com o que ainda não está lançado; é estimativa, não vira lançamento.</p>
+    {{else}}
+    <p class="hint">A previsão de gastos precisa de pelo menos 3 meses fechados com gastos lançados.</p>
+    {{end}}
+  </div>
+  <p class="hint flow-note">Meses passados mostram o realizado; do mês atual em diante, {{if .Fc.Active}}o que está lançado (recorrências, parcelas de financiamento e gastos futuros) mais a <strong>previsão de gastos</strong> do cenário {{.Fc.Mode.Label}}.{{else}}só o que está lançado (recorrências, parcelas de financiamento e gastos futuros).{{end}}
     A <strong>sobra</strong> de cada mês é o que ainda dá para gastar sem mexer no caixa.</p>
   <div class="flow-stats">
     <div><span>Hoje</span><strong>{{brl .Flow.Current}}</strong></div>
@@ -96,6 +114,10 @@
     {{with index .Flow.Months (add (len .Flow.Months) -1)}}<div><span>Em {{.Month.Label}}</span><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></div>{{end}}
     {{if not (isZeroTime .Flow.FirstNegative)}}<div class="alert"><span>Fica negativo em</span><strong>{{dmy .Flow.FirstNegative}}</strong></div>{{end}}
   </div>
+  {{if .Fc.Active}}
+  <p class="hint scen-lows">Menor saldo por cenário:
+    {{range $i, $sc := .Scenarios}}{{if $i}} · {{end}}{{$sc.Label}} {{with index $.Fc.Flows $sc}}<strong class="{{if neg .Low}}negc{{end}}">{{brl .Low}}</strong> ({{dmy .LowDate}}){{end}}{{end}}</p>
+  {{end}}
   <div class="flow-charts" data-flow-part="charts">
     <div class="chart tall" data-period-hide="past"><canvas id="chartFlow" aria-label="Saldo projetado"></canvas></div>
     <h3>Realizado e comprometido por mês</h3>
@@ -104,21 +126,22 @@
   <div class="table-scroll" data-flow-part="table">
     <table class="grid flow-table">
       <thead><tr><th>Mês</th><th class="num opt">Saldo inicial</th><th class="num">Entradas</th>
-        <th class="num">Cartão</th><th class="num">Fixos</th><th class="num">Outros</th><th class="num opt">Total saídas</th>
+        <th class="num">Cartão</th><th class="num">Fixos</th><th class="num">Outros</th>{{if .Fc.Active}}<th class="num">Previsão</th>{{end}}<th class="num opt">Total saídas</th>
         <th class="num">Sobra</th><th class="num">Saldo final</th></tr></thead>
       <tbody>
       {{range .FlowRows}}
         <tr class="{{if .Past}}past{{end}} {{if .Current}}sel{{end}}" data-when="{{if .Past}}past{{else}}next{{end}}"><td>{{.Month.Label}} <small class="muted">{{if .Past}}realizado{{else if .Current}}atual{{else}}previsto{{end}}</small></td>
           <td class="num opt">{{brl .Opening}}</td><td class="num pos">{{brl .In}}</td>
           <td class="num">{{brl .Card}}</td><td class="num">{{brl .Fixed}}</td><td class="num">{{brl .Other}}</td>
+          {{if $.Fc.Active}}<td class="num forecast">{{if .Forecast}}{{brl .Forecast}}{{else}}—{{end}}</td>{{end}}
           <td class="num negc opt">{{brl .Out}}</td>
           <td class="num"><span class="pill {{if neg .Net}}warn{{else}}ok{{end}}">{{brl .Net}}</span></td>
           <td class="num"><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></td></tr>
       {{end}}
       </tbody>
       <tfoot>
-        {{template "flow-total" (dict "Label" (printf "Últimos %d meses" .PastN) "T" .PastTot "When" "past")}}
-        {{template "flow-total" (dict "Label" (printf "Próximos %d meses" .NextN) "T" .NextTot "When" "next")}}
+        {{template "flow-total" (dict "Label" (printf "Últimos %d meses" .PastN) "T" .PastTot "When" "past" "Fc" .Fc.Active)}}
+        {{template "flow-total" (dict "Label" (printf "Próximos %d meses" .NextN) "T" .NextTot "When" "next" "Fc" .Fc.Active)}}
       </tfoot>
     </table>
   </div>
@@ -144,6 +167,7 @@
 {{define "flow-total"}}
 <tr data-when="{{.When}}"><td><strong>{{.Label}}</strong></td><td class="opt"></td><td class="num pos"><strong>{{brl .T.In}}</strong></td>
   <td class="num"><strong>{{brl .T.Card}}</strong></td><td class="num"><strong>{{brl .T.Fixed}}</strong></td><td class="num"><strong>{{brl .T.Other}}</strong></td>
+  {{if .Fc}}<td class="num forecast"><strong>{{brl .T.Forecast}}</strong></td>{{end}}
   <td class="num negc opt"><strong>{{brl .T.Out}}</strong></td>
   <td class="num"><strong class="{{if neg .T.Net}}negc{{end}}">{{brl .T.Net}}</strong></td><td></td></tr>
 {{end}}

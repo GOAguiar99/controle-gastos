@@ -21,6 +21,9 @@ const (
 	Card  Bucket = "cartao"
 	Fixed Bucket = "fixo"
 	Other Bucket = "outros"
+	// Forecast is the estimated day-to-day spending (see ForecastEntries);
+	// it only exists in the cash flow, never in stored transactions.
+	Forecast Bucket = "previsto"
 )
 
 // PaymentMethod is how an expense was paid.
@@ -187,6 +190,7 @@ type Entry struct {
 	OccMonth                    string
 	DebtID                      int64
 	Projected                   bool
+	Forecast                    bool   // estimated day-to-day spending (projected, cash flow only)
 	CreatedByID                 int64  // user who entered it (0 = unknown or projected)
 	CreatedBy                   string // their name (or email)
 }
@@ -218,6 +222,8 @@ func (e Entry) Month() Month { return MonthOf(e.ReportDay()) }
 // expense or a recurrence occurrence → Fixos, else Outros.
 func (e Entry) Group() Bucket {
 	switch {
+	case e.Forecast:
+		return Forecast
 	case e.Payment == Credit:
 		return Card
 	case e.Fixed || (e.Projected && e.RecurrenceID != 0):

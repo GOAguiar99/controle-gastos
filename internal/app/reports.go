@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"time"
 
 	"controle-gastos/internal/finance"
@@ -22,6 +23,9 @@ type Overview struct {
 	FlowRows []finance.FlowMonth
 	Entries  []finance.Entry // all entries loaded (history through the horizon)
 	Cash     CashSetup       // contas do caixa e rendimento usado na projeção
+	// Forecast is the day-to-day spending estimate; when active, Flow and
+	// FlowRows include its chosen scenario and Forecast.Flows has all three.
+	Forecast ForecastView
 }
 
 func (s *Service) Overview(sel finance.Month) (Overview, error) {
@@ -50,10 +54,13 @@ func (s *Service) Overview(sel finance.Month) (Overview, error) {
 	if o.Cash, err = s.Cash(); err != nil {
 		return o, err
 	}
-	// the cash's own yield only enters the cash flow, not the month's income
-	flow, err := s.withYield(o.Entries, o.Snapshot, cur.Add(HorizonMonths-1).Last())
-	if err != nil {
-		return o, err
+	// The spending estimate and the cash's own yield only enter the cash
+	// flow, not the month's income and expenses.
+	end := cur.Add(HorizonMonths - 1).Last()
+	o.Forecast = s.forecastFor(o.Entries, s.ForecastMode())
+	flow := s.flowEntries(o.Entries, o.Snapshot, o.Cash, o.Forecast, o.Forecast.Mode, end)
+	if o.Forecast.Active() {
+		o.Forecast.Flows = s.scenarioFlows(o.Entries, o.Snapshot, o.Cash, o.Forecast, end, HorizonMonths)
 	}
 	o.Flow = finance.ProjectCash(flow, o.Snapshot, today, HorizonMonths)
 	o.FlowRows = finance.MonthlyFlow(flow, o.Snapshot, today, cur.Add(-HistoryMonths), cur.Add(HorizonMonths-1))
@@ -64,10 +71,18 @@ func (s *Service) Overview(sel finance.Month) (Overview, error) {
 // its cash (bought after closing, paid after the next closing).
 const cardLag = 2
 
-// CashProjection projects the cash balance for the next n months.
-func (s *Service) CashProjection(n int) (finance.CashFlow, error) {
+// CashProjection projects the cash balance for the next n months. scenario
+// picks the spending estimate: "" uses the saved one, "desligado" none.
+func (s *Service) CashProjection(n int, scenario string) (finance.CashFlow, error) {
 	if n < 1 || n > 60 {
 		return finance.CashFlow{}, invalid("meses deve estar entre 1 e 60")
+	}
+	sc := s.ForecastMode()
+	if strings.TrimSpace(scenario) != "" {
+		var err error
+		if sc, err = ParseScenario(scenario); err != nil {
+			return finance.CashFlow{}, err
+		}
 	}
 	today := s.Today()
 	cur := finance.MonthOf(today)
@@ -75,7 +90,7 @@ func (s *Service) CashProjection(n int) (finance.CashFlow, error) {
 	if err != nil {
 		return finance.CashFlow{}, err
 	}
-	lo := cur
+	lo := cur.Add(-ForecastWindow) // history the estimate samples
 	if snap.Set {
 		lo = min(lo, finance.MonthOf(snap.Date))
 	}
@@ -83,10 +98,13 @@ func (s *Service) CashProjection(n int) (finance.CashFlow, error) {
 	if err != nil {
 		return finance.CashFlow{}, err
 	}
-	if es, err = s.withYield(es, snap, cur.Add(n-1).Last()); err != nil {
+	c, err := s.Cash()
+	if err != nil {
 		return finance.CashFlow{}, err
 	}
-	return finance.ProjectCash(es, snap, today, n), nil
+	end := cur.Add(n - 1).Last()
+	flow := s.flowEntries(es, snap, c, s.forecastFor(es, sc), sc, end)
+	return finance.ProjectCash(flow, snap, today, n), nil
 }
 
 // SetCash records the real cash balance ("caixa hoje") on date (zero = today).

@@ -61,16 +61,15 @@ func (c CashSetup) yieldDesc() string {
 	return fmt.Sprintf("Rendimento estimado (%s%% do CDI)", strings.Replace(strconv.FormatFloat(math.Round(c.PctOfCDI*10)/10, 'f', -1, 64), ".", ",", 1))
 }
 
-// withYield adds the estimated yield of the cash to entries, for cash flows.
-func (s *Service) withYield(es []finance.Entry, snap finance.Snapshot, end time.Time) ([]finance.Entry, error) {
-	c, err := s.Cash()
-	if err != nil || c.Annual <= 0 {
-		return es, err
+// addYield adds the estimated yield of the cash (setup c) to entries, for cash flows.
+func (s *Service) addYield(es []finance.Entry, snap finance.Snapshot, c CashSetup, end time.Time) []finance.Entry {
+	if c.Annual <= 0 {
+		return es
 	}
 	ys := finance.Yield(es, snap, s.Today(), end, c.Annual, c.yieldDesc())
 	out := append(append([]finance.Entry(nil), es...), ys...)
 	finance.SortEntries(out)
-	return out, nil
+	return out
 }
 
 // CashAccountIn creates (ID == 0) or updates an account.
