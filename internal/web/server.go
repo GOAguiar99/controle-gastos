@@ -238,6 +238,7 @@ type page map[string]any
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data page) {
 	data["Nav"] = name
+	data["Now"] = s.app.Now()
 	data["Contact"] = s.cfg.ContactEmail
 	data["Controller"] = s.cfg.ControllerName
 	if svc := svcOf(r); svc != nil {
@@ -343,6 +344,34 @@ func barPct(a, b int64) int {
 	return p
 }
 
+// ago says how long before now t was, in pt-BR ("há 3 dias"); zero = never.
+// Last use is recorded every few minutes, so anything under 5 min is "agora".
+func ago(t, now time.Time) string {
+	if t.IsZero() {
+		return "nunca"
+	}
+	d := now.Sub(t)
+	plural := func(n int, one, many string) string {
+		if n == 1 {
+			return "há 1 " + one
+		}
+		return fmt.Sprintf("há %d %s", n, many)
+	}
+	switch {
+	case d < 5*time.Minute:
+		return "agora há pouco"
+	case d < time.Hour:
+		return fmt.Sprintf("há %d min", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return plural(int(d.Hours()), "hora", "horas")
+	case d < 30*24*time.Hour:
+		return plural(int(d.Hours()/24), "dia", "dias")
+	case d < 365*24*time.Hour:
+		return plural(int(d.Hours()/24/30), "mês", "meses")
+	}
+	return plural(int(d.Hours()/24/365), "ano", "anos")
+}
+
 type option struct {
 	V int
 	L string
@@ -388,6 +417,7 @@ var funcs = template.FuncMap{
 	},
 	"pct2":       func(f float64) string { return strings.Replace(strconv.FormatFloat(f, 'f', 2, 64), ".", ",", 1) },
 	"isZeroTime": func(t time.Time) bool { return t.IsZero() },
+	"ago":        ago,
 	"intervals":  func() []option { return intervalOptions },
 	"newDebt":    func() db.Debt { return db.Debt{} },
 	"newCard":    func() finance.CreditCard { return finance.CreditCard{} },

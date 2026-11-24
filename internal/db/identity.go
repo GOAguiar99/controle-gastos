@@ -21,6 +21,7 @@ type User struct {
 	Approved   bool   // false = sign-up waiting for an admin (no ledger, no session)
 	Role       string // RoleUser or RoleAdmin
 	CreatedAt  time.Time
+	LastSeenAt time.Time // last use of the app (web or MCP), recorded every few minutes; zero = never
 }
 
 // Roles. Admins manage accounts; they never get access to other ledgers.
@@ -39,12 +40,24 @@ type GoogleUser struct {
 	EmailVerified             bool
 }
 
-const userCols = `u.id, u.google_sub, u.email, u.name, u.picture_url, u.suspended_at IS NOT NULL, u.approved_at IS NOT NULL, u.role, u.created_at`
+const userCols = `u.id, u.google_sub, u.email, u.name, u.picture_url, u.suspended_at IS NOT NULL, u.approved_at IS NOT NULL, u.role, u.created_at, u.last_seen_at`
 
 func scanUser(r pgx.Row) (User, error) {
 	var u User
-	err := r.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Suspended, &u.Approved, &u.Role, &u.CreatedAt)
+	var seen *time.Time
+	err := r.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Suspended, &u.Approved, &u.Role, &u.CreatedAt, &seen)
+	if seen != nil {
+		u.LastSeenAt = *seen
+	}
 	return u, err
+}
+
+// TouchUser records that the user used the app at now, unless it was already
+// recorded after notBefore (concurrent requests write at most once).
+func (d *DB) TouchUser(ctx context.Context, userID int64, now, notBefore time.Time) error {
+	_, err := d.pool.Exec(ctx, `UPDATE users SET last_seen_at = $2
+		WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < $3)`, userID, now, notBefore)
+	return err
 }
 
 // UpsertGoogleUser creates the user on first sign-in, or refreshes their
@@ -201,15 +214,34 @@ func (d *DB) RevokeMCPToken(ctx context.Context, userID, id int64) (bool, error)
 	return tag.RowsAffected() == 1, err
 }
 
-// MCPTokenOwner resolves an active link to its user and ledger, and records
-// its use.
-func (d *DB) MCPTokenOwner(ctx context.Context, tokenHash []byte) (userID, ledgerID int64, ok bool, err error) {
-	err = d.pool.QueryRow(ctx, `UPDATE mcp_tokens SET last_used_at = now()
-		WHERE token_hash = $1 AND revoked_at IS NULL RETURNING user_id, ledger_id`, tokenHash).Scan(&userID, &ledgerID)
+// MCPLink is an active MCP link resolved from its token.
+type MCPLink struct {
+	ID, UserID, LedgerID int64
+	LastUsedAt           time.Time // zero = never used
+}
+
+// MCPLinkByHash resolves an active link (ok=false when unknown or revoked).
+// It does not record the use: see TouchMCPToken.
+func (d *DB) MCPLinkByHash(ctx context.Context, tokenHash []byte) (MCPLink, bool, error) {
+	var l MCPLink
+	var used *time.Time
+	err := d.pool.QueryRow(ctx, `SELECT id, user_id, ledger_id, last_used_at FROM mcp_tokens
+		WHERE token_hash = $1 AND revoked_at IS NULL`, tokenHash).Scan(&l.ID, &l.UserID, &l.LedgerID, &used)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, 0, false, nil
+		return l, false, nil
 	}
-	return userID, ledgerID, err == nil, err
+	if used != nil {
+		l.LastUsedAt = *used
+	}
+	return l, err == nil, err
+}
+
+// TouchMCPToken records the link's use at now, unless it was already
+// recorded after notBefore.
+func (d *DB) TouchMCPToken(ctx context.Context, id int64, now, notBefore time.Time) error {
+	_, err := d.pool.Exec(ctx, `UPDATE mcp_tokens SET last_used_at = $2
+		WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < $3)`, id, now, notBefore)
+	return err
 }
 
 // ---------- account administration ----------
@@ -334,16 +366,19 @@ func (d *DB) SetPassword(ctx context.Context, email, hash string) (User, error) 
 // PasswordAccountFor finds the password account of email (ok=false if none).
 func (d *DB) PasswordAccountFor(ctx context.Context, email string) (PasswordAccount, bool, error) {
 	var a PasswordAccount
-	var locked *time.Time
+	var locked, seen *time.Time
 	row := d.pool.QueryRow(ctx, `SELECT `+userCols+`, coalesce(u.password_hash, ''), u.locked_until FROM users u WHERE u.google_sub = $1`,
 		LocalSubPrefix+strings.ToLower(strings.TrimSpace(email)))
 	err := row.Scan(&a.User.ID, &a.User.GoogleSub, &a.User.Email, &a.User.Name, &a.User.PictureURL, &a.User.Suspended,
-		&a.User.Approved, &a.User.Role, &a.User.CreatedAt, &a.Hash, &locked)
+		&a.User.Approved, &a.User.Role, &a.User.CreatedAt, &seen, &a.Hash, &locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return a, false, nil
 	}
 	if locked != nil {
 		a.LockedUntil = *locked
+	}
+	if seen != nil {
+		a.User.LastSeenAt = *seen
 	}
 	return a, err == nil && a.Hash != "", err
 }

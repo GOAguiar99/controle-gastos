@@ -74,6 +74,8 @@ To try the MCP locally, create a link in Perfil → Agentes de IA (`/perfil/agen
 Access control (`users`): `approved_at` NULL = sign-up waiting for approval (`APP_SIGNUP=approval`,
 default; `SignIn` returns `app.ErrPending`, creates no ledger and no session), `suspended_at`, and
 `role` (`user` | `admin`). `App.actor` reloads the user on every request, so these apply at once.
+It also records `users.last_seen_at` (web and MCP; `mcp_tokens.last_used_at` for links) at most every
+`lastSeenEvery`, shown as "último acesso" in Perfil and `/admin`; never put it in metric labels or logs.
 Settings live in the profile menu (avatar, top-right): `/perfil` tabs Conta, Preferências,
 Agentes de IA and Compartilhar (`profileData` loads per tab; `GET /config` redirects there; the POST
 routes keep their `/config/...` paths). Admins use `/admin` (also in that menu) (approve, reject pending, suspend, reactivate; never financial data). Every admin

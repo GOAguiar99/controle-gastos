@@ -16,6 +16,7 @@
         {{if .User.PictureURL}}<img src="{{.User.PictureURL}}" alt="" referrerpolicy="no-referrer">{{else}}<span class="avatar-fallback" aria-hidden="true">{{initial .User}}</span>{{end}}
         <div><strong>{{or .User.Name .User.Email}}</strong><span class="muted">{{.User.Email}}</span></div>
       </div>
+      <p class="muted">Conta criada em {{dmy .User.CreatedAt}} · último acesso <span{{if not (isZeroTime .User.LastSeenAt)}} title="{{dmy .User.LastSeenAt}}"{{end}}>{{ago .User.LastSeenAt .Now}}</span></p>
       <p class="hint">{{if isLocal .User}}Conta com e-mail e senha deste servidor.{{else}}Você entra com sua conta Google; nome, e-mail e foto vêm de lá.{{end}}</p>
       <form method="post" action="/logout" class="card-actions"><button class="btn">Sair</button></form>
     </article>
@@ -159,7 +160,7 @@
         <tr>
           <td>{{.Label}}</td>
           <td>{{dmy .CreatedAt}}</td>
-          <td>{{if isZeroTime .LastUsedAt}}—{{else}}{{dmy .LastUsedAt}}{{end}}</td>
+          <td>{{if isZeroTime .LastUsedAt}}—{{else}}<span title="{{dmy .LastUsedAt}}">{{ago .LastUsedAt $.Now}}</span>{{end}}</td>
           <td><form method="post" action="/config/mcp/{{.ID}}/revogar" data-confirm="Revogar este link? O assistente conectado com ele perde o acesso."><button class="btn ghost">Revogar</button></form></td>
         </tr>
       {{end}}
@@ -198,12 +199,13 @@
   {{end}}
   <p class="hint">Quem está na carteira vê e altera tudo: lançamentos, recorrências, dívidas e caixa.</p>
   <table class="grid compact">
-    <thead><tr><th>Pessoa</th><th>Papel</th><th></th></tr></thead>
+    <thead><tr><th>Pessoa</th><th>Papel</th><th>Último acesso</th><th></th></tr></thead>
     <tbody>
     {{range .Members}}
       <tr>
         <td>{{or .Name .Email}}<br><span class="muted">{{.Email}}</span></td>
         <td>{{if eq .Role "owner"}}Dono{{else}}Membro{{end}}</td>
+        <td{{if not (isZeroTime .LastSeenAt)}} title="{{dmy .LastSeenAt}}"{{end}}>{{ago .LastSeenAt $.Now}}</td>
         <td>{{if and (eq $.Sharing.Role "owner") (eq .Role "member")}}<form method="post" action="/config/membros/{{.UserID}}/remover" data-confirm="Remover esta pessoa? Ela perde o acesso na hora."><button class="btn small ghost">Remover</button></form>{{end}}</td>
       </tr>
     {{end}}
@@ -211,6 +213,7 @@
       <tr>
         <td>{{.Email}}<br><span class="muted">convite até {{dmy .ExpiresAt}}</span></td>
         <td>Convidado</td>
+        <td class="muted">—</td>
         <td><form method="post" action="/config/convites/{{.ID}}/cancelar"><button class="btn small ghost">Cancelar</button></form></td>
       </tr>
     {{end}}
