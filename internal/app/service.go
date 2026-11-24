@@ -45,7 +45,11 @@ type Service struct {
 	st  *db.Store
 	loc *time.Location
 	now func() time.Time
+	fx  FXSource // nil: only rates already stored
 }
+
+// SetFX sets where missing exchange rates are fetched from (tests).
+func (s *Service) SetFX(f FXSource) { s.fx = f }
 
 func New(st *db.Store, loc *time.Location) *Service {
 	if loc == nil {
@@ -56,6 +60,8 @@ func New(st *db.Store, loc *time.Location) *Service {
 
 // SetClock overrides the current time (tests).
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
+func (s *Service) withFX(f FXSource) *Service { s.fx = f; return s }
 
 func (s *Service) withClock(now func() time.Time) *Service { s.now = now; return s }
 

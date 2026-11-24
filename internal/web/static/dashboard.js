@@ -12,8 +12,8 @@
     grid: v('--chart-grid', '#e3e8ec'), muted: v('--muted', '#66727c')
   };
   document.addEventListener('cg:themechange', function () { location.reload(); });
-  var brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-  var compact = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
+  var brl = cgFx.money();
+  var compact = cgFx.compact();
   var committed = null;
 
   if (window.Chart) {

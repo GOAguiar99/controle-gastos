@@ -7,8 +7,8 @@
   var css = getComputedStyle(document.documentElement);
   function v(name, def) { return css.getPropertyValue(name).trim() || def; }
   var card = v('--card', '#8e24aa'), grid = v('--chart-grid', '#e3e8ec'), muted = v('--muted', '#66727c');
-  var brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-  var compact = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
+  var brl = cgFx.money();
+  var compact = cgFx.compact();
   document.addEventListener('cg:themechange', function () { location.reload(); });
   Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   Chart.defaults.color = muted;

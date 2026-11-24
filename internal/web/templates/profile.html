@@ -98,6 +98,19 @@
     {{else}}<p class="empty">Nenhuma memória ainda. Corrija a categoria de uma compra na página da fatura.</p>{{end}}
   </article>
 
+  <article class="card" id="moeda">
+    <div class="card-head"><h2>Moeda de exibição</h2>{{if not .Display.IsBRL}}<span class="muted">PTAX {{dm .Display.AsOf}}: {{rateText .Display.Rate}}</span>{{end}}</div>
+    <form method="post" action="/config/moeda" class="form">
+      <label>Mostrar os valores em
+        <select name="currency" data-autosubmit>
+          {{range currencies}}<option value="{{.Code}}" {{if eq .Code $.DisplayCode}}selected{{end}}>{{.Code}} · {{.Name}}</option>{{end}}
+        </select>
+      </label>
+      <noscript><button class="btn small">Salvar</button></noscript>
+    </form>
+    <p class="hint">Totais, dashboard, fluxo e listas passam a aparecer nessa moeda, convertidos pela PTAX mais recente do Banco Central. Os valores continuam guardados em reais; formulários e limites seguem em R$. Vale para todos desta carteira.</p>
+  </article>
+
   <article class="card" id="cartoes">
     <div class="card-head"><h2>Cartões de crédito</h2></div>
     <form method="post" action="/config/cartoes" class="form">

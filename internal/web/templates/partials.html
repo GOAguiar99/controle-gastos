@@ -24,6 +24,18 @@
 
 {{/* payment-select: forma de pagamento de um gasto. Recebe a atual; "" oferece
      "Automático" (a última usada na categoria), só em lançamento novo. */}}
+{{define "currency-fields"}}
+<div class="row" data-currency-fields>
+  <label>Moeda
+    <select name="currency" data-currency-select>
+      {{$cur := .Cur}}{{range currencies}}<option value="{{.Code}}" {{if or (eq .Code $cur) (and (eq .Code "BRL") (not $cur))}}selected{{end}}>{{.Code}} · {{.Name}}</option>{{end}}
+    </select>
+  </label>
+  <label data-fx-field {{if not .Cur}}hidden{{end}}>Cotação (R$ por unidade)<input name="fx_rate" inputmode="decimal" placeholder="{{if .Rate}}{{rateText .Rate}} (mantida){{else}}PTAX do dia{{end}}"></label>
+</div>
+{{if not .Cur}}<p class="hint" data-fx-field hidden>Convertido para reais pela PTAX de venda do Banco Central na data (ou do último dia útil). Informe a cotação se quiser outra, como a da fatura do cartão.</p>{{end}}
+{{end}}
+
 {{define "payment-select"}}
 <label>Forma de pagamento
   <select name="payment_method">

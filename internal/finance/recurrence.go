@@ -193,7 +193,15 @@ type Entry struct {
 	Forecast                    bool   // estimated day-to-day spending (projected, cash flow only)
 	CreatedByID                 int64  // user who entered it (0 = unknown or projected)
 	CreatedBy                   string // their name (or email)
+	// Entered in another currency: Amount is in reais, converted at FXRate
+	// (reais per unit) from OrigAmount cents of Currency. "" = entered in reais.
+	Currency   string
+	OrigAmount int64
+	FXRate     float64
 }
+
+// Foreign reports whether the entry was entered in a currency other than BRL.
+func (e Entry) Foreign() bool { return e.Currency != "" }
 
 // CashDay is when the entry moves the cash: the statement due date for card
 // purchases, otherwise its own date.

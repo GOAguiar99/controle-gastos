@@ -724,6 +724,9 @@ td.actions form { display: inline; }
 .e-desc { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .e-meta { color: var(--muted); font-size: .8rem; }
 .e-amount { font-weight: 700; white-space: nowrap; }
+.e-orig { display: block; font-weight: 400; font-size: .75rem; color: var(--muted); }
+[data-fx-field][hidden] { display: none; }
+.fx-note { font-size: .8rem; margin: 0 0 .75rem; }
 .e-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
 .e-actions form { margin: 0; }
 .entry.projected { background: repeating-linear-gradient(135deg, transparent 0 8px, rgba(83, 95, 193, .035) 8px 16px); }

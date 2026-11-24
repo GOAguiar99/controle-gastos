@@ -137,6 +137,9 @@ func serve() error {
 	defer d.Close()
 	a := app.NewApp(d, location())
 	a.AllowEmail = app.AllowList(os.Getenv("APP_ALLOWED_EMAILS"))
+	if os.Getenv("APP_NO_FX") == "" { // PTAX for transactions in other currencies, from the Banco Central
+		a.FX = app.NewPTAX()
+	}
 	a.Signup = env("APP_SIGNUP", app.SignupApproval)
 	if a.Signup != app.SignupApproval && a.Signup != app.SignupClosed {
 		return fmt.Errorf("APP_SIGNUP inválido: %q (use approval ou closed)", a.Signup)

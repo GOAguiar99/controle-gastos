@@ -19,6 +19,16 @@
     sync();
   });
 
+  // The exchange rate only makes sense for another currency.
+  document.querySelectorAll('[data-currency-select]').forEach(function (sel) {
+    var form = sel.closest('form');
+    function sync() {
+      form.querySelectorAll('[data-fx-field]').forEach(function (el) { el.hidden = sel.value === 'BRL'; });
+    }
+    sel.addEventListener('change', sync);
+    sync();
+  });
+
   // A checkbox that saves its form as soon as it changes.
   document.querySelectorAll('[data-autosubmit-check]').forEach(function (el) {
     el.addEventListener('change', function () { el.form.submit(); });

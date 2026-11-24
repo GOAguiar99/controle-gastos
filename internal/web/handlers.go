@@ -425,6 +425,10 @@ func txFromForm(r *http.Request, kind finance.Kind) (app.TxIn, error) {
 	if in.Amount, err = finance.ParseMoney(r.FormValue("amount")); err != nil {
 		return in, fmt.Errorf("valor inválido")
 	}
+	in.Currency = r.FormValue("currency")
+	if in.FXRate, err = parseFXRate(r.FormValue("fx_rate")); err != nil {
+		return in, err
+	}
 	return in, nil
 }
 
@@ -947,6 +951,7 @@ func (s *Server) profileData(r *http.Request, tab string) (page, error) {
 			return nil, err
 		}
 		data["Cash"] = cash
+		data["DisplayCode"] = svcOf(r).DisplayCurrency().Code
 	case tabAgents:
 		tokens, err := s.app.MCPTokens(r.Context(), actorOf(r))
 		if err != nil {
@@ -1000,13 +1005,17 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("\xEF\xBB\xBF")) // BOM so Excel reads UTF-8
 	cw := csv.NewWriter(w)
 	cw.Comma = ';'
-	cw.Write([]string{"data", "tipo", "categoria", "valor", "descricao", "recorrente", "lancado_por"})
+	cw.Write([]string{"data", "tipo", "categoria", "valor", "descricao", "recorrente", "lancado_por", "moeda", "valor_original", "cotacao"})
 	for _, e := range all {
 		rec := ""
 		if e.RecurrenceID != 0 {
 			rec = "sim"
 		}
-		cw.Write([]string{e.Date.Format("2006-01-02"), string(e.Kind), csvText(e.Category), moneyInput(e.Amount), csvText(e.Description), rec, csvText(e.CreatedBy)})
+		cur, orig, rate := "", "", ""
+		if e.Foreign() {
+			cur, orig, rate = e.Currency, moneyInput(e.OrigAmount), strings.Replace(strconv.FormatFloat(e.FXRate, 'f', -1, 64), ".", ",", 1)
+		}
+		cw.Write([]string{e.Date.Format("2006-01-02"), string(e.Kind), csvText(e.Category), moneyInput(e.Amount), csvText(e.Description), rec, csvText(e.CreatedBy), cur, orig, rate})
 	}
 	cw.Flush()
 	Audit("data_export", "user_id", actorOf(r).User.ID, "format", "csv")
