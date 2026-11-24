@@ -88,25 +88,32 @@
       <button type="button" data-view="table">Tabela</button>
     </div>
   </div>
-  <div class="forecast-bar">
-    {{if .Fc.Active}}
-    <form method="post" action="/previsao" class="seg" role="group" aria-label="Cenário da previsão de gastos">
-      <input type="hidden" name="mes" value="{{.Month}}">
-      {{range .Scenarios}}<button name="mode" value="{{.}}" class="{{if eq . $.Fc.Mode}}on{{end}}" aria-pressed="{{eq . $.Fc.Mode}}">{{.Label}}</button>{{end}}
-    </form>
-    <form method="post" action="/previsao"><input type="hidden" name="mes" value="{{.Month}}"><button class="btn ghost small" name="mode" value="desligado">Desativar previsão</button></form>
-    {{else}}
-    <form method="post" action="/previsao"><input type="hidden" name="mes" value="{{.Month}}"><button class="btn small" name="mode" value="base" {{if not .Fc.OK}}disabled{{end}}>Ativar previsão de gastos</button></form>
-    {{end}}
+  <div class="forecast-box{{if .Fc.Active}} on{{end}}">
     {{if .Fc.OK}}
-    <p class="hint">Gasto do dia a dia por mês, pelos últimos {{len .Fc.Base.Months}} meses fechados:
-      otimista <strong>{{brl .Fc.Base.Optimistic}}</strong> · base <strong>{{brl .Fc.Base.Base}}</strong> · pessimista <strong>{{brl .Fc.Base.Pessimistic}}</strong>.
-      A previsão completa cada mês só com o que ainda não está lançado; é estimativa, não vira lançamento.</p>
+    <div class="forecast-head">
+      <p class="forecast-lead">Pelos seus gastos de {{(index .Fc.Base.Months 0).Label}} a {{(index .Fc.Base.Months (add (len .Fc.Base.Months) -1)).Label}}, você gasta em média
+        <strong>{{brl .Fc.Base.Average}} por mês</strong> no dia a dia.
+        {{with .FcEnd}}Mantendo isso, seu caixa fica em <strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong> em {{.Month.Label}}{{end}}{{if not (isZeroTime .Fc.Flow.FirstNegative)}} e <strong class="negc">fica negativo em {{dmy .Fc.Flow.FirstNegative}}</strong>{{end}}.</p>
+      <form method="post" action="/previsao"><input type="hidden" name="mes" value="{{.Month}}">
+        {{if .Fc.Active}}<button class="btn ghost small" name="mode" value="desligado">Tirar a previsão do fluxo</button>
+        {{else}}<button class="btn small" name="mode" value="ligado">Incluir a previsão no fluxo</button>{{end}}
+      </form>
+    </div>
+    <details class="forecast-how">
+      <summary>Como calculamos</summary>
+      <ul class="forecast-months">
+        {{range $i, $m := .Fc.Base.Months}}<li><span>{{$m.Label}}</span><strong>{{brl (index $.Fc.Base.Samples $i)}}</strong></li>{{end}}
+        <li class="avg"><span>Média ({{len .Fc.Base.Months}} meses)</span><strong>{{brl .Fc.Base.Average}}</strong></li>
+      </ul>
+      <p class="hint"><strong>Dia a dia</strong> é tudo que não é conta fixa, recorrência ou parcela de dívida: mercado, transporte, compras, faturas do cartão. Contas fixas e dívidas já entram no fluxo pelas recorrências.
+        Em cada mês daqui para frente contamos {{brl .Fc.Base.Average}}: o que já está lançado (parcelas, fatura aberta) entra dentro desse valor, e o que passar dele aparece em <em>Acima da média</em>.
+        Seu mês mais leve foi {{brl .Fc.Base.Min}} e o mais pesado, {{brl .Fc.Base.Max}}. É estimativa: não vira lançamento nem muda receitas e gastos do mês.</p>
+    </details>
     {{else}}
     <p class="hint">A previsão de gastos precisa de pelo menos 3 meses fechados com gastos lançados.</p>
     {{end}}
   </div>
-  <p class="hint flow-note">Meses passados mostram o realizado; do mês atual em diante, {{if .Fc.Active}}o que está lançado (recorrências, parcelas de financiamento e gastos futuros) mais a <strong>previsão de gastos</strong> do cenário {{.Fc.Mode.Label}}.{{else}}só o que está lançado (recorrências, parcelas de financiamento e gastos futuros).{{end}}
+  <p class="hint flow-note">Meses passados mostram o realizado; do mês atual em diante, {{if .Fc.Active}}o que está lançado (recorrências, parcelas de financiamento e gastos futuros) mais a <strong>média do dia a dia</strong> ({{brl .Fc.Base.Average}}/mês).{{else}}só o que está lançado (recorrências, parcelas de financiamento e gastos futuros).{{end}}
     A <strong>sobra</strong> de cada mês é o que ainda dá para gastar sem mexer no caixa.</p>
   <div class="flow-stats">
     <div><span>Hoje</span><strong>{{brl .Flow.Current}}</strong></div>
@@ -114,10 +121,6 @@
     {{with index .Flow.Months (add (len .Flow.Months) -1)}}<div><span>Em {{.Month.Label}}</span><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></div>{{end}}
     {{if not (isZeroTime .Flow.FirstNegative)}}<div class="alert"><span>Fica negativo em</span><strong>{{dmy .Flow.FirstNegative}}</strong></div>{{end}}
   </div>
-  {{if .Fc.Active}}
-  <p class="hint scen-lows">Menor saldo por cenário:
-    {{range $i, $sc := .Scenarios}}{{if $i}} · {{end}}{{$sc.Label}} {{with index $.Fc.Flows $sc}}<strong class="{{if neg .Low}}negc{{end}}">{{brl .Low}}</strong> ({{dmy .LowDate}}){{end}}{{end}}</p>
-  {{end}}
   <div class="flow-charts" data-flow-part="charts">
     <div class="chart tall" data-period-hide="past"><canvas id="chartFlow" aria-label="Saldo projetado"></canvas></div>
     <h3>Realizado e comprometido por mês</h3>
@@ -126,14 +129,15 @@
   <div class="table-scroll" data-flow-part="table">
     <table class="grid flow-table">
       <thead><tr><th>Mês</th><th class="num opt">Saldo inicial</th><th class="num">Entradas</th>
-        <th class="num">Cartão</th><th class="num">Fixos</th><th class="num">Outros</th>{{if .Fc.Active}}<th class="num">Previsão</th>{{end}}<th class="num opt">Total saídas</th>
+        {{if .Fc.Active}}<th class="num">Fixos e dívidas</th><th class="num">Dia a dia</th><th class="num">Acima da média</th>
+        {{else}}<th class="num">Cartão</th><th class="num">Fixos</th><th class="num">Outros</th>{{end}}<th class="num opt">Total saídas</th>
         <th class="num">Sobra</th><th class="num">Saldo final</th></tr></thead>
       <tbody>
       {{range .FlowRows}}
         <tr class="{{if .Past}}past{{end}} {{if .Current}}sel{{end}}" data-when="{{if .Past}}past{{else}}next{{end}}"><td>{{.Month.Label}} <small class="muted">{{if .Past}}realizado{{else if .Current}}atual{{else}}previsto{{end}}</small></td>
           <td class="num opt">{{brl .Opening}}</td><td class="num pos">{{brl .In}}</td>
-          <td class="num">{{brl .Card}}</td><td class="num">{{brl .Fixed}}</td><td class="num">{{brl .Other}}</td>
-          {{if $.Fc.Active}}<td class="num forecast">{{if .Forecast}}{{brl .Forecast}}{{else}}—{{end}}</td>{{end}}
+          {{if $.Fc.Active}}<td class="num">{{brl .Committed}}</td><td class="num{{if not .Past}} forecast{{end}}">{{brl .Daily}}</td><td class="num">{{if .Above}}{{brl .Above}}{{else}}—{{end}}</td>
+          {{else}}<td class="num">{{brl .Card}}</td><td class="num">{{brl .Fixed}}</td><td class="num">{{brl .Other}}</td>{{end}}
           <td class="num negc opt">{{brl .Out}}</td>
           <td class="num"><span class="pill {{if neg .Net}}warn{{else}}ok{{end}}">{{brl .Net}}</span></td>
           <td class="num"><strong class="{{if neg .Closing}}negc{{end}}">{{brl .Closing}}</strong></td></tr>
@@ -166,8 +170,8 @@
 
 {{define "flow-total"}}
 <tr data-when="{{.When}}"><td><strong>{{.Label}}</strong></td><td class="opt"></td><td class="num pos"><strong>{{brl .T.In}}</strong></td>
-  <td class="num"><strong>{{brl .T.Card}}</strong></td><td class="num"><strong>{{brl .T.Fixed}}</strong></td><td class="num"><strong>{{brl .T.Other}}</strong></td>
-  {{if .Fc}}<td class="num forecast"><strong>{{brl .T.Forecast}}</strong></td>{{end}}
+  {{if .Fc}}<td class="num"><strong>{{brl .T.Committed}}</strong></td><td class="num"><strong>{{brl .T.Daily}}</strong></td><td class="num"><strong>{{brl .T.Above}}</strong></td>
+  {{else}}<td class="num"><strong>{{brl .T.Card}}</strong></td><td class="num"><strong>{{brl .T.Fixed}}</strong></td><td class="num"><strong>{{brl .T.Other}}</strong></td>{{end}}
   <td class="num negc opt"><strong>{{brl .T.Out}}</strong></td>
   <td class="num"><strong class="{{if neg .T.Net}}negc{{end}}">{{brl .T.Net}}</strong></td><td></td></tr>
 {{end}}

@@ -8,37 +8,36 @@ import (
 	"controle-gastos/internal/app"
 )
 
-// forecastBrief is the spending estimate in use and its monthly amounts.
+// forecastBrief says whether the spending forecast is on and its average.
 type forecastBrief struct {
-	Scenario    string    `json:"scenario" jsonschema:"cenário em uso: otimista, base, pessimista ou vazio (desligada)"`
-	Available   bool      `json:"available" jsonschema:"há histórico suficiente (3+ meses com gastos) para estimar"`
-	Optimistic  *moneyOut `json:"optimistic,omitempty" jsonschema:"gasto variável mensal estimado, P25"`
-	Base        *moneyOut `json:"base,omitempty" jsonschema:"mediana"`
-	Pessimistic *moneyOut `json:"pessimistic,omitempty" jsonschema:"P75"`
+	Enabled   bool      `json:"enabled" jsonschema:"previsão de gastos ligada (a projeção de caixa inclui a média)"`
+	Available bool      `json:"available" jsonschema:"há histórico suficiente (3+ meses com gastos) para calcular a média"`
+	Average   *moneyOut `json:"monthly_average,omitempty" jsonschema:"média mensal do gasto do dia a dia nos últimos meses fechados"`
 }
 
 func briefOf(f app.ForecastView) forecastBrief {
-	b := forecastBrief{Scenario: string(f.Mode), Available: f.OK}
+	b := forecastBrief{Enabled: f.On, Available: f.OK}
 	if f.OK {
-		b.Optimistic, b.Base, b.Pessimistic = ptr(money(f.Base.Optimistic)), ptr(money(f.Base.Base)), ptr(money(f.Base.Pessimistic))
+		b.Average = ptr(money(f.Base.Average))
 	}
 	return b
 }
 
-type scenarioOut struct {
-	Scenario      string   `json:"scenario"`
-	Monthly       moneyOut `json:"monthly" jsonschema:"gasto variável mensal estimado neste cenário"`
-	Lowest        moneyOut `json:"lowest" jsonschema:"menor saldo projetado nos próximos 12 meses"`
-	LowestDate    string   `json:"lowest_date"`
-	FirstNegative string   `json:"first_negative_date,omitempty"`
-	End           moneyOut `json:"end" jsonschema:"saldo projetado no fim do horizonte"`
+type sampleOut struct {
+	Month  string   `json:"month"`
+	Amount moneyOut `json:"amount" jsonschema:"gasto do dia a dia nesse mês"`
 }
 
 type forecastOut struct {
 	forecastBrief
-	Months    []string      `json:"months" jsonschema:"meses (AAAA-MM) usados na estimativa"`
-	Samples   []moneyOut    `json:"samples" jsonschema:"gasto variável de cada mês usado, na mesma ordem"`
-	Scenarios []scenarioOut `json:"scenarios"`
+	Samples       []sampleOut `json:"months" jsonschema:"meses fechados usados na média e o gasto do dia a dia de cada um"`
+	Min           *moneyOut   `json:"lowest_month,omitempty"`
+	Max           *moneyOut   `json:"highest_month,omitempty"`
+	End           *moneyOut   `json:"cash_at_end,omitempty" jsonschema:"caixa projetado no fim do horizonte mantendo a média"`
+	EndMonth      string      `json:"end_month,omitempty"`
+	Lowest        *moneyOut   `json:"lowest_cash,omitempty" jsonschema:"menor saldo projetado mantendo a média"`
+	LowestDate    string      `json:"lowest_cash_date,omitempty"`
+	FirstNegative string      `json:"first_negative_date,omitempty"`
 }
 
 func (t *tools) getForecast(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, forecastOut, error) {
@@ -46,40 +45,36 @@ func (t *tools) getForecast(ctx context.Context, _ *mcp.CallToolRequest, _ struc
 	if err != nil {
 		return nil, forecastOut{}, toolErr(err)
 	}
-	out := forecastOut{forecastBrief: briefOf(f), Months: []string{}, Samples: []moneyOut{}, Scenarios: []scenarioOut{}}
+	out := forecastOut{forecastBrief: briefOf(f), Samples: []sampleOut{}}
 	for i, m := range f.Base.Months {
-		out.Months = append(out.Months, m.String())
-		out.Samples = append(out.Samples, money(f.Base.Samples[i]))
+		out.Samples = append(out.Samples, sampleOut{Month: m.String(), Amount: money(f.Base.Samples[i])})
 	}
-	for _, sc := range app.Scenarios {
-		cf, ok := f.Flows[sc]
-		if !ok {
-			continue
-		}
-		so := scenarioOut{Scenario: string(sc), Monthly: money(f.Amount(sc)), Lowest: money(cf.Low),
-			LowestDate: iso(cf.LowDate), FirstNegative: iso(cf.FirstNegative)}
-		if n := len(cf.Months); n > 0 {
-			so.End = money(cf.Months[n-1].Closing)
-		}
-		out.Scenarios = append(out.Scenarios, so)
+	if !f.OK {
+		return nil, out, nil
+	}
+	cf := f.Flow
+	out.Min, out.Max = ptr(money(f.Base.Min)), ptr(money(f.Base.Max))
+	out.Lowest, out.LowestDate, out.FirstNegative = ptr(money(cf.Low)), iso(cf.LowDate), iso(cf.FirstNegative)
+	if n := len(cf.Months); n > 0 {
+		out.End, out.EndMonth = ptr(money(cf.Months[n-1].Closing)), cf.Months[n-1].Month.String()
 	}
 	return nil, out, nil
 }
 
 type forecastIn struct {
-	Mode string `json:"mode" jsonschema:"otimista, base, pessimista ou desligado"`
+	Mode string `json:"mode" jsonschema:"ligado ou desligado"`
 }
 
 func (t *tools) setForecast(ctx context.Context, _ *mcp.CallToolRequest, in forecastIn) (*mcp.CallToolResult, msgOut, error) {
-	sc, err := app.ParseScenario(in.Mode)
+	on, err := app.ParseForecast(in.Mode)
 	if err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
-	if err := t.svcFor(ctx).SetForecast(sc); err != nil {
+	if err := t.svcFor(ctx).SetForecast(on); err != nil {
 		return nil, msgOut{}, toolErr(err)
 	}
-	if sc == app.ScenarioOff {
+	if !on {
 		return nil, msgOut{Message: "previsão de gastos desligada"}, nil
 	}
-	return nil, msgOut{Message: "previsão de gastos ligada: cenário " + sc.Label()}, nil
+	return nil, msgOut{Message: "previsão de gastos ligada: a projeção de caixa inclui a média mensal do gasto do dia a dia"}, nil
 }

@@ -1,7 +1,6 @@
 package finance
 
 import (
-	"sort"
 	"time"
 )
 
@@ -33,57 +32,52 @@ func VariableByMonth(entries []Entry, from, to Month) map[Month]int64 {
 	return out
 }
 
-// ForecastBase is the monthly variable spending estimated from history:
-// the 25th, 50th and 75th percentiles of the sampled months.
+// ForecastBase is the monthly day-to-day spending estimated from history:
+// the average of the sampled months.
 type ForecastBase struct {
-	Optimistic  int64
-	Base        int64
-	Pessimistic int64
-	Months      []Month // months sampled (with any variable spending)
-	Samples     []int64 // their variable spending, same order as Months
+	Average int64   // média mensal do gasto do dia a dia
+	Months  []Month // months sampled (with any variable spending)
+	Samples []int64 // their variable spending, same order as Months
+	Min     int64   // lowest sampled month
+	Max     int64   // highest sampled month
 }
 
 // Baselines samples the window closed months before today's month and
-// returns the percentiles. ok is false with fewer than MinForecastMonths
+// returns their average. ok is false with fewer than MinForecastMonths
 // months that had any variable spending.
 func Baselines(entries []Entry, today time.Time, window int) (ForecastBase, bool) {
 	cur := MonthOf(today)
 	from := cur.Add(-window)
 	by := VariableByMonth(entries, from, cur.Add(-1))
 	var fb ForecastBase
+	var total int64
 	for m := from; m < cur; m++ {
-		if v := by[m]; v > 0 {
-			fb.Months = append(fb.Months, m)
-			fb.Samples = append(fb.Samples, v)
+		v := by[m]
+		if v <= 0 {
+			continue
 		}
+		fb.Months = append(fb.Months, m)
+		fb.Samples = append(fb.Samples, v)
+		total += v
+		if fb.Min == 0 || v < fb.Min {
+			fb.Min = v
+		}
+		fb.Max = max(fb.Max, v)
 	}
 	if len(fb.Samples) < MinForecastMonths {
 		return fb, false
 	}
-	sorted := append([]int64(nil), fb.Samples...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	fb.Optimistic = percentile(sorted, .25)
-	fb.Base = percentile(sorted, .5)
-	fb.Pessimistic = percentile(sorted, .75)
+	n := int64(len(fb.Samples))
+	fb.Average = (total + n/2) / n
 	return fb, true
-}
-
-// percentile interpolates linearly between the closest ranks of sorted.
-func percentile(sorted []int64, p float64) int64 {
-	pos := p * float64(len(sorted)-1)
-	lo := int(pos)
-	if lo+1 >= len(sorted) {
-		return sorted[lo]
-	}
-	frac := pos - float64(lo)
-	return sorted[lo] + int64(frac*float64(sorted[lo+1]-sorted[lo])+.5)
 }
 
 // ForecastEntries tops up each month from today's through end's to amount
 // of variable spending: what is already launched in the month (fatura
-// purchases, future-dated expenses) counts, so nothing is counted twice.
-// Each top-up is one projected expense on the 15th, or the day after today
-// in the current month; a month already over gets none.
+// purchases, future-dated expenses) counts within it, so nothing is
+// counted twice and each month spends at least amount. Each top-up is one
+// projected expense on the 15th, or the day after today in the current
+// month; a month already over gets none.
 func ForecastEntries(entries []Entry, amount int64, today, end time.Time) []Entry {
 	if amount <= 0 {
 		return nil

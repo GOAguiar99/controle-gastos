@@ -482,8 +482,8 @@ func TestCardsAndStatementImport(t *testing.T) {
 func TestForecastWeb(t *testing.T) {
 	ts, client, env := newTestServer(t)
 	env.mustLogin(t, client, anaUser)
-	if dash := string(mustGet(t, client, ts.URL+"/")); !strings.Contains(dash, "pelo menos 3 meses") || !strings.Contains(dash, `value="base" disabled`) {
-		t.Fatal("without history the forecast button should be disabled")
+	if dash := string(mustGet(t, client, ts.URL+"/")); !strings.Contains(dash, "pelo menos 3 meses") || strings.Contains(dash, "Incluir a previsão") {
+		t.Fatal("without history there is no forecast")
 	}
 	for i, v := range []string{"3.000,00", "1.000,00", "6.000,00", "2.000,00", "5.000,00", "4.000,00"} {
 		res, err := client.PostForm(ts.URL+"/lancamentos", url.Values{"kind": {"expense"}, "date": {fmt.Sprintf("2026-%02d-10", 5+i)},
@@ -493,25 +493,30 @@ func TestForecastWeb(t *testing.T) {
 		}
 	}
 	dash := string(mustGet(t, client, ts.URL+"/"))
-	if !strings.Contains(dash, "Ativar previsão de gastos") || !strings.Contains(dash, "base <strong>"+string(brl(350000))+"</strong>") || strings.Contains(dash, "<th class=\"num\">Previsão</th>") {
-		t.Fatal("forecast off: button and estimate, no column")
+	for _, want := range []string{"Pelos seus gastos de mai/2026 a out/2026", "R$ 3.500,00</span></span> por mês", "Mantendo isso, seu caixa fica em",
+		"Incluir a previsão no fluxo", "Como calculamos", "Média (6 meses)"} {
+		if !strings.Contains(dash, want) {
+			t.Errorf("forecast off: missing %q", want)
+		}
+	}
+	if strings.Contains(dash, "<th class=\"num\">Dia a dia</th>") {
+		t.Error("off: table should keep Cartão / Fixos / Outros")
 	}
 	if res, _ := client.PostForm(ts.URL+"/previsao", url.Values{"mode": {"talvez"}}); res.StatusCode != http.StatusBadRequest {
-		t.Fatalf("bad scenario: %d", res.StatusCode)
+		t.Fatalf("bad value: %d", res.StatusCode)
 	}
-	res, _ := client.PostForm(ts.URL+"/previsao", url.Values{"mode": {"pessimista"}, "mes": {"2026-11"}})
+	res, _ := client.PostForm(ts.URL+"/previsao", url.Values{"mode": {"ligado"}, "mes": {"2026-11"}})
 	if res.StatusCode != http.StatusSeeOther || !strings.HasPrefix(res.Header.Get("Location"), "/?mes=2026-11&msg=") {
 		t.Fatalf("turn on: %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
 	dash = string(mustGet(t, client, ts.URL+"/"))
-	for _, want := range []string{"<th class=\"num\">Previsão</th>", `value="pessimista" class="on"`, "Desativar previsão",
-		"Menor saldo por cenário", `"flowScen":`, `"scenario":"pessimista"`} {
+	for _, want := range []string{"<th class=\"num\">Dia a dia</th>", "<th class=\"num\">Acima da média</th>", "Tirar a previsão do fluxo", `"label":"Dia a dia"`} {
 		if !strings.Contains(dash, want) {
 			t.Errorf("forecast on: missing %s", want)
 		}
 	}
 	client.PostForm(ts.URL+"/previsao", url.Values{"mode": {"desligado"}})
-	if dash = string(mustGet(t, client, ts.URL+"/")); strings.Contains(dash, "Desativar previsão") {
+	if dash = string(mustGet(t, client, ts.URL+"/")); strings.Contains(dash, "Tirar a previsão") {
 		t.Error("still on")
 	}
 }

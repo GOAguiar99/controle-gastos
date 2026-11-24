@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"strconv"
 	"time"
@@ -36,10 +37,10 @@ func (t *tools) register(s *mcp.Server) {
 		Description: "Lista lançamentos de um período (padrão: mês atual), com filtros. Com include_projected=true inclui ocorrências previstas de recorrências (projected=true, sem id) que podem ser confirmadas ou puladas."},
 		t.listTransactions)
 	addTool(s, &mcp.Tool{Name: "get_cash_projection", Annotations: readOnly,
-		Description: "Projeção do caixa: saldo estimado hoje, saldo ao fim de cada mês, menor saldo e primeira data negativa. Com previsão de gastos (scenario, padrão o salvo), soma a estimativa do gasto do dia a dia em cada mês."},
+		Description: "Projeção do caixa: saldo estimado hoje, saldo ao fim de cada mês, menor saldo e primeira data negativa. Com a previsão de gastos (forecast, padrão a preferência salva), cada mês conta a média do gasto do dia a dia."},
 		t.cashProjection)
 	addTool(s, &mcp.Tool{Name: "get_forecast", Annotations: readOnly,
-		Description: "Previsão de gastos: gasto variável mensal estimado pelos últimos 6 meses fechados (cenários otimista = P25, base = mediana, pessimista = P75), os meses usados, o cenário em uso e, para cada cenário, o menor saldo projetado e a primeira data negativa."},
+		Description: "Previsão de gastos: média mensal do gasto do dia a dia (tudo que não é conta fixa/recorrência nem pagamento de dívida) nos últimos 6 meses fechados, os meses usados com o valor de cada um, se está ligada e onde o caixa chega mantendo essa média (menor saldo, primeira data negativa e saldo no fim)."},
 		t.getForecast)
 	addTool(s, &mcp.Tool{Name: "category_report", Annotations: readOnly,
 		Description: "Totais por categoria e por ano (realizado/previsto) desde o primeiro lançamento até o próximo ano, mais a composição do mês, do ano e do histórico até hoje."},
@@ -98,7 +99,7 @@ func (t *tools) register(s *mcp.Server) {
 	addTool(s, &mcp.Tool{Name: "set_cards_module", Annotations: idempotent,
 		Description: "Liga ou desliga o módulo de cartões (só quando o usuário pedir). Ligado: compras no crédito caem na fatura do cartão e saem do caixa no vencimento. Desligado: saem na data da compra; o que já está em faturas fica como está, e as tools de cartão respondem que o módulo está desativado."}, t.setCardsModule)
 	addTool(s, &mcp.Tool{Name: "set_forecast", Annotations: idempotent,
-		Description: "Liga a previsão de gastos com um cenário (otimista, base ou pessimista) ou a desliga (desligado), só quando o usuário pedir. Ligada, a projeção de caixa soma em cada mês o gasto do dia a dia estimado, descontando o que já está lançado; não cria lançamentos nem muda receitas e gastos do mês."}, t.setForecast)
+		Description: "Liga (ligado) ou desliga (desligado) a previsão de gastos, só quando o usuário pedir. Ligada, a projeção de caixa conta em cada mês a média do gasto do dia a dia: o que já está lançado no mês entra dentro dela e só a diferença é estimada. Não cria lançamentos nem muda receitas e gastos do mês."}, t.setForecast)
 	addTool(s, &mcp.Tool{Name: "save_card", Annotations: idempotent,
 		Description: "Cria (sem id) ou altera (com id) um cartão de crédito: nome, dia de fechamento e de vencimento. Mudar o vencimento move a data de pagamento das compras já lançadas."}, t.saveCard)
 	addTool(s, &mcp.Tool{Name: "set_statement_total", Annotations: idempotent,
@@ -251,6 +252,7 @@ type flowMonthOut struct {
 	Other moneyOut `json:"other"`
 	// Forecast is the estimated day-to-day spending in expense (previsão de gastos ligada)
 	Forecast *moneyOut `json:"forecast,omitempty" jsonschema:"previsão de gastos do dia a dia incluída em expense (estimativa, não é lançamento)"`
+	DayToDay *moneyOut `json:"day_to_day,omitempty" jsonschema:"gasto do dia a dia do mês: lançado + previsão (com a previsão ligada, nos meses futuros é a média, ou mais se já houver lançado acima dela)"`
 	Opening  moneyOut  `json:"opening"`
 	Closing  moneyOut  `json:"closing"`
 	Past     bool      `json:"past,omitempty"`
@@ -277,7 +279,7 @@ type overviewOut struct {
 	LowestCashDate   string         `json:"lowest_cash_date"`
 	FirstNegative    string         `json:"first_negative_date,omitempty"`
 	Flow             []flowMonthOut `json:"monthly_flow"`
-	Forecast         forecastBrief  `json:"forecast" jsonschema:"previsão de gastos: cenário em uso e gasto variável mensal estimado"`
+	Forecast         forecastBrief  `json:"forecast" jsonschema:"previsão de gastos: se está ligada e a média mensal do gasto do dia a dia"`
 }
 
 func flowOut(fm finance.FlowMonth) flowMonthOut {
@@ -286,6 +288,9 @@ func flowOut(fm finance.FlowMonth) flowMonthOut {
 		Past: fm.Past, Current: fm.Current}
 	if fm.Forecast != 0 {
 		out.Forecast = ptr(money(fm.Forecast))
+	}
+	if v := fm.DayToDay(); v != 0 {
+		out.DayToDay = ptr(money(v))
 	}
 	return out
 }
@@ -365,7 +370,8 @@ func (t *tools) listTransactions(ctx context.Context, _ *mcp.CallToolRequest, in
 
 type projectionIn struct {
 	Months   int    `json:"months,omitempty" jsonschema:"meses à frente (1–60); padrão 12"`
-	Scenario string `json:"scenario,omitempty" jsonschema:"previsão de gastos: otimista, base, pessimista ou desligado; padrão: o cenário salvo (get_forecast)"`
+	Forecast string `json:"forecast,omitempty" jsonschema:"previsão de gastos: ligado ou desligado; padrão: a preferência salva (get_forecast)"`
+	Scenario string `json:"scenario,omitempty" jsonschema:"obsoleto: use forecast"`
 }
 
 type projectionOut struct {
@@ -382,7 +388,7 @@ func (t *tools) cashProjection(ctx context.Context, _ *mcp.CallToolRequest, in p
 	if in.Months == 0 {
 		in.Months = 12
 	}
-	cf, err := t.svcFor(ctx).CashProjection(in.Months, in.Scenario)
+	cf, err := t.svcFor(ctx).CashProjection(in.Months, cmp.Or(in.Forecast, in.Scenario))
 	if err != nil {
 		return nil, out, toolErr(err)
 	}

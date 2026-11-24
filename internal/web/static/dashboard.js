@@ -34,11 +34,8 @@
     if (cc) {
       committed = new Chart(cc, {
         data: { labels: [], datasets: [
-          { type: 'line', label: 'Entradas', data: [], borderColor: C.income, backgroundColor: C.income, pointRadius: 3, tension: .2, order: 0, stack: 'in' },
-          { type: 'bar', label: 'Cartão', data: [], stack: 'out', order: 1 },
-          { type: 'bar', label: 'Fixos', data: [], stack: 'out', order: 1 },
-          { type: 'bar', label: 'Outros', data: [], stack: 'out', order: 1 }
-        ].concat(d.comForecast ? [{ type: 'bar', label: 'Previsão', data: [], stack: 'out', order: 1 }] : []) },
+          { type: 'line', label: 'Entradas', data: [], borderColor: C.income, backgroundColor: C.income, pointRadius: 3, tension: .2, order: 0, stack: 'in' }
+        ].concat(d.comBars.map(function (b) { return { type: 'bar', label: b.label, data: [], stack: 'out', order: 1 }; })) },
         options: {
           interaction: { mode: 'index', intersect: false },
           scales: { x: Object.assign({ stacked: true }, xAxis), y: Object.assign({ stacked: true }, yAxis) },
@@ -52,44 +49,28 @@
       });
     }
 
-    // Future cash flow: stepped balance line, red below zero. With the
-    // spending forecast on, the other two scenarios are dashed around it.
+    // Future cash flow: stepped balance line, red below zero.
     var cf = document.getElementById('chartFlow');
     if (cf) {
-      var main = {
-        label: d.scenario ? 'Saldo projetado (' + label(d.scenario) + ')' : 'Saldo projetado',
-        data: d.flowY, stepped: 'before', pointRadius: 0, pointHitRadius: 8, borderWidth: 2, order: 0,
-        borderColor: C.balance, fill: { target: { value: 0 }, above: 'rgba(21,101,192,.10)', below: 'rgba(198,40,40,.16)' },
-        segment: { borderColor: function (ctx) { return ctx.p1.parsed.y < 0 ? C.expense : C.balance; } }
-      };
-      var sets = [main];
-      if (d.flowScen) {
-        ['otimista', 'pessimista'].forEach(function (sc) {
-          if (sc === d.scenario || !d.flowScen[sc]) return;
-          sets.push({ label: label(sc), data: d.flowScen[sc], stepped: 'before', pointRadius: 0, pointHitRadius: 8,
-            borderWidth: 1.5, borderDash: [5, 4], borderColor: sc === 'otimista' ? C.income : C.expense, fill: false, order: 1 });
-        });
-        if (d.scenario !== 'base' && d.flowScen.base) {
-          sets.push({ label: label('base'), data: d.flowScen.base, stepped: 'before', pointRadius: 0, pointHitRadius: 8,
-            borderWidth: 1.5, borderDash: [2, 3], borderColor: C.muted, fill: false, order: 1 });
-        }
-      }
       new Chart(cf, {
         type: 'line',
         data: {
           labels: d.flowX.map(function (s) { var p = s.split('-'); return p[2] + '/' + p[1] + '/' + p[0].slice(2); }),
-          datasets: sets
+          datasets: [{
+            label: 'Saldo projetado', data: d.flowY, stepped: 'before', pointRadius: 0, pointHitRadius: 8, borderWidth: 2,
+            borderColor: C.balance, fill: { target: { value: 0 }, above: 'rgba(21,101,192,.10)', below: 'rgba(198,40,40,.16)' },
+            segment: { borderColor: function (ctx) { return ctx.p1.parsed.y < 0 ? C.expense : C.balance; } }
+          }]
         },
         options: {
           interaction: { mode: 'index', intersect: false },
-          plugins: { legend: { display: sets.length > 1 } },
+          plugins: { legend: { display: false } },
           scales: { x: Object.assign({}, xAxis, { ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0 } }), y: yAxis }
         }
       });
     }
   }
 
-  function label(sc) { return { otimista: 'Otimista', base: 'Base', pessimista: 'Pessimista' }[sc] || sc; }
 
   // ---- filters ----
   function keep(period) {
@@ -111,16 +92,10 @@
     function colors(c) { return past.map(function (p) { return p ? c + '80' : c; }); }
     committed.data.labels = pick(d.comX, m);
     committed.data.datasets[0].data = pick(d.comIn, m);
-    committed.data.datasets[1].data = pick(d.comCard, m);
-    committed.data.datasets[2].data = pick(d.comFixed, m);
-    committed.data.datasets[3].data = pick(d.comOther, m);
-    committed.data.datasets[1].backgroundColor = colors(C.card);
-    committed.data.datasets[2].backgroundColor = colors(C.fixed);
-    committed.data.datasets[3].backgroundColor = colors(C.other);
-    if (d.comForecast) {
-      committed.data.datasets[4].data = pick(d.comForecast, m);
-      committed.data.datasets[4].backgroundColor = colors(C.forecast);
-    }
+    d.comBars.forEach(function (b, k) {
+      committed.data.datasets[k + 1].data = pick(b.data, m);
+      committed.data.datasets[k + 1].backgroundColor = colors(C[b.color] || C.other);
+    });
     committed.update();
   }
 
