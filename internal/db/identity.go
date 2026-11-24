@@ -22,6 +22,9 @@ type User struct {
 	Role       string // RoleUser or RoleAdmin
 	CreatedAt  time.Time
 	LastSeenAt time.Time // last use of the app (web or MCP), recorded every few minutes; zero = never
+	// TrustVersion is the version of "Seus dados e segurança" the user
+	// confirmed having read (0 = never); see app.TrustVersion.
+	TrustVersion int
 }
 
 // Roles. Admins manage accounts; they never get access to other ledgers.
@@ -40,12 +43,12 @@ type GoogleUser struct {
 	EmailVerified             bool
 }
 
-const userCols = `u.id, u.google_sub, u.email, u.name, u.picture_url, u.suspended_at IS NOT NULL, u.approved_at IS NOT NULL, u.role, u.created_at, u.last_seen_at`
+const userCols = `u.id, u.google_sub, u.email, u.name, u.picture_url, u.suspended_at IS NOT NULL, u.approved_at IS NOT NULL, u.role, u.created_at, u.last_seen_at, u.trust_version`
 
 func scanUser(r pgx.Row) (User, error) {
 	var u User
 	var seen *time.Time
-	err := r.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Suspended, &u.Approved, &u.Role, &u.CreatedAt, &seen)
+	err := r.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Suspended, &u.Approved, &u.Role, &u.CreatedAt, &seen, &u.TrustVersion)
 	if seen != nil {
 		u.LastSeenAt = *seen
 	}
@@ -274,6 +277,29 @@ func (d *DB) SetSuspended(ctx context.Context, userID int64, suspended bool) err
 	})
 }
 
+// SetTrustVersion records that the user read version v of the security page.
+// It never lowers the recorded version.
+func (d *DB) SetTrustVersion(ctx context.Context, userID int64, v int, at time.Time) error {
+	_, err := d.pool.Exec(ctx, `UPDATE users SET trust_version = $2, trust_ack_at = $3
+		WHERE id = $1 AND trust_version < $2`, userID, v, at)
+	return err
+}
+
+// InactiveUsers lists active accounts (approved, not suspended, not admin)
+// whose last use of the app, sign-in or creation, and the start of the
+// inactivity policy, are all before cutoff. Pending and suspended accounts
+// are left to the operator; admins are never removed automatically.
+func (d *DB) InactiveUsers(ctx context.Context, cutoff, policyStart time.Time) ([]int64, error) {
+	rows, err := d.pool.Query(ctx, `SELECT id FROM users
+		WHERE approved_at IS NOT NULL AND suspended_at IS NULL AND role <> 'admin'
+		  AND greatest(created_at, last_login_at, last_seen_at, $2::timestamptz) < $1
+		ORDER BY id`, cutoff, policyStart)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[int64])
+}
+
 // DeleteUser erases a user: their ledger and all its financial data when they
 // are its only member (foreign-key cascades), then the user with their
 // sessions, memberships and MCP links. It reports the deleted ledger (0 when
@@ -370,7 +396,7 @@ func (d *DB) PasswordAccountFor(ctx context.Context, email string) (PasswordAcco
 	row := d.pool.QueryRow(ctx, `SELECT `+userCols+`, coalesce(u.password_hash, ''), u.locked_until FROM users u WHERE u.google_sub = $1`,
 		LocalSubPrefix+strings.ToLower(strings.TrimSpace(email)))
 	err := row.Scan(&a.User.ID, &a.User.GoogleSub, &a.User.Email, &a.User.Name, &a.User.PictureURL, &a.User.Suspended,
-		&a.User.Approved, &a.User.Role, &a.User.CreatedAt, &seen, &a.Hash, &locked)
+		&a.User.Approved, &a.User.Role, &a.User.CreatedAt, &seen, &a.User.TrustVersion, &a.Hash, &locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return a, false, nil
 	}

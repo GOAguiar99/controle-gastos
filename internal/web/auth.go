@@ -324,7 +324,16 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}
 		a, ok := s.currentActor(r)
 		if !ok {
+			// the security page is also for people deciding whether to sign up
+			if path == trustPath && r.Method == http.MethodGet {
+				next.ServeHTTP(w, r)
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		if r.Method == http.MethodGet && app.NeedsTrust(a) && !trustExempt(path) {
+			http.Redirect(w, r, trustPath, http.StatusSeeOther)
 			return
 		}
 		// financial pages must not be kept in shared or back/forward caches
@@ -356,6 +365,15 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		guarded.ServeHTTP(w, r)
 	})
+}
+
+// trustPath is "Seus dados e segurança". Signed-in users who haven't read its
+// current version (app.NeedsTrust) are sent there from any page but the ones
+// in trustExempt, so they can still export or delete their data without it.
+const trustPath = "/seguranca"
+
+func trustExempt(path string) bool {
+	return path == trustPath || strings.HasPrefix(path, "/perfil") || strings.HasPrefix(path, "/export/")
 }
 
 // ValidateBaseURL checks APP_BASE_URL: https, or plain http only on this

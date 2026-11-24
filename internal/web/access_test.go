@@ -142,6 +142,13 @@ func TestPasswordModeHTTP(t *testing.T) {
 	if res, _ := c.Get(ts.URL + "/perfil"); res.StatusCode != http.StatusOK {
 		t.Errorf("app after password login: %d", res.StatusCode)
 	}
+	if res, _ := c.Get(ts.URL + "/"); res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/seguranca" {
+		t.Errorf("password sign-in skips the security page: %d", res.StatusCode)
+	}
+	acceptTrust(t, ts.URL, c)
+	if res, _ := c.Get(ts.URL + "/"); res.StatusCode != http.StatusOK {
+		t.Errorf("dashboard after password login: %d", res.StatusCode)
+	}
 
 	// lockout over HTTP
 	other := newClient()

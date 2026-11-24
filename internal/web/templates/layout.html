@@ -44,6 +44,7 @@
         <a role="menuitem" href="/perfil/preferencias">Preferências <small>limites e categorias</small></a>
         <a role="menuitem" href="/perfil/agentes">Agentes de IA <small>conectar assistente</small></a>
         <a role="menuitem" href="/perfil/compartilhar">Compartilhar carteira</a>
+        <a role="menuitem" href="/seguranca">Seus dados e segurança</a>
         {{if $.IsAdmin}}<a role="menuitem" class="menu-row" href="/admin">Admin{{with $.PendingUsers}} <span class="badge">{{.}}</span>{{end}}</a>{{end}}
         <hr>
         <form method="post" action="/logout"><button role="menuitem" class="menu-logout">Sair</button></form>
@@ -58,7 +59,7 @@
   {{with .Display}}{{if .Unavailable}}<div class="flash" role="status">Sem cotação da moeda de exibição agora: valores em reais.</div>{{else if not .IsBRL}}<p class="fx-note muted">Valores em {{.Code}}, convertidos pela PTAX de {{dm .AsOf}} ({{rateText .Rate}}). <a href="/perfil/preferencias#moeda">Mudar</a></p>{{end}}{{end}}
   {{template "content" .}}
 </main>
-<footer class="wrap legal-links"><a href="/como-usar">Como usar</a> · <a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a> · <details class="theme-menu up" data-menu><summary class="theme-toggle" data-theme-toggle>Tema</summary><div class="menu-panel theme-panel" role="menu" data-theme-menu></div></details></footer>
+<footer class="wrap legal-links"><a href="/como-usar">Como usar</a> · <a href="/seguranca">Segurança</a> · <a href="/privacidade">Privacidade</a> · <a href="/termos">Termos de uso</a> · <details class="theme-menu up" data-menu><summary class="theme-toggle" data-theme-toggle>Tema</summary><div class="menu-panel theme-panel" role="menu" data-theme-menu></div></details></footer>
 <script src="{{asset "app.js"}}" defer></script>
 {{block "scripts" .}}{{end}}
 </body>

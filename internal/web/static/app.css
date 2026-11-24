@@ -990,3 +990,13 @@ details.new-entry:not([open]) > summary h2::before { content: "+ "; }
 @supports not (-webkit-text-security: disc) {
   .hide-money input[data-money] { color: transparent; text-shadow: 0 0 8px var(--text); }
 }
+
+/* "Seus dados e segurança" (/seguranca), on top of the guide styles */
+.trust-summary { list-style: none; padding: 0; margin: 4px 0 14px; display: grid; gap: 8px; grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 640px) { .trust-summary { grid-template-columns: 1fr; } }
+.trust-summary li { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; line-height: 1.45; }
+.trust-summary li::before { content: "✓"; color: var(--income); font-weight: 700; margin-right: 6px; }
+.trust-inactive { border-left: 4px solid var(--orange); }
+.trust-ack { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; border-left: 4px solid var(--accent); }
+.trust-ack p { margin: 0; flex: 1 1 320px; }
+.trust-meta { text-align: center; font-size: .85rem; }

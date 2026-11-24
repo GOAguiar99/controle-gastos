@@ -1,0 +1,102 @@
+{{define "content"}}
+<article class="guide trust">
+<header class="guide-hero">
+  <h1>Seus dados e segurança</h1>
+  <p class="lead">Como o Controle de Gastos guarda e protege o que você informa, quem pode ver e como levar ou apagar tudo.
+    {{if .NeedsTrust}}Leia antes de começar: leva uns dois minutos.{{end}}</p>
+  <ul class="trust-summary">
+    <li><b>Conexão sempre criptografada</b> e cópias de segurança criptografadas antes de sair do servidor.</li>
+    <li><b>Cada carteira isolada</b> no próprio banco de dados: ninguém de outra carteira alcança os seus números.</li>
+    <li><b>Seus dados são seus</b>: baixe tudo ou exclua a conta quando quiser.</li>
+    <li><b>Conta sem uso por {{.InactivityMonths}} meses é excluída</b>, com os dados.</li>
+  </ul>
+  {{if not .User}}<a class="btn primary" href="/login">Entrar</a>{{end}}
+</header>
+
+<section class="card guide-sec">
+  <h2>Criptografia</h2>
+  <ul>
+    <li><b>Na conexão:</b> o site só funciona por HTTPS (TLS), e o navegador é instruído a nunca usar uma conexão sem criptografia (HSTS). O cookie de sessão só trafega por HTTPS e não é acessível a scripts.</li>
+    <li><b>No servidor:</b> o disco é criptografado pelo provedor de nuvem.</li>
+    <li><b>Nas cópias de segurança:</b> são criptografadas (AES-256) no servidor, antes de saírem dele.</li>
+    <li><b>Senhas e chaves:</b> não recebemos sua senha do Google. Sessões e links do assistente são guardados só como resumo criptográfico (hash SHA-256): nem quem tem acesso ao banco consegue usá-los. No login por e-mail e senha (servidores próprios), a senha é guardada só como hash argon2id.</li>
+  </ul>
+  <p class="hint"><b>Ocultar valores:</b> o botão com o olho, no topo, esconde os valores em R$ na tela, útil para mostrar o app ou num lugar público. É só visual, no seu navegador: os dados continuam os mesmos no servidor.</p>
+  <p class="hint"><b>O que não fazemos:</b> isto não é criptografia de ponta a ponta. O servidor precisa ler os seus números para calcular resumos, faturas e projeções, então eles ficam legíveis para o próprio servidor (veja “Quem acessa”).</p>
+</section>
+
+<section class="card guide-sec">
+  <h2>Isolamento entre carteiras</h2>
+  <p>Todos os dados financeiros pertencem a uma carteira. O próprio banco de dados (PostgreSQL, com <i>Row-Level Security</i>) filtra cada consulta pela carteira de quem está conectado,
+    e o servidor descobre qual é a sua carteira só pela sua sessão ou pelo seu link, nunca por algo enviado pelo navegador.
+    Mesmo que uma tela tivesse um erro, a consulta não alcançaria a carteira de outra pessoa. A cada mudança no código, testes automáticos tentam alcançar dados de outra carteira por todas as rotas que recebem um identificador.</p>
+</section>
+
+<section class="card guide-sec">
+  <h2>Quem acessa</h2>
+  <ul>
+    <li><b>Você e quem você convidar</b> para a sua carteira (em Perfil → Compartilhar). Todos na carteira veem e alteram os mesmos dados e veem o nome e o e-mail uns dos outros.</li>
+    <li><b>O assistente de IA que você conectar</b>, só se você criar um link para ele (veja abaixo).</li>
+    <li><b>A administração do serviço</b> aprova, suspende e reativa contas numa página que <b>não mostra dados financeiros</b>.</li>
+    <li><b>Quem opera o servidor</b> tem acesso técnico ao banco de dados, como em qualquer serviço sem criptografia de ponta a ponta. Não há tela para ver as suas finanças; se um suporte exigir olhar dados, pedimos a você a exportação, e qualquer consulta direta, só se inevitável, fica registrada com motivo e data.</li>
+  </ul>
+  <p>Não vendemos dados, não há publicidade e não usamos cookies de análise. O monitoramento recebe só métricas técnicas e eventos de segurança sem e-mail, IP ou dados financeiros. Os detalhes de cada empresa envolvida (login, nuvem, monitoramento) estão na <a href="/privacidade">Política de Privacidade</a>.</p>
+</section>
+
+<section class="card guide-sec">
+  <h2>Cópias de segurança</h2>
+  <p>Uma cópia do banco é feita todo dia, criptografada e guardada num serviço de armazenamento separado do servidor, no Brasil.
+    As cópias ficam por cerca de 35 dias e depois são apagadas. Todo mês uma cópia é restaurada automaticamente num banco temporário para conferir que ela funciona, inclusive as regras de isolamento entre carteiras.</p>
+</section>
+
+<section class="card guide-sec">
+  <h2>Registros de segurança</h2>
+  <p>Entradas, saídas, falhas de login, exportações, exclusões e mudanças de acesso ficam registradas por até 6 meses para investigar abusos.
+    Esses registros guardam identificadores numéricos e o tipo do evento, nunca senhas, links, e-mails ou descrições financeiras.</p>
+</section>
+
+<section class="card guide-sec">
+  <h2>Links do assistente de IA (MCP)</h2>
+  <ul>
+    <li>Cada link é uma chave secreta longa e aleatória que dá acesso completo à sua carteira: <b>trate como senha</b>.</li>
+    <li>Você cria, vê e revoga os links em <a href="/perfil/agentes">Perfil → Agentes de IA</a>. Revogado, o link para de funcionar na hora.</li>
+    <li>Pelo link não dá para exportar todos os dados, excluir a conta nem mexer no compartilhamento: isso só na web.</li>
+    <li>O que o assistente lança fica marcado como feito por ele, em seu nome. O que ele faz com os dados segue a política do provedor que você escolheu.</li>
+  </ul>
+</section>
+
+<section class="card guide-sec">
+  <h2>Levar ou apagar seus dados</h2>
+  <ul>
+    <li><b>Exportar:</b> em <a href="/perfil">Perfil → Conta</a>, baixe todos os seus dados em JSON ou os lançamentos em CSV.</li>
+    <li><b>Excluir a conta:</b> no mesmo lugar. A conta, as sessões, os links e a carteira com todos os lançamentos são apagados na hora; das cópias de segurança, em até 35 dias.
+      Se a carteira é compartilhada, ela continua com as outras pessoas.</li>
+  </ul>
+</section>
+
+<section class="card guide-sec trust-inactive">
+  <h2>Conta sem uso</h2>
+  <p>Contas sem nenhum acesso por <b>{{.InactivityMonths}} meses</b>, nem pela web nem pelo assistente, são <b>excluídas automaticamente</b>, do mesmo jeito que a exclusão feita por você.
+    O prazo começa a contar a partir de {{dmy .PolicyStart}}: nenhuma conta é excluída por inatividade antes de {{dmy .FirstPurge}}.</p>
+  <ul>
+    <li>Ainda não enviamos aviso por e-mail antes. Para manter a conta, basta entrar ou usar o assistente uma vez no período.</li>
+    <li>Se a carteira é compartilhada, ela continua com as outras pessoas; sai só a conta inativa.</li>
+    <li>Vai parar de usar? Exporte os dados antes.</li>
+  </ul>
+</section>
+
+<section class="card guide-sec">
+  <h2>Como usar cada página</h2>
+  {{template "tabs-tour"}}
+  <p class="hint">Mais detalhes, primeiros passos e como conectar o assistente em <a href="/como-usar">Como usar</a>.</p>
+</section>
+
+{{if .NeedsTrust}}
+<form method="post" action="/seguranca" class="card trust-ack">
+  <p>Mostramos esta página de novo sempre que ela mudar de forma relevante. Você pode relê-la a qualquer momento pelo menu do perfil ou pelo rodapé.</p>
+  <button class="btn primary">Entendi, continuar</button>
+</form>
+{{end}}
+<p class="muted trust-meta">Versão {{.Version}} · atualizada em 23/11/2026 · <a href="/privacidade">Política de Privacidade</a> · <a href="/termos">Termos de uso</a></p>
+</article>
+{{end}}
