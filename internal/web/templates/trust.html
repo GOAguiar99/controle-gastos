@@ -21,6 +21,7 @@
     <li><b>Nas cópias de segurança:</b> são criptografadas (AES-256) no servidor, antes de saírem dele.</li>
     <li><b>Senhas e chaves:</b> não recebemos sua senha do Google. Sessões e links do assistente são guardados só como resumo criptográfico (hash SHA-256): nem quem tem acesso ao banco consegue usá-los. No login por e-mail e senha (servidores próprios), a senha é guardada só como hash argon2id.</li>
   </ul>
+  <p class="hint"><b>Ocultar valores:</b> o botão com o olho, no topo, esconde os valores em R$ na tela, útil para mostrar o app ou num lugar público. É só visual, no seu navegador: os dados continuam os mesmos no servidor.</p>
   <p class="hint"><b>O que não fazemos:</b> isto não é criptografia de ponta a ponta. O servidor precisa ler os seus números para calcular resumos, faturas e projeções, então eles ficam legíveis para o próprio servidor (veja “Quem acessa”).</p>
 </section>
 
