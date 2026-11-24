@@ -178,3 +178,17 @@ func TestCashAccountTools(t *testing.T) {
 	}
 	call(t, cs, "set_cash", map[string]any{"accounts": []map[string]any{{"account": "Inexistente", "amount": 1}}}, nil, true)
 }
+
+// A fatura total from another bank sent through MCP stays off the only card.
+func TestOtherBankBillViaMCP(t *testing.T) {
+	cs, _ := connect(t)
+	call(t, cs, "save_card", map[string]any{"name": "Nubank", "closing_day": 3, "due_day": 10}, nil, false)
+	call(t, cs, "add_transactions", map[string]any{"items": []map[string]any{
+		{"kind": "expense", "date": "2026-11-24", "amount": 1207.71, "category": "Fatura cartão", "create_category": true,
+			"description": "Fatura Bradesco - Adiantamento", "payment_method": "credito"},
+	}}, nil, false)
+	text := call(t, cs, "list_transactions", map[string]any{"from": "2026-11", "text": "bradesco"}, nil, false)
+	if strings.Contains(text, `"card"`) || !strings.Contains(text, `"date":"2026-11-24"`) {
+		t.Fatalf("bradesco bill: %s", text)
+	}
+}
