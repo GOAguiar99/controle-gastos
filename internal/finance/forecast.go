@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"strings"
 	"time"
 )
 
@@ -13,11 +14,18 @@ const forecastDay = 15
 // MinForecastMonths is how many past months with spending the forecast needs.
 const MinForecastMonths = 3
 
+// ReformCategory names one-off renovation spending (architect, builders,
+// furniture). It stays out of the day-to-day average: in the past it would
+// inflate the estimate, and future payments are launched on their own.
+const ReformCategory = "Reforma"
+
 // Variable reports whether e is day-to-day spending: an expense that is not
-// fixed (recurrence) nor a debt payment, and not an estimate itself. Card
-// purchases, installments and undetailed fatura totals all count.
+// fixed (recurrence) nor a debt payment, not renovation (ReformCategory) and
+// not an estimate itself. Card purchases, installments and undetailed fatura
+// totals all count.
 func (e Entry) Variable() bool {
-	return e.Kind == Expense && !e.Fixed && e.RecurrenceID == 0 && e.DebtID == 0 && !e.Forecast
+	return e.Kind == Expense && !e.Fixed && e.RecurrenceID == 0 && e.DebtID == 0 && !e.Forecast &&
+		!strings.EqualFold(strings.TrimSpace(e.Category), ReformCategory)
 }
 
 // VariableByMonth sums the variable spending of each month in [from, to],
