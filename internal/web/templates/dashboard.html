@@ -105,7 +105,7 @@
         {{range $i, $m := .Fc.Base.Months}}<li><span>{{$m.Label}}</span><strong>{{brl (index $.Fc.Base.Samples $i)}}</strong></li>{{end}}
         <li class="avg"><span>Média ({{len .Fc.Base.Months}} meses)</span><strong>{{brl .Fc.Base.Average}}</strong></li>
       </ul>
-      <p class="hint"><strong>Dia a dia</strong> é tudo que não é conta fixa, recorrência ou parcela de dívida: mercado, transporte, compras, faturas do cartão. Contas fixas e dívidas já entram no fluxo pelas recorrências.
+      <p class="hint"><strong>Dia a dia</strong> é tudo que não é conta fixa, recorrência, parcela de dívida ou gasto da categoria Reforma: mercado, transporte, compras, faturas do cartão. Contas fixas e dívidas já entram no fluxo pelas recorrências.
         Em cada mês daqui para frente contamos {{brl .Fc.Base.Average}}: o que já está lançado (parcelas, fatura aberta) entra dentro desse valor, e o que passar dele aparece em <em>Acima da média</em>.
         Seu mês mais leve foi {{brl .Fc.Base.Min}} e o mais pesado, {{brl .Fc.Base.Max}}. É estimativa: não vira lançamento nem muda receitas e gastos do mês.</p>
     </details>

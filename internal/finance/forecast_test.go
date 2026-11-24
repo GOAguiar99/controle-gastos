@@ -14,6 +14,8 @@ func TestBaselines(t *testing.T) {
 		Entry{Kind: Expense, Date: d("2026-06-16"), Amount: 99999, Fixed: true},
 		Entry{Kind: Expense, Date: d("2026-07-16"), Amount: 99999, RecurrenceID: 1},
 		Entry{Kind: Expense, Date: d("2026-08-16"), Amount: 99999, DebtID: 2},
+		Entry{Kind: Expense, Date: d("2026-09-16"), Amount: 99999, Category: "Reforma"},
+		Entry{Kind: Expense, Date: d("2026-10-16"), Amount: 99999, Category: " reforma "},
 		Entry{Kind: Income, Date: d("2026-09-05"), Amount: 99999},
 		Entry{Kind: Expense, Date: d("2026-11-05"), Amount: 99999}, // current month: not sampled
 		Entry{Kind: Expense, Date: d("2026-04-05"), Amount: 99999}, // before the window
@@ -65,6 +67,11 @@ func TestForecastEntries(t *testing.T) {
 	}
 	if feb.Amount != 1000 || !feb.Forecast || !feb.Projected || feb.Group() != Forecast || feb.Variable() {
 		t.Fatalf("february: %+v", feb)
+	}
+	// a renovation payment leaves the cash on its own: it does not fill the average
+	reform := append(append([]Entry(nil), es...), Entry{Kind: Expense, Date: d("2027-02-05"), Amount: 3000, Category: ReformCategory})
+	if fs := ForecastEntries(reform, 1000, today, d("2027-02-28")); len(fs) != 3 || fs[2].Amount != 1000 {
+		t.Fatalf("reform: %+v", fs)
 	}
 	// the last day of the month leaves nothing for it
 	if fs := ForecastEntries(nil, 1000, d("2026-11-30"), d("2026-12-31")); len(fs) != 1 || MonthOf(fs[0].Date) != m("2026-12") {
