@@ -48,7 +48,7 @@
         interaction: { mode: 'index', intersect: false },
         scales: {
           x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0 } },
-          y: { stacked: true, grid: { color: grid }, border: { display: false }, ticks: { callback: function (v) { return compact.format(v); } } }
+          y: { stacked: true, grid: { color: grid }, border: { display: false }, ticks: { callback: function (v) { return cgMoney.hidden() ? '' : compact.format(v); } } }
         },
         plugins: {
           legend: { position: 'bottom' },
@@ -57,10 +57,10 @@
             filter: function (it) { return it.parsed.y > 0; },
             callbacks: {
               title: function (items) { var i = items[0].dataIndex; return d.years[i] + (STATE[d.yearState[i]] ? ' (' + STATE[d.yearState[i]] + ')' : ''); },
-              label: function (ctx) { return ' ' + ctx.dataset.label + ': ' + brl.format(ctx.parsed.y); },
+              label: function (ctx) { return ' ' + ctx.dataset.label + ': ' + cgMoney.text(brl.format(ctx.parsed.y)); },
               footer: function (items) {
-                var i = items[0].dataIndex, t = yearTotal(i), out = ['Total: ' + brl.format(t), 'Média mensal: ' + brl.format(t / d.yearMonths[i])];
-                if (d.yearProj[i] > 0) out.push('Realizado ' + brl.format(d.yearReal[i]) + ' · previsto ' + brl.format(d.yearProj[i]));
+                var i = items[0].dataIndex, t = yearTotal(i), out = ['Total: ' + cgMoney.text(brl.format(t)), 'Média mensal: ' + cgMoney.text(brl.format(t / d.yearMonths[i]))];
+                if (d.yearProj[i] > 0) out.push('Realizado ' + cgMoney.text(brl.format(d.yearReal[i])) + ' · previsto ' + cgMoney.text(brl.format(d.yearProj[i])));
                 return out;
               }
             }
@@ -78,10 +78,10 @@
     }).join('') + '</tr></thead><tbody>';
     d.cats.forEach(function (name, c) {
       h += '<tr><td><span class="dot" style="background:' + color(c) + '"></span> ' + esc(name) + '</td>' +
-        d.values[c].map(function (v) { return '<td class="num">' + brl.format(v) + '</td>'; }).join('') + '</tr>';
+        d.values[c].map(function (v) { return '<td class="num">' + cgMoney.html(brl.format(v)) + '</td>'; }).join('') + '</tr>';
     });
-    h += '</tbody><tfoot><tr><td><strong>Total</strong></td>' + d.years.map(function (_, i) { return '<td class="num"><strong>' + brl.format(yearTotal(i)) + '</strong></td>'; }).join('') + '</tr>' +
-      '<tr><td>Média mensal</td>' + d.years.map(function (_, i) { return '<td class="num">' + brl.format(yearTotal(i) / d.yearMonths[i]) + '</td>'; }).join('') + '</tr></tfoot>';
+    h += '</tbody><tfoot><tr><td><strong>Total</strong></td>' + d.years.map(function (_, i) { return '<td class="num"><strong>' + cgMoney.html(brl.format(yearTotal(i))) + '</strong></td>'; }).join('') + '</tr>' +
+      '<tr><td>Média mensal</td>' + d.years.map(function (_, i) { return '<td class="num">' + cgMoney.html(brl.format(yearTotal(i) / d.yearMonths[i])) + '</td>'; }).join('') + '</tr></tfoot>';
     tbl.innerHTML = h;
   }
 
@@ -104,8 +104,8 @@
     }).join('');
     legend.innerHTML = order.map(function (i) {
       return '<li><span class="dot" style="background:' + color(i) + '"></span><span>' + esc(d.cats[i]) + '</span>' +
-        '<strong>' + brl.format(per.values[i]) + '</strong><small class="muted">' + pctFmt.format(per.values[i] / per.total) + '</small></li>';
-    }).join('') + '<li class="comp-total"><span></span><span>Total</span><strong>' + brl.format(per.total) + '</strong><small></small></li>';
+        '<strong>' + cgMoney.html(brl.format(per.values[i])) + '</strong><small class="muted">' + pctFmt.format(per.values[i] / per.total) + '</small></li>';
+    }).join('') + '<li class="comp-total"><span></span><span>Total</span><strong>' + cgMoney.html(brl.format(per.total)) + '</strong><small></small></li>';
   }
 
   if (bar && seg) {

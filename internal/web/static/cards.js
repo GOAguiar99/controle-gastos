@@ -31,11 +31,11 @@
         plugins: {
           legend: { display: false },
           tooltip: { callbacks: {
-            label: function (ctx) { return ' ' + brl.format(ctx.parsed.y) + (h.future[ctx.dataIndex] ? ' (até agora)' : ''); }
+            label: function (ctx) { return ' ' + cgMoney.text(brl.format(ctx.parsed.y)) + (h.future[ctx.dataIndex] ? ' (até agora)' : ''); }
           } }
         },
         scales: {
-          y: { grid: { color: grid }, border: { display: false }, ticks: { callback: function (x) { return compact.format(x); } } },
+          y: { grid: { color: grid }, border: { display: false }, ticks: { callback: function (x) { return cgMoney.hidden() ? '' : compact.format(x); } } },
           x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } }
         }
       }

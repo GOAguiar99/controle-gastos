@@ -974,3 +974,16 @@ details.new-entry:not([open]) > summary h2::before { content: "+ "; }
 .bar-filter { display: contents; color: inherit; text-decoration: none; cursor: pointer; }
 .bars li:has(.bar-filter):hover .bar-label, .bar-filter.on .bar-label { color: var(--card); font-weight: 600; }
 .bars li:has(.bar-filter.on) .bar { outline: 2px solid var(--card); outline-offset: 1px; }
+
+/* "Ocultar valores" (privacy.js): amounts from the brl helper are
+   <span class="money"><span>R$ …</span></span>; the inner value is hidden and a
+   fixed mask shown, so the layout and color stay and nothing leaks in a print. */
+.money-toggle { display: inline-flex; align-items: center; }
+.money-toggle .eye-off, .hide-money .money-toggle .eye-open { display: none; }
+.hide-money .money-toggle .eye-off { display: inline; }
+.hide-money .money > * { display: none; }
+.hide-money .money::after { content: "R$ •••••"; white-space: nowrap; }
+.hide-money input[data-money] { -webkit-text-security: disc; }
+@supports not (-webkit-text-security: disc) {
+  .hide-money input[data-money] { color: transparent; text-shadow: 0 0 8px var(--text); }
+}

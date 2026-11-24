@@ -24,9 +24,9 @@
     Chart.defaults.plugins.legend.labels.boxHeight = 12;
     Chart.defaults.plugins.tooltip.callbacks.label = function (ctx) {
       var v = ctx.parsed.y;
-      return v == null ? null : ' ' + ctx.dataset.label + ': ' + brl.format(v);
+      return v == null ? null : ' ' + ctx.dataset.label + ': ' + cgMoney.text(brl.format(v));
     };
-    var yAxis = { grid: { color: C.grid }, border: { display: false }, ticks: { callback: function (v) { return compact.format(v); } } };
+    var yAxis = { grid: { color: C.grid }, border: { display: false }, ticks: { callback: function (v) { return cgMoney.hidden() ? '' : compact.format(v); } } };
     var xAxis = { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } };
 
     // Realized and committed per month (Cartão / Fixos / Outros vs entradas).
@@ -46,7 +46,7 @@
             var ds = items[0].chart.data.datasets, i = items[0].dataIndex;
             var out = 0;
             for (var k = 1; k < ds.length; k++) out += ds[k].data[i] || 0;
-            return 'Sobra: ' + brl.format(ds[0].data[i] - out);
+            return 'Sobra: ' + cgMoney.text(brl.format(ds[0].data[i] - out));
           } } } }
         }
       });
