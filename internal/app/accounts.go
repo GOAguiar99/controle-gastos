@@ -20,7 +20,10 @@ const (
 	SessionIdle = 7 * 24 * time.Hour
 	// sessions are marked as used at most this often (one write per request is wasteful)
 	sessionTouchEvery = 5 * time.Minute
-	maxMCPTokens      = 20
+	// last use of a user or MCP link is recorded at most this often, for the
+	// same reason; "último acesso" is shown in relative time, so 5 min is plenty
+	lastSeenEvery = 5 * time.Minute
+	maxMCPTokens  = 20
 )
 
 // Actor is who is acting and on which ledger: a signed-in user (web) or the
@@ -68,6 +71,9 @@ func (a *App) Ping(ctx context.Context) error { return a.db.Ping(ctx) }
 
 // SetClock overrides the current time (tests).
 func (a *App) SetClock(now func() time.Time) { a.now = now }
+
+// Now is the current time of the app's clock (relative times in the UI).
+func (a *App) Now() time.Time { return a.now() }
 
 // Today is the current calendar date in the configured timezone, as UTC midnight.
 func (a *App) Today() time.Time { return finance.DateOnly(a.now().In(a.loc)) }
@@ -225,7 +231,20 @@ func (a *App) actor(ctx context.Context, userID int64, source string) (Actor, bo
 	if err != nil || !ok {
 		return Actor{}, false, err
 	}
+	if err := a.touchUser(ctx, u); err != nil {
+		return Actor{}, false, err
+	}
 	return Actor{User: u, LedgerID: id, Source: source}, true, nil
+}
+
+// touchUser records that u is using the app, at most every lastSeenEvery.
+// The actor keeps the value read before this request (the previous access).
+func (a *App) touchUser(ctx context.Context, u db.User) error {
+	now := a.now()
+	if !u.LastSeenAt.IsZero() && now.Sub(u.LastSeenAt) < lastSeenEvery {
+		return nil
+	}
+	return a.db.TouchUser(ctx, u.ID, now, now.Add(-lastSeenEvery))
 }
 
 // EndSession revokes the session (logout).
@@ -285,15 +304,23 @@ func (a *App) MCPActor(ctx context.Context, token string) (Actor, bool, error) {
 	if token == "" {
 		return Actor{}, false, nil
 	}
-	userID, ledgerID, ok, err := a.db.MCPTokenOwner(ctx, hashSecret(token))
+	link, ok, err := a.db.MCPLinkByHash(ctx, hashSecret(token))
 	if err != nil || !ok {
 		return Actor{}, false, err
 	}
-	u, err := a.db.User(ctx, userID)
+	u, err := a.db.User(ctx, link.UserID)
 	if err != nil || u.Suspended || !u.Approved {
 		return Actor{}, false, err
 	}
-	return Actor{User: u, LedgerID: ledgerID, Source: SourceMCP}, true, nil
+	if now := a.now(); link.LastUsedAt.IsZero() || now.Sub(link.LastUsedAt) >= lastSeenEvery {
+		if err := a.db.TouchMCPToken(ctx, link.ID, now, now.Add(-lastSeenEvery)); err != nil {
+			return Actor{}, false, err
+		}
+	}
+	if err := a.touchUser(ctx, u); err != nil {
+		return Actor{}, false, err
+	}
+	return Actor{User: u, LedgerID: link.LedgerID, Source: SourceMCP}, true, nil
 }
 
 // DeleteAccount erases the actor's account (LGPD art. 18, VI): their ledger

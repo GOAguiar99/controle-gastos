@@ -30,11 +30,12 @@ var ErrInviteUnusable = errors.New("invite unusable")
 var ErrLedgerHasData = errors.New("ledger has data")
 
 type Member struct {
-	UserID   int64
-	Email    string
-	Name     string
-	Role     string
-	JoinedAt time.Time
+	UserID     int64
+	Email      string
+	Name       string
+	Role       string
+	JoinedAt   time.Time
+	LastSeenAt time.Time // zero = never seen
 }
 
 type Invite struct {
@@ -62,14 +63,18 @@ func (d *DB) MemberRoleOf(ctx context.Context, ledgerID, userID int64) (string, 
 
 // Members lists the people of a ledger, owner first.
 func (d *DB) Members(ctx context.Context, ledgerID int64) ([]Member, error) {
-	rows, err := d.pool.Query(ctx, `SELECT u.id, u.email, u.name, m.role, m.joined_at FROM ledger_members m
+	rows, err := d.pool.Query(ctx, `SELECT u.id, u.email, u.name, m.role, m.joined_at, u.last_seen_at FROM ledger_members m
 		JOIN users u ON u.id = m.user_id WHERE m.ledger_id = $1 ORDER BY m.role = 'owner' DESC, m.joined_at`, ledgerID)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Member, error) {
 		var m Member
-		err := r.Scan(&m.UserID, &m.Email, &m.Name, &m.Role, &m.JoinedAt)
+		var seen *time.Time
+		err := r.Scan(&m.UserID, &m.Email, &m.Name, &m.Role, &m.JoinedAt, &seen)
+		if seen != nil {
+			m.LastSeenAt = *seen
+		}
 		return m, err
 	})
 }

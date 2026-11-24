@@ -42,6 +42,7 @@ procedimentos operacionais e o que ainda é responsabilidade de quem opera o ser
 | Cadastro | aprovação manual; limite de 200 pendentes; recusa apaga os dados do pedido | `accounts.go` |
 | Senha (self-host) | argon2id (19 MiB, t=2), 12–128 caracteres, definida só pela CLI (sem argv/env), bloqueio de 15 min após 5 erros (persistido), mesmo erro para tudo, hash falso para e-mail inexistente (tempo constante), sessões revogadas ao trocar | `password.go` |
 | Contas | suspensão (bloqueia login, sessões e links MCP); exclusão pelo usuário e pelo operador | CLI, Config |
+| Último acesso | `users.last_seen_at` e `mcp_tokens.last_used_at` gravados no máximo a cada 5 min (sem escrita por requisição); visível ao próprio titular, aos membros da carteira dele e ao admin (sem dados financeiros); nunca em rótulos de métricas nem em logs | `internal/app/accounts.go` |
 | Titular (LGPD) | exportação completa em JSON, CSV, exclusão de conta self-service | Config |
 | Auditoria | eventos JSON `"audit":true` no journald: login ok/falha, logout, rate limit, links MCP, exportação, exclusão, suspensão, negação de acesso; sem tokens, e-mails ou descrições financeiras; retenção 6 meses | `internal/app/audit.go` |
 | Segredos | só em `/etc/controle-gastos.env` (0600, root); nada no git (gitleaks no CI, histórico limpo); `.gitignore` bloqueia `.env`, dumps e planilhas | CI |
@@ -180,6 +181,7 @@ Depois, confira os totais do dashboard de uma conta de teste e o DNS.
 | Finanças | lançamentos, categorias, recorrências, dívidas, caixa | prestar o serviço | execução de contrato (7º V) | enquanto a conta existir; backups até 35 dias após exclusão | Oracle Cloud (operador, BR) |
 | Convites de carteira | e-mail convidado, quem convidou, datas | compartilhar a carteira a pedido do dono | execução de contrato (7º V) | até aceite, recusa, cancelamento ou expiração (7 dias) | — |
 | Sessões | hash do token, IP, user agent, datas | segurança | legítimo interesse (7º IX) | até 30 dias + revogadas | — |
+| Último acesso | data/hora do último uso da conta (web ou MCP) e de cada link MCP, gravada no máximo a cada 5 min | mostrar ao titular, às pessoas da carteira dele e ao admin (contas inativas, suporte) | legítimo interesse (7º IX) | enquanto a conta existir (só o valor mais recente) | — |
 | Logs de segurança | id do usuário, IP, evento | prevenção a fraude, auditoria | legítimo interesse (7º IX) | 6 meses na VM; cópia sem IP 14 dias no Grafana Cloud | Grafana Labs (operador; só a cópia sem IP) |
 | Monitoramento | métricas técnicas (latência, erros, uso da VM e do banco), sem dados pessoais | disponibilidade e segurança | legítimo interesse (7º IX) | 14 dias | Grafana Labs (operador) |
 | Conector Claude | dados da carteira, quando o usuário cria o link | a pedido do titular | execução de contrato / pedido do titular | enquanto o link existir | Anthropic (EUA, transferência a pedido do titular, art. 33 VIII/IX) |

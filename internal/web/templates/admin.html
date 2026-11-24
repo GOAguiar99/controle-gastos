@@ -2,13 +2,14 @@
 <div class="page-head"><div><h1>Admin</h1><p class="muted">Contas e cadastros. Esta página não mostra dados financeiros de ninguém.</p></div></div>
 <article class="card">
   <table class="grid compact">
-    <thead><tr><th>E-mail</th><th>Nome</th><th>Cadastro</th><th>Situação</th><th></th></tr></thead>
+    <thead><tr><th>E-mail</th><th>Nome</th><th>Cadastro</th><th>Último acesso</th><th>Situação</th><th></th></tr></thead>
     <tbody>
     {{range .Users}}
       <tr>
         <td>{{.Email}}</td>
         <td>{{.Name}}</td>
         <td>{{dmy .CreatedAt}}</td>
+        <td{{if not (isZeroTime .LastSeenAt)}} title="{{dmy .LastSeenAt}}"{{end}}>{{ago .LastSeenAt $.Now}}</td>
         <td>{{if .Suspended}}Suspensa{{else if not .Approved}}<b>Pendente</b>{{else}}Ativa{{end}}{{if eq .Role "admin"}} · admin{{end}}</td>
         <td class="actions">
           {{if not .Approved}}
@@ -24,7 +25,7 @@
         </td>
       </tr>
     {{else}}
-      <tr><td colspan="5" class="muted">Nenhuma conta.</td></tr>
+      <tr><td colspan="6" class="muted">Nenhuma conta.</td></tr>
     {{end}}
     </tbody>
   </table>
