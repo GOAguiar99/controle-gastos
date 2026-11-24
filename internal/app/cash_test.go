@@ -50,7 +50,7 @@ func TestCashAccountsAndYield(t *testing.T) {
 		t.Fatalf("cash: %+v", c)
 	}
 	// the projection grows with the yield, which isn't the month's income
-	cf, err := s.CashProjection(12)
+	cf, err := s.CashProjection(12, "")
 	if err != nil {
 		t.Fatal(err)
 	}

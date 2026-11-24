@@ -19,18 +19,19 @@ type FlowPoint struct {
 }
 
 type FlowMonth struct {
-	Month   Month
-	Partial bool // ProjectCash only: current month counts just what comes after today
-	Past    bool // MonthlyFlow: month already closed (valores realizados)
-	Current bool // MonthlyFlow: the current month
-	Opening int64
-	In      int64
-	Out     int64
-	Card    int64 // saídas por grupo, como na planilha
-	Fixed   int64
-	Other   int64
-	Closing int64
-	Low     int64
+	Month    Month
+	Partial  bool // ProjectCash only: current month counts just what comes after today
+	Past     bool // MonthlyFlow: month already closed (valores realizados)
+	Current  bool // MonthlyFlow: the current month
+	Opening  int64
+	In       int64
+	Out      int64
+	Card     int64 // saídas por grupo, como na planilha
+	Fixed    int64
+	Other    int64
+	Forecast int64 // estimated day-to-day spending (previsão de gastos)
+	Closing  int64
+	Low      int64
 }
 
 // Net is the month's surplus: income minus everything already committed.
@@ -47,6 +48,8 @@ func (f *FlowMonth) add(e Entry) {
 		f.Card += e.Amount
 	case Fixed:
 		f.Fixed += e.Amount
+	case Forecast:
+		f.Forecast += e.Amount
 	default:
 		f.Other += e.Amount
 	}
@@ -61,6 +64,7 @@ func SumFlow(months []FlowMonth) FlowMonth {
 		t.Card += m.Card
 		t.Fixed += m.Fixed
 		t.Other += m.Other
+		t.Forecast += m.Forecast
 	}
 	return t
 }

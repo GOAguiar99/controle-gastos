@@ -8,7 +8,7 @@
   function v(name, def) { return css.getPropertyValue(name).trim() || def; }
   var C = {
     income: v('--income', '#2e7d32'), expense: v('--expense', '#c62828'), balance: v('--balance', '#1565c0'),
-    card: v('--card', '#8e24aa'), fixed: v('--fixed', '#1e88e5'), other: v('--other', '#fb8c00'),
+    card: v('--card', '#8e24aa'), fixed: v('--fixed', '#1e88e5'), other: v('--other', '#fb8c00'), forecast: v('--forecast', '#78909c'),
     grid: v('--chart-grid', '#e3e8ec'), muted: v('--muted', '#66727c')
   };
   document.addEventListener('cg:themechange', function () { location.reload(); });
@@ -38,39 +38,58 @@
           { type: 'bar', label: 'Cartão', data: [], stack: 'out', order: 1 },
           { type: 'bar', label: 'Fixos', data: [], stack: 'out', order: 1 },
           { type: 'bar', label: 'Outros', data: [], stack: 'out', order: 1 }
-        ] },
+        ].concat(d.comForecast ? [{ type: 'bar', label: 'Previsão', data: [], stack: 'out', order: 1 }] : []) },
         options: {
           interaction: { mode: 'index', intersect: false },
           scales: { x: Object.assign({ stacked: true }, xAxis), y: Object.assign({ stacked: true }, yAxis) },
           plugins: { tooltip: { callbacks: { footer: function (items) {
             var ds = items[0].chart.data.datasets, i = items[0].dataIndex;
-            return 'Sobra: ' + brl.format(ds[0].data[i] - ds[1].data[i] - ds[2].data[i] - ds[3].data[i]);
+            var out = 0;
+            for (var k = 1; k < ds.length; k++) out += ds[k].data[i] || 0;
+            return 'Sobra: ' + brl.format(ds[0].data[i] - out);
           } } } }
         }
       });
     }
 
-    // Future cash flow: stepped balance line, red below zero.
+    // Future cash flow: stepped balance line, red below zero. With the
+    // spending forecast on, the other two scenarios are dashed around it.
     var cf = document.getElementById('chartFlow');
     if (cf) {
+      var main = {
+        label: d.scenario ? 'Saldo projetado (' + label(d.scenario) + ')' : 'Saldo projetado',
+        data: d.flowY, stepped: 'before', pointRadius: 0, pointHitRadius: 8, borderWidth: 2, order: 0,
+        borderColor: C.balance, fill: { target: { value: 0 }, above: 'rgba(21,101,192,.10)', below: 'rgba(198,40,40,.16)' },
+        segment: { borderColor: function (ctx) { return ctx.p1.parsed.y < 0 ? C.expense : C.balance; } }
+      };
+      var sets = [main];
+      if (d.flowScen) {
+        ['otimista', 'pessimista'].forEach(function (sc) {
+          if (sc === d.scenario || !d.flowScen[sc]) return;
+          sets.push({ label: label(sc), data: d.flowScen[sc], stepped: 'before', pointRadius: 0, pointHitRadius: 8,
+            borderWidth: 1.5, borderDash: [5, 4], borderColor: sc === 'otimista' ? C.income : C.expense, fill: false, order: 1 });
+        });
+        if (d.scenario !== 'base' && d.flowScen.base) {
+          sets.push({ label: label('base'), data: d.flowScen.base, stepped: 'before', pointRadius: 0, pointHitRadius: 8,
+            borderWidth: 1.5, borderDash: [2, 3], borderColor: C.muted, fill: false, order: 1 });
+        }
+      }
       new Chart(cf, {
         type: 'line',
         data: {
           labels: d.flowX.map(function (s) { var p = s.split('-'); return p[2] + '/' + p[1] + '/' + p[0].slice(2); }),
-          datasets: [{
-            label: 'Saldo projetado', data: d.flowY, stepped: 'before', pointRadius: 0, pointHitRadius: 8, borderWidth: 2,
-            borderColor: C.balance, fill: { target: { value: 0 }, above: 'rgba(21,101,192,.10)', below: 'rgba(198,40,40,.16)' },
-            segment: { borderColor: function (ctx) { return ctx.p1.parsed.y < 0 ? C.expense : C.balance; } }
-          }]
+          datasets: sets
         },
         options: {
           interaction: { mode: 'index', intersect: false },
-          plugins: { legend: { display: false } },
+          plugins: { legend: { display: sets.length > 1 } },
           scales: { x: Object.assign({}, xAxis, { ticks: { maxTicksLimit: 8, autoSkip: true, maxRotation: 0 } }), y: yAxis }
         }
       });
     }
   }
+
+  function label(sc) { return { otimista: 'Otimista', base: 'Base', pessimista: 'Pessimista' }[sc] || sc; }
 
   // ---- filters ----
   function keep(period) {
@@ -98,6 +117,10 @@
     committed.data.datasets[1].backgroundColor = colors(C.card);
     committed.data.datasets[2].backgroundColor = colors(C.fixed);
     committed.data.datasets[3].backgroundColor = colors(C.other);
+    if (d.comForecast) {
+      committed.data.datasets[4].data = pick(d.comForecast, m);
+      committed.data.datasets[4].backgroundColor = colors(C.forecast);
+    }
     committed.update();
   }
 

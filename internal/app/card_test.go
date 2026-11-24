@@ -77,7 +77,7 @@ func TestCardPurchaseStatementAndCash(t *testing.T) {
 	if _, err := s.SetCash(d("2026-11-16"), 100000, ""); err != nil {
 		t.Fatal(err)
 	}
-	cf, err := s.CashProjection(2)
+	cf, err := s.CashProjection(2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
