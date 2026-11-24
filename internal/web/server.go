@@ -335,11 +335,19 @@ var intervalOptions = []option{{1, "Mensal"}, {2, "Bimestral"}, {3, "Trimestral"
 
 var weekdays = [...]string{"dom", "seg", "ter", "qua", "qui", "sex", "sáb"}
 
+// brl formats cents as "R$ 1.234,56" wrapped in the money marker that the
+// "Ocultar valores" toggle masks (app.css, privacy.js). In attributes
+// html/template strips the tags; use brlText there to make that explicit.
+func brl(cents int64) template.HTML {
+	return template.HTML(`<span class="money"><span>` + template.HTMLEscapeString(finance.BRL(cents)) + `</span></span>`)
+}
+
 var funcs = template.FuncMap{
-	"brl":    finance.BRL,
-	"money":  moneyInput,
-	"pct":    pct,
-	"barPct": barPct,
+	"brl":     brl,
+	"brlText": finance.BRL,
+	"money":   moneyInput,
+	"pct":     pct,
+	"barPct":  barPct,
 	"ratio": func(a, b int64) float64 {
 		if b == 0 {
 			return 0

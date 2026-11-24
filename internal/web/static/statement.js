@@ -27,7 +27,7 @@
       return a.dataset.date < b.dataset.date ? -1 : a.dataset.date > b.dataset.date ? 1 : 0;
     }).forEach(function (li) { list.appendChild(li); });
     count.textContent = n;
-    total.textContent = brl.format(sum / 100);
+    total.innerHTML = cgMoney.html(brl.format(sum / 100));
     empty.hidden = n > 0;
     clear.hidden = !c && !term;
     document.querySelectorAll('.bar-filter').forEach(function (a) { a.classList.toggle('on', a.dataset.filterCat === c); });

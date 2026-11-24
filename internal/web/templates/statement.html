@@ -33,7 +33,7 @@
     <div class="card-head"><h2>Por categoria</h2><span class="muted">clique para ver as compras</span></div>
     <ul class="bars share" aria-label="Total da fatura por categoria">
       {{range $v.ByCategory}}
-      <li title="{{.Name}}: {{brl .Total}}{{if .Count}} em {{.Count}} compra(s){{end}}">
+      <li title="{{.Name}}: {{brlText .Total}}{{if .Count}} em {{.Count}} compra(s){{end}}">
         {{if .Count}}<a class="bar-filter{{if eq .Name $.F.Cat}} on{{end}}" href="{{$.Base}}&cat={{.Name}}#compras" data-filter-cat="{{.Name}}">{{end}}
         <span class="bar-label">{{.Name}}{{if .Count}} <small class="muted">({{.Count}})</small>{{end}}</span>
         <span class="bar"><span class="b-cartao" style="width: {{pctWidth .Share}}%"></span></span>

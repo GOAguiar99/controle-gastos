@@ -323,7 +323,7 @@ func TestCashAccountsWeb(t *testing.T) {
 	if res, _ := client.PostForm(ts.URL+"/caixa", url.Values{"acct_1": {"1.000,00"}, "acct_2": {"2.500,00"}}); res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("save cash: %d", res.StatusCode)
 	}
-	if dash = string(mustGet(t, client, ts.URL+"/")); !strings.Contains(dash, "Informado R$ 3.500,00") {
+	if dash = string(mustGet(t, client, ts.URL+"/")); !strings.Contains(dash, "Informado "+string(brl(350000))) {
 		t.Error("cash is not the sum of the accounts")
 	}
 	if p := string(mustGet(t, client, ts.URL+"/perfil/preferencias")); !strings.Contains(p, "Contas do caixa") || !strings.Contains(p, `value="120,5"`) {
@@ -483,7 +483,7 @@ func TestForecastWeb(t *testing.T) {
 		}
 	}
 	dash := string(mustGet(t, client, ts.URL+"/"))
-	if !strings.Contains(dash, "Ativar previsão de gastos") || !strings.Contains(dash, "base <strong>R$ 3.500,00</strong>") || strings.Contains(dash, "<th class=\"num\">Previsão</th>") {
+	if !strings.Contains(dash, "Ativar previsão de gastos") || !strings.Contains(dash, "base <strong>"+string(brl(350000))+"</strong>") || strings.Contains(dash, "<th class=\"num\">Previsão</th>") {
 		t.Fatal("forecast off: button and estimate, no column")
 	}
 	if res, _ := client.PostForm(ts.URL+"/previsao", url.Values{"mode": {"talvez"}}); res.StatusCode != http.StatusBadRequest {
@@ -503,5 +503,35 @@ func TestForecastWeb(t *testing.T) {
 	client.PostForm(ts.URL+"/previsao", url.Values{"mode": {"desligado"}})
 	if dash = string(mustGet(t, client, ts.URL+"/")); strings.Contains(dash, "Desativar previsão") {
 		t.Error("still on")
+	}
+}
+
+// "Ocultar valores": the toggle is in the top bar, its script runs in <head>
+// (no flash of the values) and every amount carries the money marker, except
+// in attributes, where it stays plain text.
+func TestHideMoneyToggle(t *testing.T) {
+	ts, client, env := newTestServer(t)
+	env.mustLogin(t, client, anaUser)
+	res, err := client.PostForm(ts.URL+"/lancamentos", url.Values{"kind": {"expense"}, "date": {"2026-11-10"},
+		"amount": {"1.234,56"}, "new_category": {"Mercado"}, "payment_method": {"pix"}})
+	if err != nil || res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST: %v %v", res.StatusCode, err)
+	}
+	marked := `<span class="money"><span>R$ 1.234,56</span></span>`
+	for _, path := range []string{"/", "/gastos?mes=2026-11"} {
+		page := string(mustGet(t, client, ts.URL+path))
+		head, body, _ := strings.Cut(page, "<body>")
+		if !strings.Contains(head, "privacy.js") || strings.Contains(head, "privacy.js\" defer") {
+			t.Errorf("%s: privacy.js not loaded synchronously in <head>", path)
+		}
+		if !strings.Contains(body, `data-money-toggle`) || !strings.Contains(body, `aria-label="Ocultar valores"`) {
+			t.Errorf("%s: no Ocultar valores toggle", path)
+		}
+		if !strings.Contains(body, marked) {
+			t.Errorf("%s: amount without the money marker", path)
+		}
+		if regexp.MustCompile(`="[^"]*<span class=`).MatchString(body) {
+			t.Errorf("%s: money markup leaked into an attribute", path)
+		}
 	}
 }
