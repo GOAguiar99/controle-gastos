@@ -10,6 +10,7 @@
 //	app delete-user email|id           erase an account and its ledger (verified LGPD request)
 //	app grant-admin|revoke-admin email|id  give or take the admin role (admin page /admin)
 //	app set-password [-stdin] email    create/update a password account (APP_AUTH=password)
+//	app purge-inactive [-dry-run]      erase accounts unused for app.InactivityMonths (serve also does it daily)
 package main
 
 import (
@@ -64,6 +65,8 @@ func main() {
 		err = claimLedger(os.Args[2:])
 	case "set-password":
 		err = setPassword(os.Args[2:])
+	case "purge-inactive":
+		err = purgeInactive(os.Args[2:])
 	case "suspend-user", "unsuspend-user", "delete-user", "grant-admin", "revoke-admin":
 		err = adminUser(os.Args[1], os.Args[2:])
 	default:
@@ -75,7 +78,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "uso: app serve | app import [-force] [-today AAAA-MM-DD] arquivo.xlsx | app migrate-sqlite [-force] app.db | app claim-ledger email@gmail.com | app suspend-user|unsuspend-user|delete-user|grant-admin|revoke-admin email|id | app set-password [-stdin] email")
+	fmt.Fprintln(os.Stderr, "uso: app serve | app import [-force] [-today AAAA-MM-DD] arquivo.xlsx | app migrate-sqlite [-force] app.db | app claim-ledger email@gmail.com | app suspend-user|unsuspend-user|delete-user|grant-admin|revoke-admin email|id | app set-password [-stdin] email | app purge-inactive [-dry-run]")
 	os.Exit(2)
 }
 
@@ -184,6 +187,9 @@ func serve() error {
 	if os.Getenv("APP_NO_CDI") == "" { // CDI for the cash yield, from the Banco Central
 		go a.KeepCDIFresh(ctx, log.Printf)
 	}
+	if os.Getenv("APP_NO_INACTIVE_PURGE") == "" { // erase accounts unused for 12 months, daily
+		go a.KeepPurgingInactive(ctx, log.Printf)
+	}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -289,6 +295,29 @@ func claimLedger(args []string) error {
 		return err
 	}
 	fmt.Printf("carteira %d reservada para %s: o primeiro login dessa conta Google entra nela\n", id, args[0])
+	return nil
+}
+
+// purgeInactive erases inactive accounts now (the server also does it daily).
+func purgeInactive(args []string) error {
+	fs := flag.NewFlagSet("purge-inactive", flag.ExitOnError)
+	dry := fs.Bool("dry-run", false, "só contar, sem excluir")
+	fs.Parse(args)
+	ctx := context.Background()
+	d, err := openDB(ctx)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	n, err := app.NewApp(d, location()).PurgeInactive(ctx, *dry)
+	if err != nil {
+		return err
+	}
+	verb := "excluída(s)"
+	if *dry {
+		verb = "seria(m) excluída(s)"
+	}
+	fmt.Printf("contas inativas: %d %s\n", n, verb)
 	return nil
 }
 

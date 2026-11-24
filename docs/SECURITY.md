@@ -2,7 +2,7 @@
 
 Referência: OWASP ASVS 5.0 nível 2 e LGPD. Este documento descreve os controles existentes, os
 procedimentos operacionais e o que ainda é responsabilidade de quem opera o serviço.
-Última revisão: 17/11/2026.
+Última revisão: 23/11/2026.
 
 ## 1. Arquitetura e superfície
 
@@ -44,6 +44,8 @@ procedimentos operacionais e o que ainda é responsabilidade de quem opera o ser
 | Contas | suspensão (bloqueia login, sessões e links MCP); exclusão pelo usuário e pelo operador | CLI, Config |
 | Último acesso | `users.last_seen_at` e `mcp_tokens.last_used_at` gravados no máximo a cada 5 min (sem escrita por requisição); visível ao próprio titular, aos membros da carteira dele e ao admin (sem dados financeiros); nunca em rótulos de métricas nem em logs | `internal/app/accounts.go` |
 | Titular (LGPD) | exportação completa em JSON, CSV, exclusão de conta self-service | Config |
+| Inatividade | contas aprovadas, não suspensas e não admin sem acesso (web ou MCP: `users.last_seen_at`, `last_login_at`, `created_at`) por 12 meses são excluídas como na exclusão pelo titular (carteira compartilhada fica com os outros); prazo contado a partir de 01/12/2026; roda 1×/dia no `serve` (desligável com `APP_NO_INACTIVE_PURGE=1`) e por `purge-inactive [-dry-run]`; evento `account_deleted` com `by=inactivity`; sem aviso por e-mail (o app não envia e-mail) | `internal/app/trust.go` |
+| Transparência | página pública `/seguranca` ("Seus dados e segurança"), mostrada após o login até o usuário confirmar a versão atual (`users.trust_version`, `app.TrustVersion`); perfil, exportação e páginas legais continuam acessíveis antes | `internal/web/trust.go` |
 | Auditoria | eventos JSON `"audit":true` no journald: login ok/falha, logout, rate limit, links MCP, exportação, exclusão, suspensão, negação de acesso; sem tokens, e-mails ou descrições financeiras; retenção 6 meses | `internal/app/audit.go` |
 | Segredos | só em `/etc/controle-gastos.env` (0600, root); nada no git (gitleaks no CI, histórico limpo); `.gitignore` bloqueia `.env`, dumps e planilhas | CI |
 | Dependências | toolchain Go fixado com correções (`toolchain go1.26.11`); govulncheck no CI | `go.mod`, CI |
@@ -176,9 +178,9 @@ Depois, confira os totais do dashboard de uma conta de teste e o DNS.
 
 | Operação | Dados | Finalidade | Base legal | Retenção | Compartilhamento |
 |---|---|---|---|---|---|
-| Conta e login | sub, nome, e-mail, foto (Google) | autenticar | execução de contrato (7º V) | enquanto a conta existir | Google (login) |
+| Conta e login | sub, nome, e-mail, foto (Google) | autenticar | execução de contrato (7º V) | enquanto a conta existir, até 12 meses sem acesso | Google (login) |
 | Pedido de cadastro | sub, nome, e-mail, foto | avaliar o acesso | procedimentos preliminares de contrato (7º V) | até aprovação ou recusa (recusa apaga) | Google (login) |
-| Finanças | lançamentos, categorias, recorrências, dívidas, caixa | prestar o serviço | execução de contrato (7º V) | enquanto a conta existir; backups até 35 dias após exclusão | Oracle Cloud (operador, BR) |
+| Finanças | lançamentos, categorias, recorrências, dívidas, caixa | prestar o serviço | execução de contrato (7º V) | enquanto a conta existir (excluída após 12 meses sem acesso); backups até 35 dias após exclusão | Oracle Cloud (operador, BR) |
 | Convites de carteira | e-mail convidado, quem convidou, datas | compartilhar a carteira a pedido do dono | execução de contrato (7º V) | até aceite, recusa, cancelamento ou expiração (7 dias) | — |
 | Sessões | hash do token, IP, user agent, datas | segurança | legítimo interesse (7º IX) | até 30 dias + revogadas | — |
 | Último acesso | data/hora do último uso da conta (web ou MCP) e de cada link MCP, gravada no máximo a cada 5 min | mostrar ao titular, às pessoas da carteira dele e ao admin (contas inativas, suporte) | legítimo interesse (7º IX) | enquanto a conta existir (só o valor mais recente) | — |
@@ -192,6 +194,8 @@ Feito no código:
 - [x] Política de Privacidade (`/privacidade`) e Termos (`/termos`), públicos, linkados no login.
 - [x] Acesso e portabilidade (JSON completo + CSV), correção (edição) e exclusão self-service.
 - [x] Exclusão apaga carteira (se não for compartilhada), sessões e links; operador também pode excluir.
+- [x] Retenção limitada: contas sem acesso por 12 meses são excluídas automaticamente (art. 15, I e 16).
+- [x] Transparência (art. 6º, VI): `/seguranca` resume em linguagem simples segurança, acesso, retenção e direitos; confirmada a cada versão.
 - [x] Minimização: só os escopos `openid email profile`; logs sem dados financeiros nem e-mail.
 - [x] Medidas técnicas (§2) e procedimento de incidente (§4.4) e registro de operações (§6).
 
@@ -203,6 +207,7 @@ Pendente (operador / jurídico):
 - [ ] Manter registro de incidentes e de pedidos de titulares (planilha simples serve) e responder em até 15 dias.
 - [ ] Verificação do app OAuth no Google (exigida para produção com usuários externos): domínio,
       links para a Política e os Termos, tela de consentimento.
+- [ ] Aviso por e-mail antes da exclusão por inatividade (o app ainda não envia e-mail).
 - [ ] Rever retenção legal: o app não emite documento fiscal nem guarda dados de pagamento hoje; se
       houver cobrança no futuro, dados de faturamento terão prazos legais próprios (ex.: 5 anos, CTN).
 

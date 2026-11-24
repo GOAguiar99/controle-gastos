@@ -91,6 +91,12 @@ HTTP off localhost. Security events go through
 `app.Audit` (JSON to stderr/journald): pass ids and categories, never tokens, emails or financial text.
 See `docs/SECURITY.md` for controls, runbooks and the LGPD checklist.
 
+"Seus dados e segurança" (`/seguranca`, `internal/web/trust.go`) is public and states only what the code
+and infra do. Signed-in users are redirected there (GET pages except `/perfil*` and `/export/*`) until
+`users.trust_version` reaches `app.TrustVersion`: bump it when the page changes in substance. Accounts
+with no use for `app.InactivityMonths` (12) are erased daily by `serve` (`App.PurgeInactive`, also the
+CLI `purge-inactive`); keep the page, the privacy policy and SECURITY.md in sync with that rule.
+
 The MCP endpoint is `/mcp/{token}`: each link belongs to one user and ledger and can be revoked from
 the profile. That route skips the session and cross-origin middleware; the secret token is its only auth.
 

@@ -80,6 +80,16 @@ func (e *testEnv) mustLogin(t *testing.T, client *http.Client, u idpUser) {
 	if res := e.googleLogin(t, client, u, nil); res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/" {
 		t.Fatalf("login: %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
+	acceptTrust(t, e.ts.URL, client)
+}
+
+// acceptTrust confirms "Seus dados e segurança", which every new account
+// reads before the dashboard (see TestTrustPageAfterLogin).
+func acceptTrust(t *testing.T, base string, client *http.Client) {
+	t.Helper()
+	if res, err := client.PostForm(base+"/seguranca", nil); err != nil || res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("accept trust: %v %v", res, err)
+	}
 }
 
 func TestPagesRequireLoginAndRender(t *testing.T) {
