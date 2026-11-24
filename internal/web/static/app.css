@@ -684,11 +684,18 @@ table.grid tr.past td { color: var(--muted); }
 
 /* flow card filters: segmented buttons, big enough to tap */
 .flow-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.forecast-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
-.forecast-bar form { margin: 0; }
-.forecast-bar .hint { flex-basis: 100%; margin: 0; }
+.forecast-box { border: 1px solid var(--line, #e3e8ec); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.forecast-box.on { border-color: var(--forecast); }
+.forecast-box .hint { margin: 6px 0 0; }
+.forecast-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.forecast-head form { margin: 0; }
+.forecast-lead { margin: 0; flex: 1 1 420px; line-height: 1.5; }
+.forecast-how summary { cursor: pointer; margin-top: 8px; font-size: .9em; color: var(--muted); }
+.forecast-months { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.forecast-months li { display: flex; flex-direction: column; padding: 6px 10px; border-radius: 8px; background: var(--chart-grid, #e3e8ec); font-size: .85em; }
+.forecast-months li span { color: var(--muted); }
+.forecast-months li.avg { background: none; border: 1px solid var(--forecast); }
 .flow-table td.forecast { color: var(--forecast); }
-.scen-lows { margin-top: 0; }
 .seg { display: inline-flex; background: var(--tabs-bg); border-radius: 10px; padding: 3px; }
 .seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: .86rem;
   padding: 7px 12px; border-radius: 8px; cursor: pointer; min-height: 36px; }

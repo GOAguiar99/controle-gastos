@@ -30,6 +30,7 @@ type FlowMonth struct {
 	Fixed    int64
 	Other    int64
 	Forecast int64 // estimated day-to-day spending (previsão de gastos)
+	Variable int64 // launched day-to-day spending (Entry.Variable), inside Card/Other
 	Closing  int64
 	Low      int64
 }
@@ -43,6 +44,9 @@ func (f *FlowMonth) add(e Entry) {
 		return
 	}
 	f.Out += e.Amount
+	if e.Variable() {
+		f.Variable += e.Amount
+	}
 	switch e.Group() {
 	case Card:
 		f.Card += e.Amount
@@ -55,6 +59,18 @@ func (f *FlowMonth) add(e Entry) {
 	}
 }
 
+// DayToDay is the month's day-to-day spending as the forecast shows it:
+// what was launched plus the estimate topping it up to the average.
+func (f FlowMonth) DayToDay() int64 { return f.Variable + f.Forecast }
+
+// Committed is what leaves the month besides the day-to-day spending:
+// fixed bills, recurrences and debt payments.
+func (f FlowMonth) Committed() int64 { return f.Out - f.DayToDay() }
+
+// AboveAverage is how much the launched day-to-day spending exceeds avg
+// (a one-off already launched for the month, such as a big purchase).
+func (f FlowMonth) AboveAverage(avg int64) int64 { return max(0, f.Variable-avg) }
+
 // SumFlow adds up the given months (opening/closing are left empty).
 func SumFlow(months []FlowMonth) FlowMonth {
 	var t FlowMonth
@@ -65,6 +81,7 @@ func SumFlow(months []FlowMonth) FlowMonth {
 		t.Fixed += m.Fixed
 		t.Other += m.Other
 		t.Forecast += m.Forecast
+		t.Variable += m.Variable
 	}
 	return t
 }

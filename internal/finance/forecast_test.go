@@ -22,9 +22,15 @@ func TestBaselines(t *testing.T) {
 	if !ok || len(fb.Months) != 6 {
 		t.Fatalf("ok=%v months=%v", ok, labels(fb.Months))
 	}
-	// sorted 1000..6000: P25 = 2250, P50 = 3500, P75 = 4750
-	if fb.Optimistic != 2250 || fb.Base != 3500 || fb.Pessimistic != 4750 {
-		t.Fatalf("percentiles: %+v", fb)
+	// 1000..6000: average 3500, from the lowest 1000 to the highest 6000
+	if fb.Average != 3500 || fb.Min != 1000 || fb.Max != 6000 {
+		t.Fatalf("average: %+v", fb)
+	}
+	// the average rounds to the nearest cent
+	odd := []Entry{{Kind: Expense, Date: d("2026-08-10"), Amount: 100}, {Kind: Expense, Date: d("2026-09-10"), Amount: 100},
+		{Kind: Expense, Date: d("2026-10-10"), Amount: 101}}
+	if fb, ok := Baselines(odd, today, 6); !ok || fb.Average != 100 || len(fb.Months) != 3 {
+		t.Fatalf("three months: %+v %v", fb, ok)
 	}
 
 	// a card purchase counts in its fatura's due month
@@ -70,6 +76,14 @@ func TestForecastEntries(t *testing.T) {
 	// the estimate moves the projected cash
 	snap := Snapshot{Set: true, Date: today, Amount: 10000}
 	cf := ProjectCash(append(append([]Entry(nil), es...), fs...), snap, today, 4)
+	// January: 300 launched + 700 estimated = the average; the fixed 700 is committed
+	if jan := cf.Months[2]; jan.Variable != 300 || jan.DayToDay() != 1000 || jan.Committed() != 700 {
+		t.Fatalf("january: %+v", jan)
+	}
+	// December: launched 5000, 4000 above the average and no estimate
+	if dec := cf.Months[1]; dec.Forecast != 0 || dec.AboveAverage(1000) != 4000 {
+		t.Fatalf("december: %+v", dec)
+	}
 	if cf.Months[3].Forecast != 1000 || cf.Months[3].Closing != 10000-200-5000-700-300-700-1000 {
 		t.Fatalf("flow: %+v", cf.Months[3])
 	}

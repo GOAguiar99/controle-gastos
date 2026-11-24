@@ -20,64 +20,61 @@ func TestForecast(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// already launched for December: counts within the estimate
+	// already launched for December: counts within the average
 	if _, err := s.AddTx(TxIn{Kind: finance.Expense, Date: d("2026-12-05"), Amount: 300000,
 		Category: CategoryRef{Name: "Mercado"}, Payment: finance.Pix}); err != nil {
 		t.Fatal(err)
 	}
 
-	if s.ForecastMode() != ScenarioOff {
+	if s.ForecastOn() {
 		t.Fatal("off by default")
 	}
 	off, err := s.Overview(0)
-	if err != nil || off.Forecast.Active() || off.Forecast.Flows != nil || !off.Forecast.OK {
+	if err != nil || off.Forecast.Active() || !off.Forecast.OK || off.Forecast.Average() != 350000 {
 		t.Fatalf("off: %+v %v", off.Forecast, err)
 	}
-	if b := off.Forecast.Base; b.Optimistic != 225000 || b.Base != 350000 || b.Pessimistic != 475000 {
-		t.Fatalf("percentiles: %+v", b)
-	}
-	// even off, Forecast shows what each scenario would do
-	fv, err := s.Forecast()
-	if err != nil || len(fv.Flows) != 3 || fv.Flows[ScenarioOptimistic].Low <= fv.Flows[ScenarioPessimistic].Low {
-		t.Fatalf("forecast view: %+v %v", fv, err)
+	// even off, it tells where keeping the average leads
+	if off.Forecast.Flow.Low >= off.Flow.Low || len(off.Forecast.Flow.Months) != HorizonMonths {
+		t.Fatalf("keeping the average: %d vs %d", off.Forecast.Flow.Low, off.Flow.Low)
 	}
 
-	mustInvalid(t, s.SetForecast("talvez"), "cenário inválido")
-	if err := s.SetForecast(ScenarioBase); err != nil {
+	// the first version saved a scenario name: it still means on
+	if err := s.Store().SetSetting(forecastSetting, "otimista"); err != nil || !s.ForecastOn() {
+		t.Fatalf("legacy value: %v", err)
+	}
+	if err := s.SetForecast(true); err != nil {
 		t.Fatal(err)
 	}
 	on, _ := s.Overview(0)
-	if !on.Forecast.Active() || len(on.Forecast.Flows) != 3 {
+	if !on.Forecast.Active() || on.Flow.Low != off.Forecast.Flow.Low || on.Forecast.Flow.Low != on.Flow.Low {
 		t.Fatalf("on: %+v", on.Forecast)
 	}
-	var dec finance.FlowMonth
 	for _, fm := range on.FlowRows {
-		if fm.Month == finance.NewMonth(2026, time.December) {
-			dec = fm
+		switch fm.Month {
+		case finance.NewMonth(2026, time.December): // R$ 3.000 launched + R$ 500 estimated
+			if fm.Forecast != 50000 || fm.DayToDay() != 350000 {
+				t.Fatalf("december: %+v", fm)
+			}
+		case finance.NewMonth(2027, time.March):
+			if fm.Forecast != 350000 || fm.DayToDay() != 350000 {
+				t.Fatalf("march: %+v", fm)
+			}
 		}
-	}
-	if dec.Forecast != 50000 { // R$ 3.500 estimated − R$ 3.000 launched
-		t.Fatalf("december top-up: %+v", dec)
-	}
-	if on.Flow.Low != on.Forecast.Flows[ScenarioBase].Low || on.Flow.Low >= off.Flow.Low {
-		t.Fatalf("flow uses the base scenario: on %d off %d", on.Flow.Low, off.Flow.Low)
 	}
 	// the month's own numbers never include the estimate
 	if on.Summary != off.Summary {
 		t.Fatalf("summary changed: %+v", on.Summary)
 	}
 
-	// the projection follows the saved scenario, or the one asked for
 	saved, _ := s.CashProjection(12, "")
 	none, _ := s.CashProjection(12, "desligado")
-	pess, _ := s.CashProjection(12, "pessimista")
-	if saved.Low != on.Flow.Low || none.Low != off.Flow.Low || pess.Low >= saved.Low {
-		t.Fatalf("projection: saved %d none %d pess %d", saved.Low, none.Low, pess.Low)
+	if saved.Low != on.Flow.Low || none.Low != off.Flow.Low {
+		t.Fatalf("projection: saved %d none %d", saved.Low, none.Low)
 	}
-	_, err = s.CashProjection(12, "x")
-	mustInvalid(t, err, "cenário inválido")
+	_, err = s.CashProjection(12, "talvez")
+	mustInvalid(t, err, "previsão de gastos")
 
-	if err := s.SetForecast(ScenarioOff); err != nil || s.ForecastMode() != ScenarioOff {
+	if err := s.SetForecast(false); err != nil || s.ForecastOn() {
 		t.Fatalf("turn off: %v", err)
 	}
 }

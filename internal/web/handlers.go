@@ -123,96 +123,115 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		FlowX []string  `json:"flowX"` // daily projected balance
 		FlowY []float64 `json:"flowY"`
 		// per month, history + committed future (Cartão / Fixos / Outros vs entradas)
-		ComX     []string  `json:"comX"`
-		ComPast  []bool    `json:"comPast"`
-		ComIn    []float64 `json:"comIn"`
-		ComCard  []float64 `json:"comCard"`
-		ComFixed []float64 `json:"comFixed"`
-		ComOther []float64 `json:"comOther"`
-		// previsão de gastos ligada: the balance under every scenario on FlowX
-		ComForecast []float64            `json:"comForecast,omitempty"`
-		FlowScen    map[string][]float64 `json:"flowScen,omitempty"`
-		Scenario    string               `json:"scenario,omitempty"`
+		ComX    []string  `json:"comX"`
+		ComPast []bool    `json:"comPast"`
+		ComIn   []float64 `json:"comIn"`
+		// with the forecast on, the bars are Fixos e dívidas / Dia a dia / Acima da média
+		ComBars []comBar `json:"comBars"`
 	}
 	var cd chartData
-	if o.Forecast.Active() {
-		cd.FlowX, cd.FlowScen = scenarioSeries(o.Forecast.Flows)
-		cd.FlowY, cd.Scenario = cd.FlowScen[string(o.Forecast.Mode)], string(o.Forecast.Mode)
-	} else {
-		for _, p := range flow.Points {
-			cd.FlowX = append(cd.FlowX, p.Date.Format("2006-01-02"))
-			cd.FlowY = append(cd.FlowY, reais(p.Balance))
-		}
+	for _, p := range flow.Points {
+		cd.FlowX = append(cd.FlowX, p.Date.Format("2006-01-02"))
+		cd.FlowY = append(cd.FlowY, reais(p.Balance))
 	}
-	for _, fm := range flowRows {
+	avg := o.Forecast.Average()
+	rows := make([]flowRow, len(flowRows))
+	for i, fm := range flowRows {
+		rows[i] = newFlowRow(fm, avg, o.Forecast.Active())
+	}
+	if o.Forecast.Active() {
+		cd.ComBars = []comBar{{Label: "Fixos e dívidas", Color: "fixed"}, {Label: "Dia a dia", Color: "other"}, {Label: "Acima da média", Color: "expense"}}
+	} else {
+		cd.ComBars = []comBar{{Label: "Cartão", Color: "card"}, {Label: "Fixos", Color: "fixed"}, {Label: "Outros", Color: "other"}}
+	}
+	for i, fm := range flowRows {
 		cd.ComX = append(cd.ComX, shortMonth(fm.Month))
 		cd.ComPast = append(cd.ComPast, fm.Past)
 		cd.ComIn = append(cd.ComIn, reais(fm.In))
-		cd.ComCard = append(cd.ComCard, reais(fm.Card))
-		cd.ComFixed = append(cd.ComFixed, reais(fm.Fixed))
-		cd.ComOther = append(cd.ComOther, reais(fm.Other))
+		vals := []int64{fm.Card, fm.Fixed, fm.Other}
 		if o.Forecast.Active() {
-			cd.ComForecast = append(cd.ComForecast, reais(fm.Forecast))
+			r := rows[i]
+			vals = []int64{r.Committed(), r.Daily, r.Above}
+		}
+		for k, v := range vals {
+			cd.ComBars[k].Data = append(cd.ComBars[k].Data, reais(v))
 		}
 	}
+	pastTot, nextTot := sumRows(rows, true), sumRows(rows, false)
 
 	s.render(w, r, "dashboard", page{
 		"Title": "Dashboard", "Month": sel, "Prev": sel.Add(-1), "Next": sel.Add(1), "Current": cur, "Welcome": !hasData,
 		"Today": today, "Sum": selSum, "Limits": lim, "Snap": o.Snapshot, "Flow": flow, "Cash": o.Cash,
-		"FlowRows": flowRows, "PastTot": finance.SumFlow(pastRows), "NextTot": finance.SumFlow(nextRows),
+		"FlowRows": rows, "PastTot": pastTot, "NextTot": nextTot,
 		"PastN": len(pastRows), "NextN": len(nextRows),
 		"ExpCats": expCats, "ProjectedCount": projectedCount, "Chart": cd,
-		"Fc": o.Forecast, "Scenarios": app.Scenarios,
+		"Fc": o.Forecast, "FcEnd": fcEnd(o.Forecast),
 		"CardPct": barPct(selSum.Card, lim.CardLimit), "CardRatio": ratioOf(selSum.Card, lim.CardLimit),
 	})
 }
 
-// scenarioSeries puts the projected balance of every scenario on one axis:
-// the union of their dates, each balance holding until its next change.
-func scenarioSeries(flows map[app.Scenario]finance.CashFlow) ([]string, map[string][]float64) {
-	seen := map[time.Time]bool{}
-	var days []time.Time
-	for _, cf := range flows {
-		for _, p := range cf.Points {
-			if !seen[p.Date] {
-				seen[p.Date] = true
-				days = append(days, p.Date)
-			}
-		}
-	}
-	sort.Slice(days, func(i, j int) bool { return days[i].Before(days[j]) })
-	xs := make([]string, len(days))
-	for i, d := range days {
-		xs[i] = d.Format("2006-01-02")
-	}
-	ys := map[string][]float64{}
-	for sc, cf := range flows {
-		k, bal := 0, int64(0)
-		for _, d := range days {
-			for k < len(cf.Points) && !cf.Points[k].Date.After(d) {
-				bal = cf.Points[k].Balance
-				k++
-			}
-			ys[string(sc)] = append(ys[string(sc)], reais(bal))
-		}
-	}
-	return xs, ys
+// comBar is one stacked bar series of the monthly flow chart.
+type comBar struct {
+	Label string    `json:"label"`
+	Color string    `json:"color"` // theme color key in dashboard.js
+	Data  []float64 `json:"data"`
 }
 
-// saveForecast turns the spending estimate on with a scenario, or off.
+// flowRow is a month of the cash-flow table. With the forecast on it splits
+// the expenses into fixed bills and debts (Committed), day-to-day spending
+// shown as the average (Daily) and what is already launched above it.
+type flowRow struct {
+	finance.FlowMonth
+	Daily int64
+	Above int64
+}
+
+func newFlowRow(fm finance.FlowMonth, avg int64, forecast bool) flowRow {
+	r := flowRow{FlowMonth: fm, Daily: fm.DayToDay()}
+	if forecast && !fm.Past {
+		r.Above = fm.AboveAverage(avg)
+		r.Daily -= r.Above
+	}
+	return r
+}
+
+// sumRows adds up the past (or current and future) rows.
+func sumRows(rows []flowRow, past bool) flowRow {
+	var fms []finance.FlowMonth
+	var t flowRow
+	for _, r := range rows {
+		if r.Past == past {
+			fms = append(fms, r.FlowMonth)
+			t.Daily += r.Daily
+			t.Above += r.Above
+		}
+	}
+	t.FlowMonth = finance.SumFlow(fms)
+	return t
+}
+
+// fcEnd is the last month of the cash projected keeping the average.
+func fcEnd(f app.ForecastView) *finance.FlowMonth {
+	if n := len(f.Flow.Months); n > 0 {
+		return &f.Flow.Months[n-1]
+	}
+	return nil
+}
+
+// saveForecast turns the spending forecast on or off.
 func (s *Server) saveForecast(w http.ResponseWriter, r *http.Request) {
-	sc, err := app.ParseScenario(r.FormValue("mode"))
+	on, err := app.ParseForecast(r.FormValue("mode"))
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
-	if err := svcOf(r).SetForecast(sc); err != nil {
+	if err := svcOf(r).SetForecast(on); err != nil {
 		s.fail(w, err)
 		return
 	}
 	msg := "Previsão de gastos desativada"
-	if sc != app.ScenarioOff {
-		msg = "Previsão de gastos: cenário " + sc.Label()
+	if on {
+		msg = "Previsão de gastos ativada: cada mês conta a média do seu gasto do dia a dia"
 	}
 	to := "/?msg=" + url.QueryEscape(msg)
 	if m, err := finance.ParseMonth(r.FormValue("mes")); err == nil {

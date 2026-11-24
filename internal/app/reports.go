@@ -23,8 +23,8 @@ type Overview struct {
 	FlowRows []finance.FlowMonth
 	Entries  []finance.Entry // all entries loaded (history through the horizon)
 	Cash     CashSetup       // contas do caixa e rendimento usado na projeção
-	// Forecast is the day-to-day spending estimate; when active, Flow and
-	// FlowRows include its chosen scenario and Forecast.Flows has all three.
+	// Forecast is the average day-to-day spending; when active, Flow and
+	// FlowRows include it (and Forecast.Flow is Flow).
 	Forecast ForecastView
 }
 
@@ -57,12 +57,16 @@ func (s *Service) Overview(sel finance.Month) (Overview, error) {
 	// The spending estimate and the cash's own yield only enter the cash
 	// flow, not the month's income and expenses.
 	end := cur.Add(HorizonMonths - 1).Last()
-	o.Forecast = s.forecastFor(o.Entries, s.ForecastMode())
-	flow := s.flowEntries(o.Entries, o.Snapshot, o.Cash, o.Forecast, o.Forecast.Mode, end)
-	if o.Forecast.Active() {
-		o.Forecast.Flows = s.scenarioFlows(o.Entries, o.Snapshot, o.Cash, o.Forecast, end, HorizonMonths)
-	}
+	o.Forecast = s.forecastFor(o.Entries, s.ForecastOn())
+	flow := s.flowEntries(o.Entries, o.Snapshot, o.Cash, o.Forecast, o.Forecast.Active(), end)
 	o.Flow = finance.ProjectCash(flow, o.Snapshot, today, HorizonMonths)
+	switch {
+	case o.Forecast.Active():
+		o.Forecast.Flow = o.Flow
+	case o.Forecast.OK: // off: what keeping the average would show
+		with := s.flowEntries(o.Entries, o.Snapshot, o.Cash, o.Forecast, true, end)
+		o.Forecast.Flow = finance.ProjectCash(with, o.Snapshot, today, HorizonMonths)
+	}
 	o.FlowRows = finance.MonthlyFlow(flow, o.Snapshot, today, cur.Add(-HistoryMonths), cur.Add(HorizonMonths-1))
 	return o, nil
 }
@@ -71,16 +75,17 @@ func (s *Service) Overview(sel finance.Month) (Overview, error) {
 // its cash (bought after closing, paid after the next closing).
 const cardLag = 2
 
-// CashProjection projects the cash balance for the next n months. scenario
-// picks the spending estimate: "" uses the saved one, "desligado" none.
-func (s *Service) CashProjection(n int, scenario string) (finance.CashFlow, error) {
+// CashProjection projects the cash balance for the next n months. forecast
+// says whether to add the average day-to-day spending: "" uses the saved
+// preference, else ligado / desligado.
+func (s *Service) CashProjection(n int, forecast string) (finance.CashFlow, error) {
 	if n < 1 || n > 60 {
 		return finance.CashFlow{}, invalid("meses deve estar entre 1 e 60")
 	}
-	sc := s.ForecastMode()
-	if strings.TrimSpace(scenario) != "" {
+	on := s.ForecastOn()
+	if strings.TrimSpace(forecast) != "" {
 		var err error
-		if sc, err = ParseScenario(scenario); err != nil {
+		if on, err = ParseForecast(forecast); err != nil {
 			return finance.CashFlow{}, err
 		}
 	}
@@ -103,7 +108,7 @@ func (s *Service) CashProjection(n int, scenario string) (finance.CashFlow, erro
 		return finance.CashFlow{}, err
 	}
 	end := cur.Add(n - 1).Last()
-	flow := s.flowEntries(es, snap, c, s.forecastFor(es, sc), sc, end)
+	flow := s.flowEntries(es, snap, c, s.forecastFor(es, on), on, end)
 	return finance.ProjectCash(flow, snap, today, n), nil
 }
 
